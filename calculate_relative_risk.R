@@ -4,6 +4,9 @@
 
 choose.dir() #choose working directory
 
+install.packages('tidyverse')
+install.packages('readxl')
+install.packages('writexl')
 library(tidyverse);library(readxl);library(writexl)
 
 RelativeRisk <- function(mode='t.test') {
