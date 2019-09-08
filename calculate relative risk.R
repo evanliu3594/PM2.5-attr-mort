@@ -1,10 +1,12 @@
+#############################################
+#             计 算 相 对 风 险             #
+#############################################
+
 setwd('D:\\201903人口健康效应')
 
 library(tidyverse);library(readxl);library(writexl)
 
-#############################################
-#             计 算 相 对 风 险             #
-#############################################
+
 
 RelativeRisk <- function(mode='t.test') {
   IER_para<-read_excel('.\\Data\\IER_coefficients\\GBD2017参数.xlsx',sheet = 1)
@@ -111,45 +113,8 @@ RelativeRisk <- function(mode='t.test') {
   return(RRlist)
 }
 
-
+################T E S T I N G#######################
 #mode=(t.test       montecarlo     manual      bootstrap)
 
 RR<-RelativeRisk(mode = 't.test')
 
-
-############# D E V E L O P I N G ##############plotRR
-
-res<-as.data.frame(result)
-
-g<-ggplot(data = res)
-
-for (i in 1:1000) {
-  vi<-sym(paste0('V',i))
-  g<-g+geom_line(aes(x=concentration,y=!!vi))
-}
-g
-
-RR_mean<-read_excel(".\\Result\\归因系数\\GBD2017_RR_LYF.xlsx",sheet = 1)
-
-RR_up<-read_excel(".\\Result\\归因系数\\GBD2017_RR_LYF.xlsx",sheet = 2)
-
-RR_low<-read_excel(".\\Result\\归因系数\\GBD2017_RR_LYF.xlsx",sheet = 3)
-
-
-edpt<-NULL
-for (n in arrangement) {
-  df<-data.frame(concentration=round((seq(0,300,0.1)),digits = 1),
-                 select(RR_mean,contains(n)),
-                 select(RR_up,contains(n)),
-                 select(RR_low,contains(n)))
-  names(df)<-c('concentration','mean','up','low')
-  edpt[[n]]<-ggplot()+
-    geom_line(data=df,aes(x=concentration,y=mean))+
-    geom_line(data=df,aes(x=concentration,y=up))+
-    geom_line(data=df,aes(x=concentration,y=low))
-}
-
-print(endpt$LRI_ALL)
-
-
-############ test end
