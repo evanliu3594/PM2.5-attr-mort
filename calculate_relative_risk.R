@@ -1,17 +1,13 @@
-#############################################
-#             计 算 相 对 风 险             #
-#############################################
+#################################################
+#             Calculate Relativ Risk            #
+#################################################
 
-setwd('D:\\201903人口健康效应')
+choose.dir() #choose working directory
 
 library(tidyverse);library(readxl);library(writexl)
 
-
-
 RelativeRisk <- function(mode='t.test') {
-  IER_para<-read_excel('.\\Data\\IER_coefficients\\GBD2017参数.xlsx',sheet = 1)
-  
-  IER_para[is.na(IER_para)]<-'ALL'
+  IER_para<-read_csv('.\\Data\\IER2017_parameters.csv')
   
   IER_curve<-function(x,alpha,beta,gamma,tmrel) {
     if (x>tmrel) {
@@ -53,10 +49,10 @@ RelativeRisk <- function(mode='t.test') {
           t_boot<-function(x){(mean(x)-x_bar)/sd(x)}
           t_vector<-apply(M,1,t_boot)
          
-          up_t_b<-sort(t_vector)[times*(1-alpha/2)] #求t_vector的分位点
+          up_t_b<-sort(t_vector)[times*(1-alpha/2)] 
           down_t_b<-sort(t_vector)[times*alpha/2]
-          up_t<-x_bar+up_t_b*x_sd#置信上界
-          down_t<-x_bar+down_t_b*x_sd#置信下界
+          up_t<-x_bar+up_t_b*x_sd
+          down_t<-x_bar+down_t_b*x_sd
           data.frame(mean=x_bar,low=down_t,up=up_t)
         }
   } else if (mode=='manual') {
@@ -108,7 +104,7 @@ RelativeRisk <- function(mode='t.test') {
   
   RRlist<-list(mean=RR_mean,up=RR_up,low=RR_low)
   
-  write_xlsx(RRlist,paste0(".\\Result\\归因系数\\GBD2017_RR_LYF_",mode,".xlsx"))
+  write_xlsx(RRlist,paste0(".\\Result\\PAF_IER_2017_RR_",mode,".xlsx"))
   
   return(RRlist)
 }
