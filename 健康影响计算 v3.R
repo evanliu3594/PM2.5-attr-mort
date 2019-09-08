@@ -157,19 +157,3 @@ mean<-Attri_Mort(RR='mean',mode = 'montecarlo', output_nation = T)
 up<-Attri_Mort(RR='up',mode = 'montecarlo', output_nation = T)
 
 low<-Attri_Mort(RR='low',mode = 'montecarlo', output_nation = T)
-
-
-
-###################计算2004-2017变化地理分布
-FULL_RESULT=mean$FULL
-
-variation<-data.frame(FID=FULL_RESULT[['2004']][,1],
-                      CHANGE=rowSums(FULL_RESULT[['2004']][,-1])-rowSums(FULL_RESULT[['2017']][,-1]))
-
-FID_info<-read_csv('.//Data//FID信息表.txt')
-
-variation<-left_join(variation,FID_info,by = 'FID')
-
-write_csv(variation,'.//Result//空间分布变化04-17.csv')
-
-
