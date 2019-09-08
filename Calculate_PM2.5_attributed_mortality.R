@@ -1,5 +1,5 @@
 ########################################################################################
-#                                     计算归因死亡                                     #
+#                         Calculate_PM2.5_attributed_mortality                         #
 ########################################################################################
 #                                                                                      #
 #  参数说明：                                                                          #
@@ -20,7 +20,11 @@
 #                                                                                      #
 ########################################################################################
 
-setwd('D:\\201903人口健康效应')
+choose.dir()
+
+install.packages('tidyverse')
+install.packages('readxl')
+install.packages('writexl')
 
 library(tidyverse);library(readxl);library(writexl)
 
@@ -31,10 +35,10 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   #                     module1. 基础数据读取                     #
   #################################################################
   
-  FID_info<-read_csv('.//Data//FID信息表.txt')
-  Pop<-read_csv('.//Result//人口特征//网格人口.txt')
+  FID_info<-read_csv('.//Data//FID_infomation.txt')
+  Pop<-read_csv('.//Data//Gridded Population.txt')
   agroup<-read_excel('.//Data//04-17_人口结构&基准死亡率.xlsx',sheet = '年龄结构_GBD',range = cell_rows(24:44))
-  inci<-read_excel('.//Data//04-17_人口结构&基准死亡率.xlsx',sheet = '分年龄疾病发病率')
+  inci<-read_csv('.//Data//Baseline incidence.csv')
   
   RR_table<-read_excel(paste0(".//Result//归因系数//GBD2017_RR_LYF_",mode,".xlsx"),sheet = RR)
   PM_raw<-read_csv('.//Result/PM2.5浓度//Annual_mean_clean.txt')
