@@ -32,7 +32,7 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
                      output_allage_rign=F,output_nation=F){
   
   #################################################################
-  #                     module1. 基础数据读取                     #
+  #                     module1. Reading Data                     #
   #################################################################
   
   FID_info<-read_csv('.//Data//FID_infomation.txt')
@@ -45,7 +45,7 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   RR_table<-read_excel(paste0(".\\Result\\PAF_IER_2017_",mode,".xlsx"),sheet = RR)
   
   #################################################################
-  #                     module2. 归因系数计算                     #
+  #                    module2. PAF Calculate                     #
   #################################################################
   PAF_lookup<-data.frame(concentration=round(seq(0,300,0.1),digits = 1),(RR_table[,-1]-1)/RR_table[,-1])
   
@@ -73,7 +73,7 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   }
   
   #################################################################
-  #                   module3. 全域过早死亡计算                   #
+  #                 module3. Full range attr mort                 #
   #################################################################
   
   full_grid<-NULL
@@ -89,11 +89,11 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   }
   
   if (output_full) {
-    write_xlsx(full_grid,paste0('.//Result//健康影响//Result_Full_',RR,'_',mode,'.xlsx'))
+    write_xlsx(full_grid,paste0('.//Result//Result_Full_',RR,'_',mode,'.xlsx'))
   }
   
   #################################################################
-  #                module4. 省、国家级数据归纳计算                #
+  #                module4. aggregation                           #
   #################################################################
   
   allage_grid<-NULL
@@ -110,7 +110,7 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   }
   
   if (output_allage) {
-    write_xlsx(allage_grid,paste0('.//Result//健康影响//Result_allage_grid_',RR,'_',mode,'.xlsx'))
+    write_xlsx(allage_grid,paste0('.//Result//Result_allage_grid_',RR,'_',mode,'.xlsx'))
   }
   
   allage_rign<-NULL
@@ -128,7 +128,7 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   }
   
   if (output_allage_rign) {
-    write_xlsx(allage_rign,paste0('.//Result//健康影响//Result_allage_rign_',RR,'_',mode,'.xlsx'))
+    write_xlsx(allage_rign,paste0('.//Result//Result_allage_rign_',RR,'_',mode,'.xlsx'))
   }
   
   nation<-NULL
@@ -144,7 +144,7 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   }
   
   if (output_nation) {
-    write_xlsx(nation,paste0('.//Result//健康影响//Result_National_',RR,'_',mode,'.xlsx'))
+    write_xlsx(nation,paste0('.//Result//Result_National_',RR,'_',mode,'.xlsx'))
   }
   
   return(list(FULL=full_grid,ALLAGE=allage_grid,REGION=allage_rign,NATION=nation))
