@@ -104,7 +104,7 @@ RelativeRisk <- function(mode='t.test') {
   
   RRlist<-list(mean=RR_mean,up=RR_up,low=RR_low)
   
-  write_xlsx(RRlist,paste0(".\\Result\\PAF_IER_2017_RR_",mode,".xlsx"))
+  write_xlsx(RRlist,paste0(".\\Result\\PAF_IER_2017_",mode,".xlsx"))
   
   return(RRlist)
 }
