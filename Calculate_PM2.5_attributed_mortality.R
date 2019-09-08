@@ -37,11 +37,12 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   
   FID_info<-read_csv('.//Data//FID_infomation.txt')
   Pop<-read_csv('.//Data//Gridded Population.txt')
-  agroup<-read_excel('.//Data//04-17_人口结构&基准死亡率.xlsx',sheet = '年龄结构_GBD',range = cell_rows(24:44))
-  inci<-read_csv('.//Data//Baseline incidence.csv')
-  
-  RR_table<-read_excel(paste0(".//Result//归因系数//GBD2017_RR_LYF_",mode,".xlsx"),sheet = RR)
-  PM_raw<-read_csv('.//Result/PM2.5浓度//Annual_mean_clean.txt')
+  agegroup<-read_csv('.//Data//Age Structure_China_GBD.csv')
+  agroup<-data.frame(agegroup[,1],
+                       t(apply(as.matrix(agegroup[-1]),1,FUN = function(x) { x=x/colSums(agegroup[,-1])}))) %>% `names<-`(names(agegroup))
+  inci<-read_csv('.//Data//Baseline incidence_China_GBD.csv')
+  PM_raw<-read_csv('.//Result//PM2.5_concentration.csv')
+  RR_table<-read_excel(paste0(".\\Result\\PAF_IER_2017_",mode,".xlsx"),sheet = RR)
   
   #################################################################
   #                     module2. 归因系数计算                     #
