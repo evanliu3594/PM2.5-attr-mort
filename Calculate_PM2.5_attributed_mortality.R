@@ -20,7 +20,7 @@
 #                                                                                      #
 ########################################################################################
 
-choose.dir()
+setwd(choose.dir())
 
 install.packages('tidyverse')
 install.packages('readxl')
