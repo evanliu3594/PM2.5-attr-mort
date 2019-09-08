@@ -2,7 +2,7 @@
 #             Calculate Relativ Risk            #
 #################################################
 
-choose.dir() #choose working directory
+setwd(choose.dir())#choose working directory
 
 install.packages('tidyverse')
 install.packages('readxl')
