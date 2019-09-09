@@ -2,12 +2,7 @@
 #             Calculate Relativ Risk            #
 #################################################
 
-setwd(choose.dir())#choose working directory
-
-install.packages('tidyverse')
-install.packages('readxl')
-install.packages('writexl')
-library(tidyverse);library(readxl);library(writexl)
+require(tidyverse);require(readxl);require(writexl)
 
 RelativeRisk <- function(mode='t.test') {
   IER_para<-read_csv('.\\Data\\IER2017_parameters.csv')
@@ -115,5 +110,5 @@ RelativeRisk <- function(mode='t.test') {
 ################T E S T I N G#######################
 #mode=(t.test       montecarlo     manual      bootstrap)
 
-RR<-RelativeRisk(mode = 't.test')
+#RR<-RelativeRisk(mode = 't.test')
 
