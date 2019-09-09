@@ -20,20 +20,14 @@
 #                                                                                      #
 ########################################################################################
 
-setwd(choose.dir())
-
-install.packages('tidyverse')
-install.packages('readxl')
-install.packages('writexl')
-
-library(tidyverse);library(readxl);library(writexl)
+require(tidyverse);require(readxl);require(writexl)
 
 Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
                      output_allage_rign=F,output_nation=F){
   
-  #################################################################
+  #===============================================================#
   #                     module1. Reading Data                     #
-  #################################################################
+  #===============================================================#
   
   FID_info<-read_csv('.//Data//FID_infomation.txt')
   Pop<-read_csv('.//Data//Gridded Population.txt')
@@ -44,9 +38,9 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   PM_raw<-read_csv('.//Result//PM2.5_concentration.csv')
   RR_table<-read_excel(paste0(".\\Result\\PAF_IER_2017_",mode,".xlsx"),sheet = RR)
   
-  #################################################################
+  #===============================================================#
   #                    module2. PAF Calculate                     #
-  #################################################################
+  #===============================================================#
   PAF_lookup<-data.frame(concentration=round(seq(0,300,0.1),digits = 1),(RR_table[,-1]-1)/RR_table[,-1])
   
   PAF<-NULL
@@ -72,9 +66,9 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
     names(PAF[[y]]$Stroke)<-c('FID',paste0('STROKE_',seq(0,95,5),'_',RR))
   }
   
-  #################################################################
+  #===============================================================#
   #                 module3. Full range attr mort                 #
-  #################################################################
+  #===============================================================#
   
   full_grid<-NULL
   for (y in paste0(2004:2017)){
@@ -92,9 +86,9 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
     write_xlsx(full_grid,paste0('.//Result//Result_Full_',RR,'_',mode,'.xlsx'))
   }
   
-  #################################################################
+  #===============================================================#
   #                module4. aggregation                           #
-  #################################################################
+  #===============================================================#
   
   allage_grid<-NULL
   for (y in paste0(2004:2017)){
@@ -150,15 +144,15 @@ Attri_Mort<-function(RR='up',mode='montecarlo',output_full=F,output_allage=F,
   return(list(FULL=full_grid,ALLAGE=allage_grid,REGION=allage_rign,NATION=nation))
   
 }
-
+#============================= T E S T I N G =============================#
 #  RR='mean'    'up'   'low'
 
 #  mode='t.test'   'montecarlo'   'BOOTSTRAP'     'manual'
 
 #  output_full = T ,output_allage = T,output_allage_rign = T , output_nation = T
 
-mean<-Attri_Mort(RR='mean',mode = 'montecarlo', output_nation = T)
+#mean<-Attri_Mort(RR='mean',mode = 'montecarlo', output_nation = T)
 
-up<-Attri_Mort(RR='up',mode = 'montecarlo', output_nation = T)
+#up<-Attri_Mort(RR='up',mode = 'montecarlo', output_nation = T)
 
-low<-Attri_Mort(RR='low',mode = 'montecarlo', output_nation = T)
+#low<-Attri_Mort(RR='low',mode = 'montecarlo', output_nation = T)
