@@ -1,7 +1,7 @@
 # PM2.5-attr-mort
 
-The main program was devided into 2 part: Calculation of Relative Risk and Calculation of PM2.5 attributed mortality.
+In the new released version of PM2.5-Attr-Mort incorporated both GEMM and IER modle in calculating the PM2.5 health burden, by refering to different concentration-responce lookup-table.
 
-Calculation of Relative Risk was designed to calculate RR value under each concentration of PM2.5 based on 1,000 set of parameters given by Intergrated Exposure-Responce model.
+I made the calculation process generalized to be able to adopt to any attributable death estimations by applying population table, incidence table, concentration table and the concentration-correspondingly relative risk lookup table together.
 
-Calculation of PM2.5 attributed mortality is to use the output of Calculation of Relative Risk together with gridded population and PM2.5 concentration and multi-scale baseline incidence rate(national at present) to calculate attributed mortality in different scaled grid.
+Before use the code, please prepear the input data as the same structure as the samples. And I recommend to use these code scripts in Rstudio for better convenience.
