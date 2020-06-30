@@ -21,8 +21,6 @@ source('./Code/BasicFunctions.R')
 ## Data Import ----
 
 {
-  FID_info <- read_csv('./Data/FID.information.txt')
-  
   Pop <- read_csv('./Data/Grid.Pop.csv') %>% arrange(FID)
   
   PM_real <- read_csv('./Data/Gird.PM25.txt') %>% arrange(FID)
