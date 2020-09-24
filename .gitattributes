@@ -1,1 +1,1 @@
-*.js linguist-language=R；*.css linguist-language=R；*.html linguist-language=R
+*.R linguist-language=R；*.csv linguist-language=R
