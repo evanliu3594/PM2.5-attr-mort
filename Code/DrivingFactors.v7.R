@@ -1,15 +1,11 @@
-a<-head(unlist(strsplit(rstudioapi::getActiveDocumentContext()$path,split = '/')),-1)
-# the above commend only works in Rstudio
-setwd(paste(a[1:(length(a)-1)],collapse = '/'))
-rm(a)
+require(tidyverse)
+require(readxl)
+require(writexl)
 
-library(tidyverse)
-library(readxl)
-library(writexl)
-library(reshape2)
-source('./Code/BasicFunctions.R')
+rstudioapi::getActiveDocumentContext()$path %>% strsplit('/') %>%
+  unlist %>% head(-2) %>% paste(collapse = '/') %>% setwd
 
-# Set Calc Condition ----
+# Calc Settings ----
 
  mode='NCD+LRI'  ;RealPM=T
 # mode='5COD'     ;RealPM=T
@@ -21,47 +17,62 @@ source('./Code/BasicFunctions.R')
 ## Data Import ----
 
 {
-  Pop <- read_csv('./Data/Grid.Pop.csv') %>% arrange(FID)
+  FID_info <- read_csv('./Data/FID_Prov.info_20201229.csv') %>%
+    mutate(FID = FID %>% as.integer %>% as.character)
   
-  PM_real <- read_csv('./Data/Gird.PM25.txt') %>% arrange(FID)
-  PM_real <- bind_cols(PM_real[, 1], round(PM_real[,-1], 1))
+  Pop <-
+    read_csv('./Data/Grid.Pop.csv') %>%
+    mutate(FID = FID %>% as.integer %>% as.character)
+  
+  PM_real <- read_csv('./Data/Gird.PM25.txt') %>%
+    mutate(FID = FID %>% as.integer %>% as.character) %>%
+    mutate_at(vars(-FID), ~ round(., 1))
   
   if (!RealPM) {
-    PM_cf <- read_csv('./Data/PM_Ctrl.csv') %>% arrange(FID)
-    PM_cf <- bind_cols(PM_cf[, 1], round(PM_cf[,-1], 1))
+    PM_cf <- read_csv('./Data/PM_Ctrl.csv') %>%
+    mutate(FID = FID %>% as.integer %>% as.character) %>%
+    mutate_at(vars(-FID), ~ round(., 1)) # used for only counter-fact scenario.
+  } else {
+    PM_cf <- PM_real
   }
   
-  inci <- read_csv('./Data/GBD_incidence_China_2000-2017.csv')
-  
-  agegroup <- read_csv('./Data/GBD_agestructure_China_2000-2017.csv')
-  
-  agegroup <- data.frame(
-    prop.table(as.matrix(agegroup[,-1]), 1)
-  ) %>% `rownames<-`(c(agegroup$year))
-  
-  if (mode=='IER') {
-    RR_table <- list(
-      MEAN = read_excel('./Data/GBD2017_RR_LYF_percentile.xlsx', sheet = 'MEAN'),
-      LOW = read_excel('./Data/GBD2017_RR_LYF_percentile.xlsx', sheet = 'LOW'),
-      UP = read_excel('./Data/GBD2017_RR_LYF_percentile.xlsx', sheet = 'UP')
+  incidence <-
+    read_csv('./Data/GBD_incidence_China_2000-2017.csv') %>%
+    mutate(year = year %>% as.integer %>% as.character)  %>% pivot_longer(
+      cols = c(-year,-endpoint),
+      names_to = 'agegroup',
+      values_to = 'mort.rate'
     )
-  } else if (mode=='5COD' | mode=='NCD+LRI'){
+  
+  agegroup <-
+    read_csv('./Data/GBD_agestructure_China_2000-2017.csv') %>%
+    mutate_at(vars(year),~.x %>% as.integer %>% as.character) %>%
+    pivot_longer(cols = c(-year),
+                 names_to = 'agegroup',
+                 values_to = 'age.structure') %>%
+    pivot_wider(names_from = year,
+                values_from = 'age.structure') %>%
+    mutate_at(vars(-agegroup), ~prop.table(.x))
+  
+  if (mode == 'IER') {
     RR_table <- list(
-      MEAN = read_excel('./Data/GEMM_RR_2020-03-01.xlsx', sheet = 'MEAN'),
-      LOW = read_excel('./Data/GEMM_RR_2020-03-01.xlsx', sheet = 'LOW'),
-      UP = read_excel('./Data/GEMM_RR_2020-03-01.xlsx', sheet = 'UP')
+      MEAN = read_excel('./Data/GBD2017_RR_LYF_2020-05-06.xlsx', sheet = 'MEAN') %>%
+        mutate(concentration = concentration %>% round(1)),
+      LOW = read_excel('./Data/GBD2017_RR_2020-05-06.xlsx', sheet = 'LOW') %>%
+        mutate(concentration = concentration %>% round(1)),
+      UP = read_excel('./Data/GBD2017_RR_2020-05-06.xlsx', sheet = 'UP') %>%
+        mutate(concentration = concentration %>% round(1))
+    )
+  } else if (mode %in% c('5COD', 'NCD+LRI')) {
+    RR_table <- list(
+      MEAN = read_excel('./Data/GEMM_RR_2020-03-01.xlsx', sheet = 'MEAN') %>%
+        mutate(concentration = concentration %>% round(1)),
+      LOW = read_excel('./Data/GEMM_RR_2020-03-01.xlsx', sheet = 'LOW') %>%
+        mutate(concentration = concentration %>% round(1)),
+      UP = read_excel('./Data/GEMM_RR_2020-03-01.xlsx', sheet = 'UP') %>%
+        mutate(concentration = concentration %>% round(1))
     )
   }
-  
-  RR_table[['MEAN']]$concentration %>% round(1) -> RR_table[['MEAN']]$concentration
-  RR_table[['LOW']]$concentration %>% round(1) -> RR_table[['LOW']]$concentration
-  RR_table[['UP']]$concentration %>% round(1) -> RR_table[['UP']]$concentration
-  
-  AbsRisk <- list(
-    MEAN = bind_cols(RR_table[['MEAN']][, 1] %>% round(1), RR_table[['MEAN']][,-1] - 1),
-    LOW = bind_cols(RR_table[['LOW']][, 1] %>% round(1), RR_table[['LOW']][,-1] - 1),
-    UP = bind_cols(RR_table[['UP']][, 1] %>% round(1), RR_table[['UP']][,-1] - 1)
-  )
 }
 
 # Basic Data Processing ----
