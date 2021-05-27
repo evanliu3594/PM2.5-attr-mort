@@ -39,14 +39,14 @@ rstudioapi::getActiveDocumentContext()$path %>% strsplit('/') %>%
 ## Data Import ----
 
 {
-  FID_info <- read_csv('./Data/FID_Prov.info_20201229.csv') %>%
+  FID_info <- read_csv('./Data/FID_info.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character)
   
   Pop <-
-    read_csv('./Data/Grid.Pop.csv') %>%
+    read_csv('./Data/GridPop.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character)
   
-  PM_real <- read_csv('./Data/Gird.PM25.txt') %>%
+  PM_real <- read_csv('./Data/GirdPM25.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character) %>%
     mutate_at(vars(-FID), ~ round(., 1))
   
