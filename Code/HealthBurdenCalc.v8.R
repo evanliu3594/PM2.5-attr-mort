@@ -46,7 +46,7 @@ rstudioapi::getActiveDocumentContext()$path %>% strsplit('/') %>%
     read_csv('./Data/GridPop.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character)
   
-  PM_real <- read_csv('./Data/GirdPM25.csv') %>%
+  PM_real <- read_csv('./Data/GridPM25.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character) %>%
     mutate_at(vars(-FID), ~ round(., 1))
   
