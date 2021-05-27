@@ -1,3 +1,8 @@
+#====================================================#
+# retrieve driving forces to the PM2.5 health burden #
+#                              Depending: Core-v1    #
+#====================================================#
+
 require(tidyverse)
 require(readxl)
 require(writexl)
@@ -127,6 +132,15 @@ Decomposition<-function(serie,y.a,y.b,mode){
     y.P = y.a,
     mode = mode
   ) %>% Result_standardise(mode=mode)
+  
+  Mort_0 <- Mortality(
+    inci = filter(incidence, year == y.a),
+    pop = select(Pop, FID, pop = all_of(y.a)),
+    PM_r = select(PM_real, FID, concentration = all_of(y.a)),
+    PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+    ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
+    mode = mode
+  )
 
   # Mort.1----
   
