@@ -22,21 +22,21 @@ rstudioapi::getActiveDocumentContext()$path %>% strsplit('/') %>%
 ## Data Import ----
 
 {
-  FID_info <- read_csv('./Data/FID_Prov.info_20201229.csv') %>%
+  FID_info <- read_csv('./Data/FID_info.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character)
   
   Pop <-
-    read_csv('./Data/Grid.Pop.csv') %>%
+    read_csv('./Data/GridPop.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character)
   
-  PM_real <- read_csv('./Data/Gird.PM25.txt') %>%
+  PM_real <- read_csv('./Data/GridPM25.csv') %>%
     mutate(FID = FID %>% as.integer %>% as.character) %>%
     mutate_at(vars(-FID), ~ round(., 1))
   
   if (!RealPM) {
-    PM_cf <- read_csv('./Data/PM_Ctrl.csv') %>%
+    PM_cf <- read_csv('./Data/PM_Ctrl.csv') %>% # used for only counter-fact scenario.
     mutate(FID = FID %>% as.integer %>% as.character) %>%
-    mutate_at(vars(-FID), ~ round(., 1)) # used for only counter-fact scenario.
+    mutate_at(vars(-FID), ~ round(., 1)) 
   } else {
     PM_cf <- PM_real
   }
@@ -80,7 +80,10 @@ rstudioapi::getActiveDocumentContext()$path %>% strsplit('/') %>%
   }
 }
 
-# Basic Data Processing ----
+## Core Module Load ----
+
+source('./Code/Core.R')
+
 
 Decomposition<-function(serie,y.a,y.b,mode){
   
@@ -120,19 +123,9 @@ Decomposition<-function(serie,y.a,y.b,mode){
     'ORF','PG','PA','EXP','ORF','PG','EXP','PA','ORF','PA','PG','EXP',
     'ORF','PA','EXP','PG','ORF','EXP','PG','PA','ORF','EXP','PA','PG'
     ), ncol = 4,byrow = T
-  ) [serie, ]
+  )[serie, ]
 
   # Mort.Start ----
-  Mort_Start<-Mortality(
-    Popu = select(Pop,concentration = all_of(y.a)),
-    agestr = agegroup[y.a,],
-    y.I = y.a,
-    PM_c = select(PM_real, FID, concentration = all_of(y.a)),
-    PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-    y.P = y.a,
-    mode = mode
-  ) %>% Result_standardise(mode=mode)
-  
   Mort_0 <- Mortality(
     inci = filter(incidence, year == y.a),
     pop = select(Pop, FID, pop = all_of(y.a)),
@@ -146,431 +139,198 @@ Decomposition<-function(serie,y.a,y.b,mode){
   
   if (serie.step[1]=='PG') {
     Mort_1 <- Mortality(
-      Popu = select(Pop,concentration = all_of(y.b)),
-      agestr = agegroup[y.a,],
-      y.I = y.a,
-      PM_c = select(PM_real, FID, concentration = all_of(y.a)),
+      inci = filter(incidence, year == y.a),
+      pop = select(Pop, FID, pop = all_of(y.b)),
       PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-      y.P = y.b,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
       mode = mode
-    ) %>% Result_standardise(mode=mode)
+    )
   } else if (serie.step[1]=='PA') {
-    Mort_1 <- Mortality(
-      Popu = select(Pop,concentration = all_of(y.a)),
-      agestr = agegroup[y.b,],
-      y.I = y.a,
-      PM_c = select(PM_real, FID, concentration = all_of(y.a)),
+    Mort_1 <-  Mortality(
+      inci = filter(incidence, year == y.a),
+      pop = select(Pop, FID, pop = all_of(y.a)),
       PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-      y.P = y.a,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
       mode = mode
-    ) %>% Result_standardise(mode=mode)
+    )
   } else if (serie.step[1]=='EXP') {
-    Mort_1 <- Mortality(
-      Popu = select(Pop,concentration = all_of(y.a)),
-      agestr = agegroup[y.a,],
-      y.I = y.a,
-      PM_c = select(PM_real, FID, concentration = all_of(y.b)),
+    Mort_1 <-  Mortality(
+      inci = filter(incidence, year == y.a),
+      pop = select(Pop, FID, pop = all_of(y.a)),
       PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-      y.P = y.a,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
       mode = mode
-    ) %>% Result_standardise(mode=mode)
+    )
   } else if (serie.step[1]=='ORF') {
-    Mort_1 <- Mortality(
-      Popu = select(Pop,concentration = all_of(y.a)),
-      agestr = agegroup[y.a,],
-      y.I = y.b,
-      PM_c = select(PM_real, FID, concentration = all_of(y.a)),
-      PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-      y.P = y.a,
+    Mort_1 <-  Mortality(
+      inci = filter(incidence, year == y.b),
+      pop = select(Pop, FID, pop = all_of(y.a)),
+      PM_r = select(PM_real, FID, concentration = all_of(y.a)),
+      PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
       mode = mode
-    ) %>% Result_standardise(mode=mode)
+    )
   }
 
   # Mort.2----
   
-  if (sum(serie.step[1:2] %in% c('PG', 'PA')) == 2) {
+  if (all(serie.step[1:2] %in% c('PG', 'PA'))) {
     # PG  PA
     Mort_2 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.b)),
-      agestr = agegroup[y.b, ],
-      y.I = y.a,
-      PM_c = select(PM_real, FID, concentration = all_of(y.a)),
+      inci = filter(incidence, year == y.a),
+      pop = select(Pop, FID, pop = all_of(y.b)),
       PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-      y.P = y.b,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
-  } else if (sum(serie.step[1:2] %in% c('PG', 'EXP')) == 2) {
+    )
+  } else if (all(serie.step[1:2] %in% c('PG', 'EXP'))) {
     #  PG  EXP
-    Mort_2 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.b)),
-      agestr = agegroup[y.a, ],
-      y.I = y.a,
-      PM_c = select(PM_real, FID, concentration = all_of(y.b)),
+    Mort_2 <-  Mortality(
+      inci = filter(incidence, year == y.a),
+      pop = select(Pop, FID, pop = all_of(y.b)),
       PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-      y.P = y.b,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
-  } else if (sum(serie.step[1:2] %in% c('PG', 'ORF')) == 2) {
+    )
+  } else if (all(serie.step[1:2] %in% c('PG', 'ORF')) ) {
     #  PG  ORF
     Mort_2 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.b)),
-      agestr = agegroup[y.a, ],
-      y.I = y.b,
-      PM_c = select(PM_real, FID, concentration = all_of(y.a)),
+      inci = filter(incidence, year == y.b),
+      pop = select(Pop, FID, pop = all_of(y.b)),
       PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-      y.P = y.b,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
-  } else if (sum(serie.step[1:2] %in% c('PA', 'EXP')) == 2) {
+    )
+  } else if (all(serie.step[1:2] %in% c('PA', 'EXP'))) {
     #  PA  EXP
-    Mort_2 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.a)),
-      agestr = agegroup[y.b, ],
-      y.I = y.a,
-      PM_c = select(PM_real, FID, concentration = all_of(y.b)),
+    Mort_2 <-  Mortality(
+      inci = filter(incidence, year == y.a),
+      pop = select(Pop, FID, pop = all_of(y.a)),
       PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-      y.P = y.a,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
-  } else if (sum(serie.step[1:2] %in% c('PA', 'ORF')) == 2) {
+    )
+  } else if (all(serie.step[1:2] %in% c('PA', 'ORF'))) {
     #  PA  ORF
-    Mort_2 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.a)),
-      agestr = agegroup[y.b, ],
-      y.I = y.b,
-      PM_c = select(PM_real, FID, concentration = all_of(y.a)),
+    Mort_2 <-  Mortality(
+      inci = filter(incidence, year == y.b),
+      pop = select(Pop, FID, pop = all_of(y.a)),
       PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-      y.P = y.a,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
-  } else if (sum(serie.step[1:2] %in% c('EXP', 'ORF')) == 2) {
+    )
+  } else if (all(serie.step[1:2] %in% c('EXP', 'ORF'))) {
     #  EXP ORF
-    Mort_2 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.a)),
-      agestr = agegroup[y.a, ],
-      y.I = y.b,
-      PM_c = select(PM_real, FID, concentration = all_of(y.b)),
+    Mort_2 <-  Mortality(
+      inci = filter(incidence, year == y.b),
+      pop = select(Pop, FID, pop = all_of(y.a)),
       PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-      y.P = y.a,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
-  } 
+    )
+  }
 
   # Mort.3----
 
-  if (sum(serie.step[1:3] %in% c('PG', 'PA','EXP')) == 3) {
+  if (all(serie.step[1:3] %in% c('PG', 'PA','EXP'))) {
     # PG  PA EXP
-    Mort_3 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.b)),
-      agestr = agegroup[y.b,],
-      y.I = y.a,
-      PM_c = select(PM_real, FID, concentration = all_of(y.b)),
+    Mort_3 <-  Mortality(
+      inci = filter(incidence, year == y.a),
+      pop = select(Pop, FID, pop = all_of(y.b)),
       PM_r = select(PM_real, FID, concentration = all_of(y.a)),
-      y.P = y.b,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
+    )
     
-  } else if (sum(serie.step[1:3] %in% c('PG', 'PA','ORF')) == 3) {
+  } else if (all(serie.step[1:3] %in% c('PG', 'PA','ORF')) ) {
     # PG  PA ORF
-    Mort_3 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.b)),
-      agestr = agegroup[y.b,],
-      y.I = y.b,
-      PM_c = select(PM_real, FID, concentration = all_of(y.a)),
+    Mort_3 <-  Mortality(
+      inci = filter(incidence, year == y.b),
+      pop = select(Pop, FID, pop = all_of(y.b)),
       PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-      y.P = y.b,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.a)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
+    )
     
-  } else if (sum(serie.step[1:3] %in% c('PG', 'EXP','ORF')) == 3) {
+  } else if (all(serie.step[1:3] %in% c('PG', 'EXP','ORF')) ) {
     #  PG	EXP	ORF
-    Mort_3 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.b)),
-      agestr = agegroup[y.a,],
-      y.I = y.b,
-      PM_c = select(PM_real, FID, concentration = all_of(y.b)),
+    Mort_3 <-  Mortality(
+      inci = filter(incidence, year == y.b),
+      pop = select(Pop, FID, pop = all_of(y.b)),
       PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-      y.P = y.b,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.a)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
+    )
     
-  } else if (sum(serie.step[1:3] %in% c('PA', 'EXP','ORF')) == 3) {
+  } else if (all(serie.step[1:3] %in% c('PA', 'EXP','ORF')) ) {
     #  PA	EXP	ORF
-    Mort_3 <- Mortality(
-      Popu = select(Pop, concentration = all_of(y.a)),
-      agestr = agegroup[y.b,],
-      y.I = y.b,
-      PM_c = select(PM_real, FID, concentration = all_of(y.b)),
+    Mort_3 <-  Mortality(
+      inci = filter(incidence, year == y.b),
+      pop = select(Pop, FID, pop = all_of(y.a)),
       PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-      y.P = y.a,
+      PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+      ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
       mode = mode
-    ) %>% Result_standardise(mode = mode)
+    )
   }
   
   # Mort.End ----
   
-  Mort_End <- Mortality(
-    y.I = y.b,
-    y.P = y.b,
+  Mort_4 <- Mortality(
+    inci = filter(incidence, year == y.b),
+    pop = select(Pop, FID, pop = all_of(y.b)),
     PM_r = select(PM_real, FID, concentration = all_of(y.b)),
-    PM_c = select(PM_real, FID, concentration = all_of(y.b)),
-    Popu = select(Pop,concentration = all_of(y.b)),
-    agestr = agegroup[y.b,],
+    PM_c = select(PM_cf, FID, concentration = all_of(y.b)),
+    ag = select(agegroup, agegroup, agstruc = all_of(y.b)),
     mode = mode
-  ) %>% Result_standardise(mode=mode)
+  )
   
   # Print Result ----
   
-  cat(paste0('Drivers Between Year ',y.a,' and Year ',y.b,':\n'))
+  cat(paste0('Drivers Between ',y.a,' and ',y.b,':\n'))
   cat(paste0(serie.step[1],':\t'))
-  cat(sum(select(Mort_1, contains('Mort'))) - sum(select(Mort_Start, contains('Mort'))))
+  cat(sum(select(Mort_1, -FID)) - sum(select(Mort_0, -FID)))
   cat('\n')
   cat(paste0(serie.step[2],':\t'))
-  cat(sum(select(Mort_2, contains('Mort'))) - sum(select(Mort_1, contains('Mort'))))
+  cat(sum(select(Mort_2, -FID)) - sum(select(Mort_1, -FID)))
   cat('\n')
   cat(paste0(serie.step[3],':\t'))
-  cat(sum(select(Mort_3, contains('Mort'))) - sum(select(Mort_2, contains('Mort'))))
+  cat(sum(select(Mort_3, -FID)) - sum(select(Mort_2, -FID)))
   cat('\n')
   cat(paste0(serie.step[4],':\t'))
-  cat(sum(select(Mort_End, contains('Mort'))) - sum(select(Mort_3, contains('Mort'))))
+  cat(sum(select(Mort_4, -FID)) - sum(select(Mort_3, -FID)))
   cat('\n')
 
   return(
     data.frame(
-      Mort_Start['FID'],
-      select(Mort_Start, contains('Mort')),
-      select(Mort_1, contains('Mort')) - select(Mort_Start, contains('Mort')),
-      select(Mort_2, contains('Mort')) - select(Mort_1, contains('Mort')),
-      select(Mort_3, contains('Mort')) - select(Mort_2, contains('Mort')),
-      select(Mort_End, contains('Mort')) - select(Mort_3, contains('Mort')),
-      select(Mort_End, contains('Mort'))
+      Mort_0['FID'],
+      rowSums(select(Mort_0, -FID)),
+      rowSums(select(Mort_1, -FID) - select(Mort_0, -FID)),
+      rowSums(select(Mort_2, -FID) - select(Mort_1, -FID)),
+      rowSums(select(Mort_3, -FID) - select(Mort_2, -FID)),
+      rowSums(select(Mort_4, -FID) - select(Mort_3, -FID)),
+      rowSums(select(Mort_4, -FID))
     ) %>% `names<-`(c('FID', 'Start', serie.step, 'End'))
   )
-  rm(Mort_Start,Mort_1,Mort_2,Mort_3,Mort_End,serie.step)
+  
+  rm(Mort_0,Mort_1,Mort_2,Mort_3,Mort_4,serie.step)
+
 }
 
 
 
-# Claculating S&D of Rates----
+# USAGE: 
 
-Decompose0412 <- NULL
-
-for (i in 1:24) {
-  Decompose0412[[paste0(i)]] <-
-    Decomposition(
-      serie = i,
-      y.a = '2004',
-      y.b = '2012',
-      mode = mode
-    )
-}
-
-prov_Decomp0412 <- list(
-  Start = data.frame(
-    province = levels(as.factor(
-      left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0412, function(x) {
-    df1 <- left_join(select(x, FID, Start), select(FID_info, FID, province), by = 'FID')
-    return(aggregate(df1['Start'], df1['province'], sum)[-1])
-    rm(df1)
-  })),
-  PG = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0412, function(x) {
-    df1 <- left_join(select(x, FID, PG), select(FID_info, FID, province), by = 'FID')
-    return(aggregate(df1['PG'], df1['province'], sum)[-1])
-    rm(df1)
-  })),
-  PA = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0412, function(x) {
-    df1 <- left_join(select(x, FID, PA), select(FID_info, FID, province), by = 'FID')
-    return(aggregate(df1['PA'], df1['province'], sum)[-1])
-    rm(df1)
-  })),
-  EXP = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0412, function(x) {
-    df1 <- left_join(select(x, FID, EXP), select(FID_info, FID, province), by = 'FID')
-    return(aggregate(df1['EXP'], df1['province'], sum)[-1])
-    rm(df1)
-  })),
-  ORF = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0412, function(x) {
-    df1 <- left_join(select(x, FID, ORF), select(FID_info, FID, province), by = 'FID')
-    return(aggregate(df1['ORF'], df1['province'], sum)[-1])
-    rm(df1)
-  })),
-  End = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0412, function(x) {
-    df1 <- left_join(select(x, FID, End), select(FID_info, FID, province), by = 'FID')
-    return(aggregate(df1['End'], df1['province'], sum)[-1])
-    rm(df1)
-  }))
-)
-
-
-write_xlsx(
-  prov_Decomp0412,
-  paste0('./Result/Decomp_Prov_0412_', mode, '_', Sys.Date(), '.xlsx')
-)
-
-
-
-Nation_Decomp0412<-data.frame(
-  Start = colSums(sapply(Decompose0412, function(x) {x$Start})),
-  PG = colSums(sapply(Decompose0412, function(x) {x$PG})),
-  PA = colSums(sapply(Decompose0412, function(x) {x$PA})),
-  EXP = colSums(sapply(Decompose0412, function(x) {x$EXP})),
-  ORF = colSums(sapply(Decompose0412, function(x) {x$ORF})),
-  End = colSums(sapply(Decompose0412, function(x) {x$End}))
-)
-
-
-Decompose1217 <- NULL
-
-for (i in 1:24) {
-  Decompose1217[[paste0(i)]] <-
-    Decomposition(
-      serie = i,
-      y.a = '2012',
-      y.b = '2017',
-      mode = mode
-    )
-}
-
-prov_Decomp1217 <- list(
-  Start = data.frame(
-    province = levels(as.factor(
-      left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose1217, function(x) {
-      df1 <- left_join(select(x, FID, Start), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['Start'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  PG = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose1217, function(x) {
-      df1 <- left_join(select(x, FID, PG), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['PG'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  PA = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose1217, function(x) {
-      df1 <- left_join(select(x, FID, PA), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['PA'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  EXP = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose1217, function(x) {
-      df1 <- left_join(select(x, FID, EXP), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['EXP'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  ORF = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose1217, function(x) {
-      df1 <- left_join(select(x, FID, ORF), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['ORF'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  End = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose1217, function(x) {
-      df1 <- left_join(select(x, FID, End), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['End'], df1['province'], sum)[-1])
-      rm(df1)
-    }))
-)
-write_xlsx(
-  prov_Decomp1217,
-  paste0('./Result/Decomp_Prov_1217_', mode, '_', Sys.Date(), '.xlsx')
-)
-
-
-Nation_Decomp1217<-data.frame(
-  Start = colSums(sapply(Decompose1217, function(x) {x$Start})),
-  PG = colSums(sapply(Decompose1217, function(x) {x$PG})),
-  PA = colSums(sapply(Decompose1217, function(x) {x$PA})),
-  EXP = colSums(sapply(Decompose1217, function(x) {x$EXP})),
-  ORF = colSums(sapply(Decompose1217, function(x) {x$ORF})),
-  End = colSums(sapply(Decompose1217, function(x) {x$End}))
-)
-
-
-Decompose0417 <- NULL
-
-for (i in 1:24) {
-  Decompose0417[[paste0(i)]] <-
-    Decomposition(
-      serie = i,
-      y.a = '2004',
-      y.b = '2017',
-      mode = mode
-    )
-}
-
-Nation_Decomp0417<-data.frame(
-  Start = colSums(sapply(Decompose0417, function(x) {x$Start})),
-  PG = colSums(sapply(Decompose0417, function(x) {x$PG})),
-  PA = colSums(sapply(Decompose0417, function(x) {x$PA})),
-  EXP = colSums(sapply(Decompose0417, function(x) {x$EXP})),
-  ORF = colSums(sapply(Decompose0417, function(x) {x$ORF})),
-  End = colSums(sapply(Decompose0417, function(x) {x$End}))
-)
-
-prov_Decomp0417 <- list(
-  Start = data.frame(
-    province = levels(as.factor(
-      left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0417, function(x) {
-      df1 <- left_join(select(x, FID, Start), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['Start'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  PG = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0417, function(x) {
-      df1 <- left_join(select(x, FID, PG), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['PG'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  PA = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0417, function(x) {
-      df1 <- left_join(select(x, FID, PA), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['PA'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  EXP = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0417, function(x) {
-      df1 <- left_join(select(x, FID, EXP), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['EXP'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  ORF = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0417, function(x) {
-      df1 <- left_join(select(x, FID, ORF), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['ORF'], df1['province'], sum)[-1])
-      rm(df1)
-    })),
-  End = data.frame(province = levels(as.factor(
-    left_join(PM_real['FID'], FID_info[c('FID', 'province')], by = 'FID')$province)),
-    sapply(Decompose0417, function(x) {
-      df1 <- left_join(select(x, FID, End), select(FID_info, FID, province), by = 'FID')
-      return(aggregate(df1['End'], df1['province'], sum)[-1])
-      rm(df1)
-    }))
-)
-
-write_xlsx(
-  prov_Decomp0417,
-  paste0('./Result/Decomp_Prov_0417_', mode, '_', Sys.Date(), '.xlsx')
-)
-
+1:24 %>% map(~Decomposition(serie = .x,y.a = '2005',y.b = '2015',mode=mode))
