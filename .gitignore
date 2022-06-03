@@ -1,2 +1,4 @@
 .Rdata
 .Rproj.user
+./Code/Process_IHME_Data.R
+./Data/RAW/*
