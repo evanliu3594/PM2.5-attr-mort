@@ -15,24 +15,24 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
 
 1. Clone the repo and open it
 
-2. Replace the sample data with your costomised ones: **!!Attention: Keep data structure!!**
+2. Replace the sample data with your customized ones: **!!Attention: Data Structure Must Be Kept!!**
 
-    - for China estimation, you'll need to costomise:
-        - the `FID_information`, which specifies the coordinations and geophysical information of each grid
-        - the `Grid_PM.csv` specifies PM concentrations in years(by column) of each grid
-        - and the `Grid_Pop.csv`specifies population size in years(by column) of each grids 
+    - for China estimation, you'll need to customize:
+        - the `FID_information`, which stores the coordination and geophysical information of each grid cell
+        - the `Grid_PM.csv`, which stores the annual-average PM concentrations (by column) of each grid cell
+        - the `Grid_Pop.csv`, which stores the population size (by column) of each grid cell
 
-    - for other regions, additionally costomise:
+    - for other regions, additionally customize:
         - the age structure data    
         - the mortality rate data
     - Note that all filenames shall be specified later in the `DataLoad` section in the `HealthBurdenCalc.R`.
 
-
 3. Open the `PM25-attr-mort.Rproj` file in Rstudio.
 
-4. Open `HealthBurdenCalc.R`, Specify filenames in the `Data Load` section if data is costomised.
+4. Open `HealthBurdenCalc.R`, and specify filenames in the `Data Load` section if data is customized.
 
 5. Run codes in `HealthBurdenCalc.R` by rows.
+
 
 # Changelog
 
