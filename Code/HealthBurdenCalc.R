@@ -26,7 +26,7 @@
 # Supported C-R functions:  
 #              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT'
 
-CR_fun = 'MRBRT'
+CR_fun = 'NCD+LRI'
 
 ## Data Load ----
 
@@ -53,15 +53,14 @@ source('./Code/Core.R', encoding = 'UTF8')
 
 # Grid Full Result ----
 
-grid_full <- names(PM_real) %>% str_subset('\\d{4}') %>% set_names %>% map(
-  ~ Mortality(
+grid_full <- names(PM_real) %>% str_subset('\\d{4}') %>% set_names %>% 
+  map(function(y) Mortality(
     FID = FID_info %>% pull(FID),
-    RR = RR_table$MEAN,  
-    PM_r = PM_real %>% select(FID, concentration = !!as.name(.x)),
-    pop = Pop %>% select(FID, Pop = !!as.name(.x)),
-    ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(.x)),
-    mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(.x)),
-    CR = CR_fun
+    RR = RR_table$MEAN,
+    PM_r = PM_real %>% select(FID, concentration = !!as.name(y)),
+    pop = Pop %>% select(FID, Pop = !!as.name(y)),
+    ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y)),
+    mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y))
 ))
 
 # Grid Aggregation ----
