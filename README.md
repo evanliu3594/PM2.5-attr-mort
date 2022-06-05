@@ -15,7 +15,7 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
 
 1. Clone the repo and open it
 
-2. Replace the sample data with your customized ones: **!!Attention: Data Structure Must Be Kept!!**
+2. Replace the sample data in `./Data` with your customized ones: **!!Attention: Data Structure Must Be Kept!!**
 
     - for China estimation, you'll need to customize:
         - the `FID_information`, which stores the coordination and geophysical information of each grid cell
