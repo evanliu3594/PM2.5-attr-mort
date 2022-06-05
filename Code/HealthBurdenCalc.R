@@ -21,14 +21,10 @@
 #                                                                                      #
 #======================================================================================#
 
-library(tidyverse)
-library(readxl)
-library(writexl)
-
 # C-R function Settings ----
 # this section used to choose C-R function for Health Impact Calculation.
 # Supported C-R functions:  
-#              'IER', 'NCD+LRI'(Part of GEMM), '5COD' (Part of GEMM), 'MRBRT'
+#              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT'
 
 CR_fun = 'MRBRT'
 
@@ -50,8 +46,6 @@ readfile <- list(
 )
 
 source('./Code/DataLoad.R', encoding = 'UTF8')
-
-rm(readfile)
 
 ## Core Module Load ----
 
