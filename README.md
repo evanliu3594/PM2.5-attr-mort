@@ -1,7 +1,7 @@
 ****
 
 # Genre
-This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theortically it is also appliable for other regions. P.S.: **the PM25-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
+This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theortically it is also appliable for other regions. P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
 
 # Supported Research
 1. Liu Y, Zhu G, Zhao Z, et al. Population aging might have delayed the alleviation of China's PM2.5 health burden[J]. Atmospheric Environment, 2022, 270: 118895.
@@ -15,7 +15,7 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
 
 1. Clone the repo and open it
 
-2. Replace the sample data with your costomised ones !! Attention: keep data structure!!:
+2. Replace the sample data with your costomised ones: **!!Attention: Keep data structure!!**
 
     - for China estimation, you'll need to costomise:
         - the `FID_information`, which specifies the coordinations and geophysical information of each grid
@@ -25,7 +25,7 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
     - for other regions, additionally costomise:
         - the age structure data    
         - the mortality rate data
-    - Note that all filenames shall be specified later in the `Data Load` section in the `HealthBurdenCalc.R`.
+    - Note that all filenames shall be specified later in the `DataLoad` section in the `HealthBurdenCalc.R`.
 
 
 3. Open the `PM25-attr-mort.Rproj` file in Rstudio.
