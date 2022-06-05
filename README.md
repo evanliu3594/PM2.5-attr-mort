@@ -3,7 +3,7 @@
 # Genre
 This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theortically it is also appliable for other regions. P.S.: **the PM25-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
 
-# Supported Researches
+# Supported Research
 1. Liu Y, Zhu G, Zhao Z, et al. Population aging might have delayed the alleviation of China's PM2.5 health burden[J]. Atmospheric Environment, 2022, 270: 118895.
 
 2. Tang R, Zhao J, Liu Y, et al. Air quality and health co-benefits of China’s carbon dioxide emissions peaking before 2030[J]. Nature Communications, 2022, 13 (1): 1008.
