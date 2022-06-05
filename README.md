@@ -15,7 +15,8 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
 
 1. Clone the repo and open it
 
-2. Replace the sample data in `./Data` with your customized ones: **!!Attention: Data Structure Must Be Kept!!**
+2. Replace the sample data in `./Data/` with your customized ones: 
+!!Attention: Data  Structure Must Be Kept!!
 
     - for China estimation, you'll need to customize:
         - the `FID_information`, which stores the coordination and geophysical information of each grid cell
@@ -29,9 +30,9 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
 
 3. Open the `PM25-attr-mort.Rproj` file in Rstudio.
 
-4. Open `HealthBurdenCalc.R`, and specify filenames in the `Data Load` section if data is customized.
+4. In script `HealthBurdenCalc.R`, specify filenames in the `DataLoad` section if data is customized.
 
-5. Run codes in `HealthBurdenCalc.R` by rows.
+5. Run codes in `HealthBurdenCalc.R` by rows to calculate and summarise the result.
 
 
 # Changelog
