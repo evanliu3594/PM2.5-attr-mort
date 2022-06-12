@@ -21,55 +21,49 @@
 #                                                                                      #
 #======================================================================================#
 
-# C-R function Settings ----
+# Core functions load ----
+
+source('./Code/Core.R', encoding = 'UTF8')
+
+# C-R function setting ----
 # this section used to choose C-R function for Health Impact Calculation.
 # Supported C-R functions:  
 #              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT'
 
-CR_fun = 'NCD+LRI'
+use_CR('NCD+LRI')
 
-## Data Load ----
+# Data load ----
 
-readfile <- list(
-  FID = './Data/FID_information.xlsx',
-  Pop = './Data/GridPop.csv',
-  PM_real = './Data/GridPM25.csv',
+read_files(
+  GRID = './Data/FID_information_sample.xlsx',
+  Pop = './Data/GridPop_sample.xlsx',
+  PM_real = './Data/GridPM25_sample.xlsx',
   PM_cf = './Data/PM_Ctrl.csv', # PM_cf works only in counter-fact scenario
   MortRate = './Data/GBD_incidence_China_2000-2019.csv',
-  AgeGroup = './Data/GBD_agestructure_China_2000-2017.csv',
-  CR = if (CR_fun == 'MRBRT') './Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx'
-  else if (CR_fun %in% c('NCD+LRI', '5COD')) './Data/RR_index/GEMM_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun %in% c('IER', 'IER2017')) './Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun == 'IER2015') './Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun == 'IER2013') './Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun == 'IER2010') './Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx'
+  AgeGroup = './Data/GBD_agestructure_China_2000-2017.csv'
 )
-
-source('./Code/DataLoad.R', encoding = 'UTF8')
-
-## Core Module Load ----
-
-source('./Code/Core.R', encoding = 'UTF8')
 
 # Grid Full Result ----
 
 grid_full <- names(PM_real) %>% str_subset('\\d{4}') %>% set_names %>% 
-  map(function(y) Mortality(
-    FID = FID_info %>% pull(FID),
+  map(function(year) Mortality(
+    Grids = Grid_info %>% select(x:y),
     RR = RR_table$MEAN,
-    PM_r = PM_real %>% select(FID, concentration = !!as.name(y)),
-    pop = Pop %>% select(FID, Pop = !!as.name(y)),
-    ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y)),
-    mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y))
+    PM_r = PM_real %>% select(x:y, concentration = !!year),
+    pop = Pop %>% select(x:y, Pop = !!year),
+    ag = AgeGroup %>% select(agegroup, AgeStruc = !!year),
+    mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!year)
 ))
 
 # Grid Aggregation ----
 
-grid_aggr <- Mort_Aggregate(grid_full, domain = 'FID')
+grid_aggr <- Mort_Aggregate(grid_full, domain = 'Grid')
 
-grid_edpt <- Mort_Aggregate(grid_full, domain = 'FID', by = 'endpoint')
+# the below 2 aggregation at grid level is time-hungry, not recommended.
 
-grid_age <- Mort_Aggregate(grid_full, domain = 'FID', by = 'agegroup')
+grid_edpt <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'endpoint')
+
+grid_age <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'agegroup')
 
 # Province Aggregation ----
 
@@ -81,11 +75,8 @@ prov_age <- Mort_Aggregate(grid_full, domain = 'Province', by = 'agegroup')
 
 # Nation Aggregation ----
 
-nation_aggr <- Mort_Aggregate(grid_full, domain = 'Country') %>% 
-  imap_dfr(~.x %>% add_column(year = .y, .before  = TRUE))
+nation_aggr <- Mort_Aggregate(grid_full, domain = 'Country')
 
-nation_edpt <- Mort_Aggregate(grid_full, domain = 'Country', by = 'endpoint') %>% 
-  imap_dfr(~.x %>% add_column(year = .y, .before  = TRUE))
+nation_edpt <- Mort_Aggregate(grid_full, domain = 'Country', by = 'endpoint')
 
-nation_age <- Mort_Aggregate(grid_full, domain = 'Country', by = 'agegroup') %>% 
-  imap_dfr(~.x %>% add_column(year = .y, .before  = TRUE))
+nation_age <- Mort_Aggregate(grid_full, domain = 'Country', by = 'agegroup') 

@@ -4,18 +4,100 @@
 
 library(tidyverse)
 library(writexl)
+library(readxl)
 
-tell.CR <- function(CR) return(
+tell.CR <- function(CR = .CR_fun) return(
   if (CR %>% str_detect('IER')) str_c(CR)
   else if (CR %in% c('5COD', 'NCD+LRI'))  str_c('GEMM', CR, sep = '_')
   else if (CR == 'MRBRT') str_c(CR)
 )
 
+use_CR <- function(CR_fun) {
+  assign(".CR_fun", CR_fun, envir = globalenv())
+  cat(str_glue("C-R function \"{tell.CR(CR_fun)}\" is set as the default methodology"))
+}
+
 matchable <- function(num, dgt = 1) num %>% round(dgt) %>% str_c
+
+# dataload modual
+
+read_files <- function(
+    GRID = './Data/GRID_information_sample.xlsx',
+    Pop = './Data/GridPop_sample.xlsx',
+    PM_real = './Data/GridPM25_sample.xlsx',
+    PM_cf = './Data/PM_Ctrl.csv', # PM_cf works only in counter-fact scenario
+    MortRate = './Data/GBD_incidence_China_2000-2019.csv',
+    AgeGroup = './Data/GBD_agestructure_China_2000-2017.csv') {
+
+  fuse_read <- function(filename) filename %>% {
+    if (str_detect(., 'csv$')) read_csv(.) 
+    else if (str_detect(., 'xlsx$')) read_xlsx(.)
+  }
+  
+  assign('Grid_info', envir = globalenv(), 
+         fuse_read(GRID) %>% mutate(across(where(is.numeric) & x:y, matchable, dgt = 2)))
+  
+  assign("Pop", envir = globalenv(),
+         fuse_read(Pop) %>% mutate(across(where(is.numeric) & x:y, matchable, dgt = 2)))
+  
+  assign('PM_real', envir = globalenv(), 
+         fuse_read(PM_real) %>% mutate(
+           across(where(is.numeric) & x:y, matchable, dgt = 2),
+           across(where(is.numeric) & contains('\\d'), matchable, dgt = 1)))
+  
+  # Specify UNREAL PM2.5 data, used for only counter-fact scenario.
+  
+  assign('PM_cf', envir = globalenv(),
+         if (file.exists(PM_cf)) {
+           fuse_read(PM_cf) %>% mutate(
+             across(where(is.numeric) & x:y, matchable, dgt = 2),
+             across(where(is.numeric) & contains('\\d'), matchable, dgt = 1))
+         } else NULL)
+  
+  assign(
+    'MortRate', 
+    envir = globalenv(),
+    fuse_read(MortRate) %>% pivot_longer(
+      cols = c(-year,-endpoint), names_to = 'agegroup',values_to = 'MortRate'
+    ) %>% pivot_wider(
+      names_from = 'year', values_from = 'MortRate'
+    )
+  )
+  
+  assign(
+    "AgeGroup", 
+    envir = globalenv(),
+    fuse_read(AgeGroup) %>% pivot_longer(
+        cols = -`year`, names_to = 'agegroup', values_to = 'AgeStruc'
+      ) %>% pivot_wider(
+        names_from = 'year', values_from = 'AgeStruc'
+      ) %>% mutate(across(-agegroup, prop.table))
+  )
+  
+  
+  
+  CR <- if (!exists('.CR_fun', envir = globalenv())) {
+    warning("Please specify a CR curve with `use_CR()`")
+  } else {
+    case_when(
+      .CR_fun == 'MRBRT' ~ './Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx',
+      .CR_fun %in% c('NCD+LRI', '5COD') ~ './Data/RR_index/GEMM_Lookup_Table_Build_220601.xlsx',
+      .CR_fun %in% c('IER', 'IER2017') ~ './Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx',
+      .CR_fun == 'IER2015' ~ './Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx',
+      .CR_fun == 'IER2013' ~ './Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx',
+      .CR_fun == 'IER2010' ~ './Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx'
+    )
+  }
+  
+  assign("RR_table", envir = globalenv(),
+         expand_grid(excel_sheets(CR), CR) %>% deframe %>% 
+           imap(~ read_excel(.x, sheet = .y) %>% 
+                  mutate(across(where(is.numeric) & concentration, matchable, dgt = 1))))
+}
 
 mortrate_std <- function(x) x %>% mutate(endpoint = tolower(endpoint))
 
-RR_std <- function(RR_index, CR = CR_fun) {
+RR_std <- function(RR_index, CR = .CR_fun) {
   
   RR_tbl <- RR_index %>% pivot_longer(
     cols = -concentration,
@@ -67,7 +149,7 @@ RR_std <- function(RR_index, CR = CR_fun) {
 
 #' Calculate gridded PM2.5 attributed mortality
 #'
-#' @param FID a vector of grid IDs
+#' @param Grids a vector of grid coords
 #' @param PM_r a 2-column `data.frame` stores real PM2.5 concentration of each grid
 #' @param PM_c a 2-column `data.frame` stores virtual PM2.5 concentration of each grid, equals PM_r at default
 #' @param ag proportions of 20 age-groups inside the population structure
@@ -79,17 +161,17 @@ RR_std <- function(RR_index, CR = CR_fun) {
 #' @return a table of death estimates for each endpoint & age-groups(columns) for every grids(rows)
 #'
 #' @examples
-Mortality <- function(FID, PM_r, PM_c = NULL, ag, mRate, pop, RR, CR = CR_fun) {
+Mortality <- function(Grids, PM_r, PM_c = NULL, ag, mRate, pop, RR) {
   
   if (is.null(PM_c)) PM_c <- PM_r
   
-  RR_tbl <- RR_std(RR, CR)
+  RR_tbl <- RR_std(RR)
   
   PWRR <- left_join(PM_r, pop) %>% summarise(
     concentration = weighted.mean(as.numeric(concentration), Pop, na.rm = T) %>% matchable
     ) %>% left_join(RR_tbl) %>% select(-concentration) %>% rename(PWRR_real = RR)
   
-  list(tibble(FID = FID), PM_c, pop) %>% reduce(left_join) %>% na.omit %>%
+  list(Grids, PM_c, pop) %>% reduce(left_join) %>% na.omit %>%
     expand_grid(PWRR) %>% list(mRate %>% mortrate_std, ag) %>% reduce(left_join) %>% 
     left_join(RR_tbl) %>% select(-concentration) %>% rename(RR_cf = RR) %>% 
     mutate(Mort = Pop * AgeStruc * MortRate * (RR_cf - 1) / PWRR_real / 1e5,.keep = 'unused') %>% 
@@ -107,8 +189,8 @@ Mortality <- function(FID, PM_r, PM_c = NULL, ag, mRate, pop, RR, CR = CR_fun) {
 #' @return 返回对应模式不同终端的汇总不确定性范围
 #'
 #' @examples
-Uncertainty <- function(PWPM, Agg.Pop, m_Rate, A_Group, 
-                        CR = CR_fun, includePM = T, PM25Scaler = .12) {
+Uncertainty <- function(PWPM, Agg.Pop, m_Rate, A_Group,
+                        includePM = T, PM25Scaler = .12) {
   
   PWPM <- PWPM %>% na.omit %>% 
     rename_with(~'domain', where(is.character)) %>% 
@@ -118,15 +200,15 @@ Uncertainty <- function(PWPM, Agg.Pop, m_Rate, A_Group,
     rename_with(~'domain', where(is.character))
   
   RR_base <- PWPM %>% mutate(concentration = matchable(concentration, 1)) %>%
-    left_join(RR_std(RR_table[['MEAN']], CR)) %>% 
+    left_join(RR_std(RR_table[['MEAN']])) %>% 
     mutate(PAF_base = 1 - 1 / RR) %>% select(-concentration, -RR)
   
   RR_test_up <- PWPM %>% mutate(concentration = matchable(concentration, 1)) %>%
-    left_join(RR_std(RR_table[['UP']], CR)) %>%
+    left_join(RR_std(RR_table[['UP']])) %>%
     mutate(PAF_test = 1 - 1 / RR) %>% select(-concentration, -RR)
   
   RR_test_low <- PWPM %>% mutate(concentration = matchable(concentration, 1)) %>%
-    left_join(RR_std(RR_table[['LOW']], CR)) %>% 
+    left_join(RR_std(RR_table[['LOW']])) %>% 
     mutate(PAF_test = 1 - 1 / RR) %>% select(-concentration,-RR)
 
   test_PAF_up <- left_join(RR_base, RR_test_up) %>% 
@@ -146,7 +228,7 @@ Uncertainty <- function(PWPM, Agg.Pop, m_Rate, A_Group,
   if (includePM) {
     test_PAF_up <- test_PAF_up %>% left_join(
       PWPM %>% mutate(concentration = matchable(concentration * (1 + PM25Scaler), 1)) %>%
-        left_join(RR_std(RR_table[['MEAN']], CR)) %>% select(-concentration) %>% 
+        left_join(RR_std(RR_table[['MEAN']])) %>% select(-concentration) %>% 
         mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% left_join(RR_base) %>% 
         mutate(varname = str_glue("test_PM_{domain}_PM_25")) %>%
         pivot_wider(names_from = 'varname',values_from = 'PAF_test') %>%
@@ -158,7 +240,7 @@ Uncertainty <- function(PWPM, Agg.Pop, m_Rate, A_Group,
     test_PAF_low <- left_join(
       test_PAF_low,
       PWPM %>% mutate(concentration = matchable(concentration * (1 - PM25Scaler), 1)) %>%
-        left_join(RR_std(RR_table[['MEAN']], CR)) %>% select(-concentration) %>% 
+        left_join(RR_std(RR_table[['MEAN']])) %>% select(-concentration) %>% 
         mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% left_join(RR_base) %>% 
         mutate(varname = str_glue("test_PM_{domain}_PM_25")) %>%
         pivot_wider(names_from = 'varname',values_from = 'PAF_test') %>%
@@ -214,51 +296,79 @@ Uncertainty <- function(PWPM, Agg.Pop, m_Rate, A_Group,
 
 }
 
-Mort_Aggregate <- function(full_result, domain = 'Country', by = NULL, CR = CR_fun) {
+Mort_Aggregate <- function(full_result, domain = 'Country', by = NULL, write = F) {
   
-  ls1 <- if (is.null(by)) {
+  pre_aggr_result <- if (domain == 'Grid' & is.null(by)) {
+    full_result
+  } else if (domain == 'Grid' & !is.null(by)) {
     full_result %>% map(
-      ~ left_join(.x, FID_info) %>%
+      ~ .x %>% pivot_longer(
+        cols = matches('_[1-9]?(0|5)$'),
+        values_to = 'Mort',
+        names_to = c('endpoint', 'agegroup'),
+        names_sep = '_'
+      ) %>% group_by(x, y, !!as.name(by)) %>% summarise(Mort = sum(Mort)) %>%
+        ungroup %>% pivot_wider(names_from = by, values_from = 'Mort')
+    )
+  } else if (domain != 'Grid' & is.null(by)) {
+    full_result %>% map(
+      ~ left_join(.x, Grid_info) %>%
         group_by(!!as.name(domain)) %>%
         summarise(across(matches('_[1-9]?(0|5)$'), sum)) %>% ungroup
     )
-  } else {
+  } else if (domain != 'Grid' & !is.null(by)) {
     full_result %>% map(
-      ~ .x %>% left_join(FID_info) %>% pivot_longer(
+      ~ .x %>% left_join(Grid_info) %>% pivot_longer(
         cols = matches('_[1-9]?(0|5)$'),
         names_to = c('endpoint', 'agegroup'),
         names_sep = '_',
         values_to = 'Mort'
-      ) %>% group_by(!!as.name(domain), !!as.name(by)) %>%
+      ) %>% group_by(!!as.name(domain),!!as.name(by)) %>%
         summarise(Mort = sum(Mort)) %>% ungroup %>%
         pivot_wider(names_from = by, values_from = 'Mort')
     )
   }
   
-  ls1 <- ls1 %>%  map(
-    ~ .x %>% mutate(Total = select(., -!!domain) %>% rowSums, .after = !!domain)
+  pre_aggr_result <- pre_aggr_result %>% map(
+    if (domain == 'Grid') {
+      ~ .x %>% mutate(Total = select(., -c(x:y)) %>% rowSums, .after = x:y)
+    } else {
+      ~ .x %>% mutate(Total = select(., -!!domain) %>% rowSums, .after = !!domain)
+    }
   )
   
-  CI <- if (domain == 'FID') {
-    full_result %>% map(~FID_info)
+  CI <- if (domain == 'Grid') {
+    full_result %>% map(~ Grid_info %>% select(x:y))
   } else {
-    names(full_result) %>% set_names %>% map(function(y) {
-      Uncertainty(
-        PM25Scaler = .12,
-        m_Rate = mortrate_std(MortRate) %>% select(endpoint, agegroup, MortRate = !!as.name(y)),
-        A_Group = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y)),
-        Agg.Pop = FID_info %>% left_join(Pop %>% select(FID, Pop = !!as.name(y)), by = 'FID') %>%
+    names(full_result) %>% set_names %>% 
+      map(function(y) Uncertainty(
+        m_Rate = mortrate_std(MortRate) %>% select(endpoint, agegroup, MortRate = !!y),
+        A_Group = AgeGroup %>% select(agegroup, AgeStruc = !!y),
+        Agg.Pop = Grid_info %>% left_join(Pop %>% select(x:y, Pop = !!y)) %>%
           group_by(!!as.name(domain)) %>% summarise(Pop = sum(Pop, na.rm = T)) %>% na.omit,
         PWPM = list(
-          FID_info,
-          PM_real %>% select(FID, concentration = !!as.name(y)),
-          Pop %>% select(FID, Pop = !!as.name(y))
+          Grid_info, 
+          PM_real %>% select(x:y, concentration = !!y), 
+          Pop %>% select(x:y, Pop = !!y)
         ) %>% reduce(left_join) %>% group_by(!!as.name(domain)) %>%
           summarise(PWPM = weighted.mean(as.numeric(concentration), Pop, na.rm = T)) %>% na.omit
-      ) %>% rename_with( ~ domain, where(is.character))
-    })
+        ) %>% rename_with(~ domain, where(is.character))
+      )
   }
   
-  map2(CI, ls1, ~ left_join(.x, .y)) %>% return()
+  aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y)) %>% {
+    if (domain == 'Country') imap_dfr(., ~ .x %>% add_column(year = .y, .before = T)) 
+    else .
+  }
+  
+  if (write) {
+    aggr_result %>% write_xlsx(
+      str_glue("./Result/{tell.CR()}_{domain}_\\
+               {head(names(full_result),1)}-\\
+               {tail(names(full_result),1)}_\\
+               Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+  }
+  
+  return(aggr_result)
 
 }
