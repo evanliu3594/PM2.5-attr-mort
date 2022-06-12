@@ -1,9 +1,11 @@
 ****
 
 # Genre
-This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theortically it is also appliable for other regions. P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
+This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theoretically, it is also applicable to other regions with accordingly population, pollution, baseline mortality data.
 
-# Supported Research
+P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
+
+# Supported Researches
 1. Liu Y, Zhu G, Zhao Z, et al. Population aging might have delayed the alleviation of China's PM2.5 health burden[J]. Atmospheric Environment, 2022, 270: 118895.
 
 2. Tang R, Zhao J, Liu Y, et al. Air quality and health co-benefits of China’s carbon dioxide emissions peaking before 2030[J]. Nature Communications, 2022, 13 (1): 1008.
@@ -18,7 +20,7 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
 2. Replace the sample data in `./Data/` with your customized ones: 
 !!Attention: Data  Structure Must Be Kept!!
 
-    - for China estimation, you'll need to customize:
+    - for China's estimation, you'll need to customize:
         - the `FID_information`, which stores the coordination and geophysical information of each grid cell
         - the `Grid_PM.csv`, which stores the annual-average PM concentrations (by column) of each grid cell
         - the `Grid_Pop.csv`, which stores the population size (by column) of each grid cell
@@ -39,7 +41,7 @@ This project records my up-to-date progress in assessing the PM<sub>2.5</sub> he
 
 ## 1.0-release 
 
-the Initial publish version of the PM25-attr-mort with a series of refined and easy-to-use functions to assess PM<sub>2.5</sub> health burden using the IER model.
+the Initial published version of the PM25-attr-mort with a series of refined and easy-to-use functions to assess PM<sub>2.5</sub> health burden using the IER model.
 
 ## 2.0-release
 
