@@ -21,9 +21,9 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 !!Attention: Data  Structure Must Be Kept!!
 
     - for China's estimation, you'll need to customize:
-        - the `FID_information`, which stores the coordination and geophysical information of each grid cell
-        - the `Grid_PM.csv`, which stores the annual-average PM concentrations (by column) of each grid cell
-        - the `Grid_Pop.csv`, which stores the population size (by column) of each grid cell
+        - the `GRID_information`, which stores the coordination and geophysical information(eg: contries, regions, provinces, cities, etc) of each grid cell
+        - the `Grid_PM`, which stores the annual-average PM concentrations (by column) of each grid cell
+        - the `Grid_Pop`, which stores the population size (by column) of each grid cell
 
     - for other regions, additionally customize:
         - the age structure data    
