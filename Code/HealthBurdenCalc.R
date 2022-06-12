@@ -16,7 +16,7 @@
 #  Created By Yifan LIU on 20210505                                                    #
 #       *Add GEMM model support                                                        #
 #       *Add better uncertainty assessments and improved the result return             #
-#       update 210525: replace matrix calculation by tidyr Grammar                     #
+#       update 210525: replace matrix calculation by tidy-R Grammar                    #
 #       update 220602: simplify code                                                   #
 #                                                                                      #
 #======================================================================================#
