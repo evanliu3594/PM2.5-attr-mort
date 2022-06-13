@@ -6,7 +6,7 @@ library(tidyverse)
 library(writexl)
 library(readxl)
 
-tell.CR <- function(CR = .CR_fun) return(
+tell_CR <- function(CR = .CR_fun) return(
   if (CR %>% str_detect('IER')) str_c(CR)
   else if (CR %in% c('5COD', 'NCD+LRI'))  str_c('GEMM', CR, sep = '_')
   else if (CR == 'MRBRT') str_c(CR)
@@ -14,7 +14,7 @@ tell.CR <- function(CR = .CR_fun) return(
 
 use_CR <- function(CR_fun) {
   assign(".CR_fun", CR_fun, envir = globalenv())
-  cat(str_glue("C-R function \"{tell.CR(CR_fun)}\" is set as the default methodology"))
+  cat(str_glue("C-R function \"{tell_CR(CR_fun)}\" is set as the default methodology"))
 }
 
 matchable <- function(num, dgt = 1) num %>% round(dgt) %>% str_c
@@ -363,7 +363,7 @@ Mort_Aggregate <- function(full_result, domain = 'Country', by = NULL, write = F
   
   if (write) {
     aggr_result %>% write_xlsx(
-      str_glue("./Result/{tell.CR()}_{domain}_\\
+      str_glue("./Result/{tell_CR()}_{domain}_\\
                {head(names(full_result),1)}-\\
                {tail(names(full_result),1)}_\\
                Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
