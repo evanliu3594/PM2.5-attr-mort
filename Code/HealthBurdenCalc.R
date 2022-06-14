@@ -35,7 +35,7 @@ use_CR('NCD+LRI')
 # Data load ----
 
 read_files(
-  GRID = './Data/FID_information_sample.xlsx',
+  GRID = './Data/GRID_information_sample.xlsx',
   Pop = './Data/GridPop_sample.xlsx',
   PM_real = './Data/GridPM25_sample.xlsx',
   PM_cf = './Data/PM_Ctrl.csv', # PM_cf works only in counter-fact scenario
@@ -52,7 +52,7 @@ grid_full <- names(PM_real) %>% str_subset('\\d{4}') %>% set_names %>%
     PM_r = PM_real %>% select(x:y, concentration = !!year),
     pop = Pop %>% select(x:y, Pop = !!year),
     ag = AgeGroup %>% select(agegroup, AgeStruc = !!year),
-    mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!year)
+    mRate = mortrate_std(MortRate, year)
 ))
 
 # Grid Aggregation ----

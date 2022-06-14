@@ -3,42 +3,29 @@
 #                         Depending: Core-V220603    #
 #====================================================#
 
-require(tidyverse)
-require(readxl)
-require(writexl)
-
-# C-R function Settings ----
-# this section used to choose C-R function for Health Impact Calculation. 
-# All core functions would set method according to this global-environment variable.
-# Supported C-R functions:  
-#              'IER', 'NCD+LRI'(Part of GEMM), '5COD' (Part of GEMM), 'MRBRT'
-
-CR_fun = 'NCD+LRI'
-
-## Data Load ----
-
-readfile <- list(
-  FID = './Data/FID_information.xlsx',
-  Pop = './Data/GridPop.csv',
-  PM_real = './Data/GridPM25.csv',
-  PM_cf = './Data/PM_Ctrl.csv', # PM_cf works only in counter-fact scenario
-  MortRate = './Data/GBD_incidence_China_2000-2019.csv',
-  AgeGroup = './Data/GBD_agestructure_China_2000-2017.csv',
-  CR = if (CR_fun == 'MRBRT') './Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx'
-  else if (CR_fun %in% c('NCD+LRI', '5COD')) './Data/RR_index/GEMM_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun %in% c('IER', 'IER2017')) './Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun == 'IER2015') './Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun == 'IER2013') './Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx'
-  else if (CR_fun == 'IER2010') './Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx'
-)
- 
-source('./Code/DataLoad.R', encoding = 'UTF8')
-
 # Core Module Load ----
 
 source('./Code/Core.R',encoding = 'UTF8')
 
-Decomposition <- function(serie, y.a, y.b) {
+# C-R function setting ----
+# this section used to choose C-R function for Health Impact Calculation.
+# Supported C-R functions:  
+#              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT'
+
+use_CR('NCD+LRI')
+
+# Data load ----
+
+read_files(
+  GRID = './Data/GRID_information_sample.xlsx',
+  Pop = './Data/GridPop_sample.xlsx',
+  PM_real = './Data/GridPM25_sample.xlsx',
+  PM_cf = './Data/PM_Ctrl.csv', # PM_cf works only in counter-fact scenario
+  MortRate = './Data/GBD_incidence_China_2000-2019.csv',
+  AgeGroup = './Data/GBD_agestructure_China_2000-2017.csv'
+)
+
+Decomposition <- function(serie, start.y, end.y) {
   
   # Calc Steps for Each Serie
   # 1    PG    PA    EXP   ORF
@@ -75,181 +62,153 @@ Decomposition <- function(serie, y.a, y.b) {
   ) %>% slice(serie) %>% unlist
   
   Decomp <- list(
-  # Mort.Start ----
+    # Mort.Start ----
     Mort_0 = Mortality(
-      FID = FID_info %>% pull(FID),
       RR = RR_table$MEAN,  
-      PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-      PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-      pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-      ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-      mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
+      Grids = Grid_info %>% select(x:y),
+      pop = Pop %>% select(x:y, Pop = !!start.y),
+      ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+      PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+      PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+      mRate = mortrate_std(MortRate, start.y)
     ),
     # Mort.1----
     Mort_1 = if (serie.step[1] == 'PG') {
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
-      )
+      Mortality(RR = RR_table$MEAN,  
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!end.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+                mRate = mortrate_std(MortRate, start.y))
     } else if (serie.step[1] == 'PA') {
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
-      )
+      Mortality(RR = RR_table$MEAN,  
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!start.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+                mRate = mortrate_std(MortRate, start.y))
     } else if (serie.step[1] == 'EXP') {
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
-      )
+      Mortality(RR = RR_table$MEAN,  
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!start.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+                mRate = mortrate_std(MortRate, start.y))
     } else if (serie.step[1] == 'ORF') {
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!start.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+                mRate = mortrate_std(MortRate, end.y))
     },
     # Mort.2----
     Mort_2 = if (all(serie.step[1:2] %in% c('PG','PA'))) {
       # PG  PA
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!end.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+                mRate = mortrate_std(MortRate, start.y))
     } else if (all(serie.step[1:2] %in% c('PG','EXP'))) {
       #  PG  EXP
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!end.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+                mRate = mortrate_std(MortRate, start.y))
     } else if (all(serie.step[1:2] %in% c('PG', 'ORF'))) {
       #  PG  ORF
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!end.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+                mRate = mortrate_std(MortRate, end.y))
     } else if (all(serie.step[1:2] %in% c('PA', 'EXP'))) {
       #  PA  EXP
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!start.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+                mRate = mortrate_std(MortRate, start.y))
     } else if (all(serie.step[1:2] %in% c('PA', 'ORF'))) {
       #  PA  ORF
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!start.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+                mRate = mortrate_std(MortRate, end.y))
     } else if (all(serie.step[1:2] %in% c('EXP', 'ORF'))) {
       #  EXP ORF
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!start.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+                mRate = mortrate_std(MortRate, end.y))
     },
     # Mort.3----
     Mort_3 = if (all(serie.step[1:3] %in% c('PG', 'PA', 'EXP'))) {
       # PG PA EXP
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.a))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!end.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!start.y),
+                mRate = mortrate_std(MortRate, start.y))
     } else if (all(serie.step[1:3] %in% c('PG', 'PA', 'ORF'))) {
       # PG  PA ORF
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.a)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
-      )
+      Mortality(RR = RR_table$MEAN,  
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!end.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!start.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+                mRate = mortrate_std(MortRate, end.y))
     } else if (all(serie.step[1:3] %in% c('PG', 'EXP', 'ORF'))) {
       #  PG	EXP	ORF
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.a)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!end.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!start.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+                mRate = mortrate_std(MortRate, end.y))
     } else if (all(serie.step[1:3] %in% c('PA', 'EXP', 'ORF'))) {
       #  PA	EXP	ORF
-      Mortality(
-        FID = FID_info %>% pull(FID),
-        RR = RR_table$MEAN,  
-        PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-        pop = Pop %>% select(FID, Pop = !!as.name(y.a)),
-        ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-        mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
-      )
+      Mortality(RR = RR_table$MEAN,
+                Grids = Grid_info %>% select(x:y),
+                pop = Pop %>% select(x:y, Pop = !!start.y),
+                ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+                PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+                PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+                mRate = mortrate_std(MortRate, end.y))
     },
     # Mort.End ----
     Mort_4 = Mortality(
-      FID = FID_info %>% pull(FID),
-      RR = RR_table$MEAN,  
-      PM_r = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-      PM_c = PM_real %>% select(FID, concentration = !!as.name(y.b)),
-      pop = Pop %>% select(FID, Pop = !!as.name(y.b)),
-      ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y.b)),
-      mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y.b))
+      RR = RR_table$MEAN,
+      Grids = Grid_info %>% select(x:y),
+      pop = Pop %>% select(x:y, Pop = !!end.y),
+      ag = AgeGroup %>% select(agegroup, AgeStruc = !!end.y),
+      PM_c = PM_real %>% select(x:y, concentration = !!end.y),
+      PM_r = PM_real %>% select(x:y, concentration = !!end.y),
+      mRate = mortrate_std(MortRate, end.y)
     )
   )
   
@@ -257,7 +216,7 @@ Decomposition <- function(serie, y.a, y.b) {
   
   Decomp <- Decomp %>% imap_dfr(
     ~ .x %>% pivot_longer(
-      cols = -FID, names_to = "Cause_Age",values_to = 'Mort'
+      cols = -c(x,y), names_to = "Cause_Age",values_to = 'Mort'
     ) %>% mutate(Step = .y)
   ) %>% pivot_wider(names_from = 'Step', values_from = 'Mort') %>% mutate(
     Start = Mort_0,
@@ -271,7 +230,7 @@ Decomposition <- function(serie, y.a, y.b) {
   
   # Print Result ----
   {
-    cat(str_c('Drivers Between', y.a, 'and', y.b, ':\n', sep = ' '))
+    cat(str_c('Drivers Between', start.y, 'and', end.y, ':\n', sep = ' '))
     cat(str_c(serie.step[1], ':\t', sum(Decomp %>% pull(PA) %>% sum %>% round)),'\n')
     cat(str_c(serie.step[2], ':\t', sum(Decomp %>% pull(PG) %>% sum %>% round)),'\n')
     cat(str_c(serie.step[3], ':\t', sum(Decomp %>% pull(EXP) %>% sum %>% round)),'\n')
@@ -284,13 +243,13 @@ Decomposition <- function(serie, y.a, y.b) {
 
 # Usage ---- 
 
-Drivers05_15 <- 1:24 %>% map(~ Decomposition(serie = .x, y.a = 2005, y.b = 2015))
+Drivers05_15 <- 1:24 %>% map(~ Decomposition(serie = .x, start.y = '2005', end.y = '2015'))
 
 ## provincial aggregation----
 Drivers05_15 %>% imap_dfr(
-  ~ .x %>% left_join(FID_info) %>% group_by(Province) %>% 
+  ~ .x %>% left_join(Grid_info) %>% group_by(Province) %>% 
     summarise(across(Start:End,sum)) %>% mutate(seq = .y, .after = Province)
-) %>% split(.$Province) 
+) %>% group_nest(Province) %>% deframe
 
 ## simple national aggregation ----
 Drivers05_15 %>% map_dfr(~ .x %>% summarise(across(Start:End,sum)))
