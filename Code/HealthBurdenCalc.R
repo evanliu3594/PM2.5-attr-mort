@@ -11,7 +11,7 @@
 #     8ooo888  888    888    888          88  888  88 888     888 888        888       #
 #   o8o  o888o 888o   888o o888o        o88o  8  o88o  88ooo88  o888o        888o      #
 #--------------------------------------------------------------------------------------#
-#       -- An Integrated Calculate Program for PM2.5 health burden assessment --       #
+#       -- An Integrated Calculate Program for PM2.5 Health Burden Assessment --       #
 #                                                                                      #
 #  Created By Yifan LIU on 20210505                                                    #
 #       *Add GEMM model support                                                        #

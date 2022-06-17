@@ -375,7 +375,7 @@ Mort_Aggregate <- function(full_result, domain = 'Country', by = NULL, write = F
   } else {
     names(full_result) %>% set_names %>% 
       map(function(year) Uncertainty(
-        m_Rate = mortrate_std(MortRate) %>% select(endpoint, agegroup, MortRate = !!year),
+        m_Rate = mortrate_std(MortRate, year),
         A_Group = AgeGroup %>% select(agegroup, AgeStruc = !!year),
         Agg.Pop = Grid_info %>% left_join(Pop %>% select(x:y, Pop = !!year)) %>%
           group_by(!!as.name(domain)) %>% summarise(Pop = sum(Pop, na.rm = T)) %>% na.omit,
