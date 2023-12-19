@@ -23,60 +23,64 @@
 
 # Core functions load ----
 
-source('./Code/Core.R', encoding = 'UTF8')
+source('./Code/Core-dev.R', encoding = 'UTF8')
 
-# C-R function setting ----
-# this section used to choose C-R function for Health Impact Calculation.
+# C-R Model setting ----
+# this section used to choose C-R Model for Health Impact Calculation.
 # Supported C-R functions:  
-#              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT'
+#              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'O3'
 
-use_CR('NCD+LRI')
+set_Model('O3')
 
 # Data load ----
 
 read_files(
-  GRID = './Data/GRID_information_sample.xlsx',
-  Pop = './Data/GridPop_sample.xlsx',
-  PM_real = './Data/GridPM25_sample.xlsx',
-  PM_cf = './Data/PM_Ctrl.csv', # PM_cf works only in counter-fact scenario
-  MortRate = './Data/GBD_incidence_China_2000-2019.csv',
-  AgeGroup = './Data/GBD_agestructure_China_2000-2017.csv'
+  Grids = './Data/check231219/Gridinfo.csv',
+  Pop = './Data/check231219/Gridpop.csv',
+  Conc_real = './Data/check231219/GridO3.csv',
+  Conc_cf = './Data/PM_Ctrl.csv',  # PM_cf works only in counter-fact scenario
+  MortRate = "./Data/check231219/ISO_GBD2019_basemortal_country_2019.csv",
+  AgeGroup = './Data/check231219/ISO_GBD2019_agestructure_country_2015.csv'
 )
 
 # Grid Full Result ----
 
-grid_full <- names(PM_real) %>% str_subset('\\d{4}') %>% set_names %>% 
-  map(function(year) Mortality(
-    Grids = Grid_info %>% select(x:y),
+grid_full <- names(Conc_real)[c(-1:-2)] %>% set_names %>% 
+  map(~ Mortality(
+    Grids = Grid_info,
     RR = RR_table$MEAN,
-    PM_r = PM_real %>% select(x:y, concentration = !!year),
-    pop = Pop %>% select(x:y, Pop = !!year),
-    ag = AgeGroup %>% select(agegroup, AgeStruc = !!year),
-    mRate = mortrate_std(MortRate, year)
+    Conc_r = Conc_real %>% select(x:y, concentration = !!.x),
+    Conc_c = NULL,
+    pop = Pop %>% select(x:y, Pop = !!.x),
+    ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!.x),
+    mRate = mortrate_std(MortRate, .x),
+    domain = "Country"
 ))
 
 # Grid Aggregation ----
+ 
+grid_aggr <- Mort_Aggregate(grid_full, domain = 'Grid', write = F)
 
-grid_aggr <- Mort_Aggregate(grid_full, domain = 'Grid')
 
 # the below 2 aggregation at grid level is time-hungry, not recommended.
 
-grid_edpt <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'endpoint')
+# grid_edpt <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'endpoint')
 
-grid_age <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'agegroup')
+# grid_age <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'agegroup')
 
 # Province Aggregation ----
 
-prov_aggr <- Mort_Aggregate(grid_full, domain = 'Province')
 
-prov_edpt <- Mort_Aggregate(grid_full, domain = 'Province', by = 'endpoint')
+# prov_aggr <- Mort_Aggregate(grid_full, domain = 'Province')
 
-prov_age <- Mort_Aggregate(grid_full, domain = 'Province', by = 'agegroup')
+# prov_edpt <- Mort_Aggregate(grid_full, domain = 'Province', by = 'endpoint')
+
+# prov_age <- Mort_Aggregate(grid_full, domain = 'Province', by = 'agegroup')
 
 # Nation Aggregation ----
 
-nation_aggr <- Mort_Aggregate(grid_full, domain = 'Country')
+nation_aggr <- Mort_Aggregate(grid_full, domain = 'Country', includeConc = F)
 
-nation_edpt <- Mort_Aggregate(grid_full, domain = 'Country', by = 'endpoint')
+nation_edpt <- Mort_Aggregate(grid_full, domain = 'Country', by = 'endpoint', includeConc = T, Conc_RMSE = 2)
 
-nation_age <- Mort_Aggregate(grid_full, domain = 'Country', by = 'agegroup') 
+nation_age <- Mort_Aggregate(grid_full, domain = 'Country', by = 'agegroup', Conc_sigma = .08)
