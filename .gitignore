@@ -3,5 +3,7 @@
 Data/check*
 Figure/*.png
 Figure/*.pdf
+Figure/*.zip
 Result/*.xlsx
 Result/*.csv
+Result/*.zip
