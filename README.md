@@ -17,9 +17,9 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 2. Replace the sample data in `./Data/` with your customized ones: 
 
     - for estimations about China, you'll need to customize:
-        - the `GRID_information`, which stores the coordination and geophysical information(e.g., countries, regions, provinces, cities, etc.) of each grid cell
-        - the `Grid_PM`, which stores the annual-average PM concentrations (by column) of each grid cell
+        - the `GRID_information`, which stores the coordination and geophysical domain(e.g., countries, regions, provinces, cities, etc.) of each grid cell
         - the `Grid_Pop`, which stores the population size (by column) of each grid cell
+        - the `Grid_*`, which stores the annual-average concentrations (by column) of each grid cell for pollution *.
 
     - for other regions, additional customize:
         - the age structure data    
@@ -35,19 +35,20 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 # Changelog
 
 ## 1.0-release 
-
 The Initial published version of the PM25-attr-mort with a series of refined and easy-to-use functions to assess PM<sub>2.5</sub> health burden using the IER model.
 
 ## 2.0-release
-
 PM<sub>2.5</sub>-Attr-Mort v2.0 incorporated both GEMM and IER model in calculating the PM<sub>2.5</sub> health burden, by refering to different concentration-responce lookup-table.
 
 ## 3.0-release
-
 PM<sub>2.5</sub>-Attr-Mort v3.0 flushes the original linear algebra calculation with a more tidy-R grammar, which greatly improves the extensible of the scales of the model. 
 
-## 4.0-doing
+## 4.0-release
+PM<sub>2.5</sub>-Attr-Mort v4.0 extends to international or other muiti-region scale calculation, and extends to O3 or NO<sub>2</sub> burden calculation, add MRBRT method CRF used by GBD2019.
 
-PM<sub>2.5</sub>-Attr-Mort v4.0 will be attached with the full potential of easy extension and incorporation of multi-scale input data. This means this calculation model will finally be capabale of community, urban, regional, national and global scale calculations - with just specify the scale of your data- and calculation will be done.
+## 5.0-doing
+built-in population and mortality data, and warps to the pollution data grids flexibly, reduces data inputs.
+
+
 # Developer note
 I made the calculation process generalized to adopt to any attributable death estimations by applying the population table, incidence table, concentration table, and the concentration-correspondingly relative risk lookup table together.
