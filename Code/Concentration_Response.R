@@ -178,17 +178,17 @@ system.time(
 
 ## doParallel ----
 
-library(doParallel)
-
-cl <- makeCluster(length(CRFs))
-
-registerDoParallel(cl)
-
-foreach(CRF = CRFs, .packages = c('tidyverse','readxl','writexl')) %dopar% {
-  compute_RR_index(ERL = CRF)
-}
-
-stopCluster(cl)
+# library(doParallel)
+# 
+# cl <- makeCluster(length(CRFs))
+# 
+# registerDoParallel(cl)
+# 
+# foreach(CRF = CRFs, .packages = c('tidyverse','readxl','writexl')) %dopar% {
+#   compute_RR_index(ERL = CRF)
+# }
+# 
+# stopCluster(cl)
 
 ## furrr ----
 

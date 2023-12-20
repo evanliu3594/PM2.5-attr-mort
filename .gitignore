@@ -1,5 +1,6 @@
 .Rhistory
 /.Rproj.user
+Data/check*
 Figure/*.png
 Figure/*.pdf
 Result/*.xlsx
