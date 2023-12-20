@@ -7,21 +7,38 @@ library(tidyverse)
 library(writexl)
 library(readxl)
 
-tell_Model <- function(Model = .CR_Model) return(
-  if (Model %>% str_detect('IER')) str_c(Model)
-  else if (Model %in% c('5COD', 'NCD+LRI'))  str_c('PM2.5_GEMM', Model, sep = '_')
-  else if (Model == 'MRBRT') str_c("PM2.5_", Model)
-  else if (Model == 'O3') str_c(Model) #新增
-  else if (Model == 'NO2') str_c(Model) #新增
-)
+#' detect CRF model name and generate a name for file output
+#'
+#' @return formatted string of CRF name
+#' @export
+#'
+tell_Model <- function() {
+  return(
+    if (.CR_Model %>% str_detect('IER'))
+      str_c(.CR_Model)
+    else if (.CR_Model %in% c('5COD', 'NCD+LRI'))
+      str_c('PM2.5_GEMM', Model, sep = '_')
+    else if (.CR_Model == 'MRBRT')
+      str_c("PM2.5_", Model)
+    else if (.CR_Model == 'O3')
+      str_c(.CR_Model) #新增
+    else if (Model == 'NO2')
+      str_c(.CR_Model) #新增
+  )
+}
 
+#' set CRF for calculation
+#'
+#' @param Model string, one of `IER`, `NCD+LRI`, `5COD`, `MRBRT`, `O3` or `NO2`
+#'
+#' @export
 set_Model <- function(Model) {
   
   assign(".CR_Model", Model, envir = globalenv())
   
   if (str_detect(Model, "IER|NCD\\+LRI|5COD|MRBRT|O3|NO2")) {
     cat(str_glue(
-      "C-R Model \"{tell_Model(Model)}\" is set as the default methodology"
+      "C-R Model \"{tell_Model()}\" is set as the default methodology"
     ))
   } else {
     warning(str_glue(
@@ -31,10 +48,35 @@ set_Model <- function(Model) {
   }
 }
 
-matchable <- function(num, dgt = 1) num %>% round(dgt) %>% str_c
+#' format numbers to a string at a specified digit 
+#'
+#' @param num input number
+#' @param dgt int, refers to rounding digit
+#'
+#' @return string of number
+#' @export
+#'
+#' @examples
+#' matchable(3.33333, 1)
+matchable <- function(num, dgt = 1) {
+  num %>% round(dgt) %>% str_c
+}
 
-# dataload modual
-
+#' dataload module for calculation
+#'
+#' @param Grids path to grid information
+#' @param Pop path to population
+#' @param Conc_real path to real concentration
+#' @param Conc_cf path to counter-fact concentration
+#' @param MortRate path to mortality rate
+#' @param AgeGroup path to population age structure
+#' @param dgt_grid int, digit of map grids
+#' @param dgt_conc int, digit of concentrations, by default `1`
+#'
+#' @return assign data to global env.
+#' @export
+#'
+#' @examples
 read_files <- function(Grids,
                        Pop,
                        Conc_real,
@@ -131,17 +173,21 @@ read_files <- function(Grids,
   )
 }
 
-mortrate_std <- function(x, year) x %>% 
-  mutate(endpoint = tolower(endpoint)) %>% 
-  select(domain, endpoint, agegroup, MortRate = !!year)
-
-RR_std <- function(RR_index) {
+#' format CR look-up table
+#'
+#' @param RR_index string, specifying whitch rr table to use, by default the "MEAN" RR
+#'
+#' @return a formatted RR table
+#' @export
+#'
+#' @examples
+RR_std <- function(RR_index = "MEAN") {
   
   CR <-  if (!exists('.CR_Model', envir = globalenv())) {
     stop("Please specify a C-R function with `use_CR()`")
   } else get(".CR_Model", envir = globalenv())
   
-  RR_tbl <- RR_index %>% pivot_longer(
+  RR_tbl <- RR_table[[RR_index]] %>% pivot_longer(
     cols = -concentration,
     values_to = "RR",
     names_to = c("endpoint", "agegroup"),
@@ -150,7 +196,7 @@ RR_std <- function(RR_index) {
   
   RR_reshape <- if (CR == '5COD') {
     expand_grid(
-      concentration = RR_index %>% pull(concentration),
+      concentration = RR_table[[RR_index]] %>% pull(concentration),
       endpoint = c('copd', 'ihd', 'lc', 'lri', 'stroke'),
       agegroup = c('ALL', seq(25, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% 
@@ -158,7 +204,7 @@ RR_std <- function(RR_index) {
     
   } else if (CR == 'NCD+LRI') {
     expand_grid(
-      concentration = RR_index %>% pull(concentration),
+      concentration = RR_table[[RR_index]] %>% pull(concentration),
       endpoint = c('ncd+lri'),
       agegroup = c('ALL', seq(25, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% 
@@ -166,7 +212,7 @@ RR_std <- function(RR_index) {
     
   } else if (str_detect(CR, 'IER')) {
     expand_grid(
-      concentration = RR_index %>% pull(concentration),
+      concentration = RR_table[[RR_index]] %>% pull(concentration),
       endpoint = c('copd', 'ihd', 'lc', 'stroke', 'lri'),
       agegroup = c('ALL', seq(0, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% 
@@ -174,9 +220,10 @@ RR_std <- function(RR_index) {
       filter(
         (endpoint  %>% str_detect('copd|ihd|lc|stroke') & as.integer(agegroup) >= 25) | 
           endpoint == 'lri') %>% ungroup
+    
   } else if (CR == 'MRBRT') {
     expand_grid(
-      concentration = RR_index %>% pull(concentration),
+      concentration = RR_table[[RR_index]] %>% pull(concentration),
       endpoint = c('copd', 'dm', 'ihd', 'lc', 'lri', 'stroke'),
       agegroup = c('ALL', seq(0, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% 
@@ -186,13 +233,13 @@ RR_std <- function(RR_index) {
           endpoint == 'lri') %>% ungroup
   } else if (CR == "O3") {
     expand_grid(
-      concentration = RR_index %>% pull(concentration),
+      concentration = RR_table[[RR_index]] %>% pull(concentration),
       endpoint = 'copd',
       agegroup = c('ALL', seq(25, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% fill(RR) %>% filter(agegroup != 'ALL')
   } else if (CR == "NO2") {
     expand_grid(
-      concentration = RR_index %>% pull(concentration),
+      concentration = RR_table[[RR_index]] %>% pull(concentration),
       endpoint = 'cause', #ALL CAUSE
       agegroup = c('ALL', seq(15, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% fill(RR) %>% filter(agegroup != 'ALL')
@@ -201,15 +248,71 @@ RR_std <- function(RR_index) {
   return(RR_reshape)
 }
 
+#' format mortality rate data 
+#'
+#' @param at the year/scenario name to choose
+#'
+#' @return data.frame, contains domain, endpoint name
+#'
+#' @examples
+getMortRate <- function(at) {
+  MortRate %>% mutate(endpoint = tolower(endpoint)) %>% 
+  select(domain, endpoint, agegroup, MortRate = {at})
+}
+
+#' get Conc_real data 
+#'
+#' @param at the year/scenario name to choose
+#'
+#' @return data.frame, contains x-y and the concentration
+#'
+#' @examples
+getConc_real <- function(at) {
+  Conc_real %>% select(x, y, concentration = {at})
+}
+
+#' get Conc_cf data 
+#'
+#' @param at the year/scenario name to choose
+#'
+#' @return data.frame, contains x-y and the concentration
+#'
+#' @examples
+getConc_cf <- function(at) {
+  Conc_cf %>% select(x, y, concentration = {at})
+}
+
+#' get Pop data 
+#'
+#' @param at the year/scenario name to choose
+#'
+#' @return data.frame, contains x-y and the population
+#'
+#' @examples
+getPop <- function(at) {
+  Pop %>% select(x, y, Pop = {at})
+}
+
+#' get AgeGroup data 
+#'
+#' @param at the year/scenario name to choose
+#'
+#' @return data.frame, contains x-y and the population
+#'
+#' @examples
+getAgeGroup <- function(at) {
+  AgeGroup %>% select(domain, agegroup, AgeStruc = {at})
+}
+
 #' Calculate gridded PM2.5 attributed mortality
 #'
 #' @param Grids a vector of grid coords
-#' @param Conc_r a 2-column `data.frame` stores real PM2.5 concentration of each grid
-#' @param Conc_c a 2-column `data.frame` stores virtual PM2.5 concentration of each grid, equals Conc_r at default
+#' @param Conc_r a 3-column `data.frame` stores real PM2.5 concentration of each grid
+#' @param Conc_c a 3-column `data.frame` stores virtual PM2.5 concentration of each grid, equals Conc_r at default
 #' @param ag proportions of 20 age-groups inside the population structure
 #' @param mRate the mortality rates of each endpoints and each age group
-#' @param pop a 2-column dataframe stores population volume of each grid
-#' @param RR the lookup-table of Concentration-Response functions of PM2.5 exposure
+#' @param pop a 3-column dataframe stores population volume of each grid
+#' @param RR param passed to `RR_std()`
 #' @param CR a character string instructs the name of the C-R function
 #'
 #' @return a table of death estimates for each endpoint & age-groups(columns) for every grids(rows)
@@ -223,14 +326,13 @@ Mortality <- function(Grids, Conc_r, Conc_c = NULL, ag, mRate, pop, RR, domain =
   
   RR_tbl <- RR_std(RR)
   
-  PWRR <- list(Grids, Conc_r, pop, RR_tbl) %>% reduce(left_join) %>% 
-    na.omit %>% group_by(!!as.name(domain)) %>% 
-    summarise(PWRR = weighted.mean(RR, Pop, na.rm = T)) 
+  PWRR <- list(Grids, Conc_r, pop, RR_tbl) %>% reduce(left_join) %>% na.omit %>% 
+    group_by(pick(domain)) %>% summarise(PWRR = weighted.mean(RR, Pop, na.rm = T)) 
   
   list(
     Grids, Conc_c, pop, RR_tbl,
-    mRate %>% rename(Country = domain),
-    ag %>% rename(Country = domain),
+    mRate %>% rename({{domain}} := domain),
+    ag %>% rename({{domain}} := domain),
     PWRR
   ) %>% 
     reduce(left_join) %>% na.omit %>% 
@@ -243,18 +345,52 @@ Mortality <- function(Grids, Conc_r, Conc_c = NULL, ag, mRate, pop, RR, domain =
   
 }
 
-Mortality_debug <- function(Grids, Conc_r, Conc_c = NULL, ag, mRate, pop, RR ) {
-  
-  if (is.null(Conc_c)) Conc_c <- Conc_r
-  
-  RR_tbl <- RR_std(RR)
-  
-  Grids %>% 
-    left_join(Conc_c) %>% 
-    left_join(pop) %>% 
-    left_join(RR_tbl) %>% 
-    left_join(mRate %>% rename(Country = domain)) %>% 
-    left_join(ag %>% rename(Country = domain))
+
+#' Calculate Attributable Mortality at a certain year/scenario
+#'
+#' @param at year/scenario
+#' @param RR RR branch
+#' @param domain grid domain
+#'
+#' @return 
+#' @export
+#'
+#' @examples
+Mortality_at <- function(at, RR = "MEAN", domain) {
+  Mortality(
+    Grids = Grid_info,
+    Conc_r = getConc_real(at),
+    Conc_c = NULL,
+    pop = getPop(at),
+    ag = getAgeGroup(at),
+    mRate = getMortRate(at),
+    RR = RR,
+    domain = domain
+  )
+}
+
+#' easy debug fun for mortality
+#'
+#' @param Grids 
+#' @param Conc_r 
+#' @param Conc_c 
+#' @param ag 
+#' @param mRate 
+#' @param pop 
+#' @param RR 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+Mortality_debug <- function(at, RR_index, domain = NULL) {
+
+  Grid_info %>% 
+    left_join(getConc_real(at)) %>% 
+    left_join(getPop(at)) %>% 
+    left_join(RR_std(RR_index)) %>% 
+    left_join(getMortRate(at) %>% rename({{domain}} := domain)) %>% 
+    left_join(getAgeGroup(at) %>% rename({{domain}} := domain))
   
 }
 
@@ -266,12 +402,19 @@ Mortality_debug <- function(Grids, Conc_r, Conc_c = NULL, ag, mRate, pop, RR ) {
 #' @param age_struc 分区年龄结构
 #' @param includeConc 浓度不确定性开关
 #' @param Conc_RMSE 浓度数据RMSE
+#' 
+#' @export
 #'
 #' @return 返回对应模式不同终端的汇总不确定性范围
 #'
 #' @examples
 Uncertainty <- function(PWE, aggr_pop, age_struc, m_Rate, 
                         includeConc = F, Conc_RMSE = 26.3) {
+  
+  if (includeConc) {
+    warning(str_glue("including uncentainty from concentration data, \\
+                     running at RMSE = {Conc_RMSE}."))
+  }
   
   PWE <- PWE %>% na.omit %>% 
     rename_with(~'domain', where(is.character)) %>% 
@@ -281,15 +424,15 @@ Uncertainty <- function(PWE, aggr_pop, age_struc, m_Rate,
     rename_with(~'domain', where(is.character))
   
   RR_base <- PWE %>% mutate(concentration = matchable(concentration, 1)) %>%
-    left_join(RR_std(RR_table[['MEAN']])) %>% 
+    left_join(RR_std('MEAN')) %>% 
     mutate(PAF_base = 1 - 1 / RR) %>% select(-concentration, -RR)
   
   RR_test_up <- PWE %>% mutate(concentration = matchable(concentration, 1)) %>%
-    left_join(RR_std(RR_table[['UP']])) %>%
+    left_join(RR_std('UP')) %>%
     mutate(PAF_test = 1 - 1 / RR) %>% select(-concentration, -RR)
   
   RR_test_low <- PWE %>% mutate(concentration = matchable(concentration, 1)) %>%
-    left_join(RR_std(RR_table[['LOW']])) %>% 
+    left_join(RR_std('LOW')) %>% 
     mutate(PAF_test = 1 - 1 / RR) %>% select(-concentration,-RR)
   
   test_PAF_up <- left_join(RR_base, RR_test_up) %>% 
@@ -309,7 +452,7 @@ Uncertainty <- function(PWE, aggr_pop, age_struc, m_Rate,
   if (includeConc) {
     test_PAF_up <- test_PAF_up %>% left_join(
       PWE %>% mutate(concentration = matchable(concentration + Conc_RMSE, 1)) %>%
-        left_join(RR_std(RR_table[['MEAN']])) %>% select(-concentration) %>% 
+        left_join(RR_std('MEAN')) %>% select(-concentration) %>% 
         mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% left_join(RR_base) %>% 
         mutate(varname = str_glue("test_Pollu_{domain}_Pollu_Pollu")) %>%
         pivot_wider(names_from = 'varname',values_from = 'PAF_test') %>%
@@ -321,7 +464,7 @@ Uncertainty <- function(PWE, aggr_pop, age_struc, m_Rate,
     test_PAF_low <- left_join(
       test_PAF_low,
       PWE %>% mutate(concentration = matchable(concentration - Conc_RMSE, 1)) %>%
-        left_join(RR_std(RR_table[['MEAN']])) %>% select(-concentration) %>% 
+        left_join(RR_std('MEAN')) %>% select(-concentration) %>% 
         mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% left_join(RR_base) %>% 
         mutate(varname = str_glue("test_Pollu_{domain}_Pollu_Pollu")) %>%
         pivot_wider(names_from = 'varname',values_from = 'PAF_test') %>%
@@ -393,13 +536,13 @@ Mort_Aggregate <- function(full_result,
         values_to = 'Mort',
         names_to = c('endpoint', 'agegroup'),
         names_sep = '_'
-      ) %>% group_by(x, y, !!as.name(by)) %>% summarise(Mort = sum(Mort)) %>%
+      ) %>% group_by(pick({domain}, {by})) %>%summarise(Mort = sum(Mort)) %>%
         ungroup %>% pivot_wider(names_from = by, values_from = 'Mort')
     )
   } else if (domain != 'Grid' & is.null(by)) {
     full_result %>% map(
       ~ left_join(.x, Grid_info) %>%
-        group_by(!!as.name(domain)) %>%
+        group_by(pick({domain})) %>%
         summarise(across(matches('_[1-9]?(0|5)$'), sum)) %>% ungroup
     )
   } else if (domain != 'Grid' & !is.null(by)) {
@@ -409,7 +552,7 @@ Mort_Aggregate <- function(full_result,
         names_to = c('endpoint', 'agegroup'),
         names_sep = '_',
         values_to = 'Mort'
-      ) %>% group_by(!!as.name(domain),!!as.name(by)) %>%
+      ) %>% group_by(pick({domain}, {by})) %>%
         summarise(Mort = sum(Mort)) %>% ungroup %>%
         pivot_wider(names_from = by, values_from = 'Mort')
     )
@@ -426,21 +569,18 @@ Mort_Aggregate <- function(full_result,
   CI <- if (domain == 'Grid') {
     full_result %>% map(~ Grid_info %>% select(x:y, any_of(c("Country", "Region", "Province"))))
   } else {
-    names(full_result) %>% set_names %>% 
-      map(function(year) Uncertainty(
-        ...,
-        m_Rate = mortrate_std(MortRate, year),
-        aggr_pop = Grid_info %>% left_join(Pop %>% select(x:y, Pop = !!year)) %>%
-          group_by(!!as.name(domain)) %>% summarise(Pop = sum(Pop, na.rm = T)) %>% na.omit,
-        age_struc = AgeGroup %>% select(domain, agegroup, AgeStruc = !!year),
-        PWE = list(
-          Grid_info, 
-          Conc_real %>% select(x:y, concentration = !!year), 
-          Pop %>% select(x:y, Pop = !!year)
-        ) %>% reduce(left_join) %>% na.omit %>% group_by(!!as.name(domain)) %>%
+    names(full_result) %>% set_names %>% map(~ Uncertainty(
+        #..., 
+        includeConc = F,
+        m_Rate = getMortRate(.x),
+        aggr_pop = Grid_info %>% left_join(getPop(.x)) %>%
+          group_by(pick({domain})) %>% summarise(Pop = sum(Pop, na.rm = T)) %>% na.omit,
+        age_struc = getAgeGroup(.x),
+        PWE = list(Grid_info, getConc_real(.x), getPop(.x)) %>% reduce(left_join) %>% 
+          na.omit %>% group_by(pick({domain})) %>%
           summarise(PWE = weighted.mean(as.numeric(concentration), Pop, na.rm = T)) 
       ) %>% rename_with(~ domain, where(is.character))
-      )
+    )
   }
   
   aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y)) %>% {

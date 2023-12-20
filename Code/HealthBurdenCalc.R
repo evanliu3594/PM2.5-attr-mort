@@ -23,7 +23,7 @@
 
 # Core functions load ----
 
-source('./Code/Core-dev.R', encoding = 'UTF8')
+source('./Code/Core.R', encoding = 'UTF8')
 
 # C-R Model setting ----
 # this section used to choose C-R Model for Health Impact Calculation.
@@ -40,27 +40,18 @@ read_files(
   Conc_real = './Data/check231219/GridO3.csv',
   Conc_cf = './Data/PM_Ctrl.csv',  # PM_cf works only in counter-fact scenario
   MortRate = "./Data/check231219/ISO_GBD2019_basemortal_country_2019.csv",
-  AgeGroup = './Data/check231219/ISO_GBD2019_agestructure_country_2015.csv'
+  AgeGroup = './Data/check231219/ISO_GBD2019_agestructure_country_2015.csv',
+  dgt_grid = 6
 )
 
 # Grid Full Result ----
 
 grid_full <- names(Conc_real)[c(-1:-2)] %>% set_names %>% 
-  map(~ Mortality(
-    Grids = Grid_info,
-    RR = RR_table$MEAN,
-    Conc_r = Conc_real %>% select(x:y, concentration = !!.x),
-    Conc_c = NULL,
-    pop = Pop %>% select(x:y, Pop = !!.x),
-    ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!.x),
-    mRate = mortrate_std(MortRate, .x),
-    domain = "Country"
-))
+  map(~  Mortality_at(at = .x, RR = "MEAN", domain = "Country"))
 
 # Grid Aggregation ----
  
 grid_aggr <- Mort_Aggregate(grid_full, domain = 'Grid', write = F)
-
 
 # the below 2 aggregation at grid level is time-hungry, not recommended.
 

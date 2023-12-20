@@ -1,5 +1,5 @@
 .Rhistory
-.Rproj.user/*
+/.Rproj.user
 Figure/*.png
 Figure/*.pdf
 Result/*.xlsx
