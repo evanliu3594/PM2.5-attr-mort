@@ -1,4 +1,6 @@
 .Rhistory
 .Rproj.user/*
-./Figure/*
-./Result/*
+./Figure/*.png
+./Figure/*.pdf
+./Result/*.xlsx
+./Result/*.csv
