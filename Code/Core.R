@@ -17,12 +17,12 @@ tell_Model <- function() {
     if (.CR_Model %>% str_detect('IER'))
       str_c(.CR_Model)
     else if (.CR_Model %in% c('5COD', 'NCD+LRI'))
-      str_c('PM2.5_GEMM', Model, sep = '_')
+      str_c('PM2.5_GEMM', .CR_Model, sep = '_')
     else if (.CR_Model == 'MRBRT')
-      str_c("PM2.5_", Model)
+      str_c("PM2.5_", .CR_Model)
     else if (.CR_Model == 'O3')
       str_c(.CR_Model) #新增
-    else if (Model == 'NO2')
+    else if (.CR_Model == 'NO2')
       str_c(.CR_Model) #新增
   )
 }
@@ -42,7 +42,7 @@ set_Model <- function(Model) {
     ))
   } else {
     warning(str_glue(
-      "an exogenous C-R function \"{Model}\" was specified, \\
+      "\"{Model}\" is not a bnuilt-in CR model, \\
       please provide a corrosponding `RR_table` after `read_file()`"
     ))
   }
@@ -77,14 +77,8 @@ matchable <- function(num, dgt = 1) {
 #' @export
 #'
 #' @examples
-read_files <- function(Grids,
-                       Pop,
-                       Conc_real,
-                       Conc_cf,
-                       MortRate,
-                       AgeGroup,
-                       dgt_grid = 2,
-                       dgt_conc = 1) {
+read_files <- function(Grids, Pop, Conc_real, Conc_cf, MortRate, AgeGroup, 
+                       dgt_grid = 2, dgt_conc = 1) {
   
   fuse_read <- function(filename) {
     if (str_detect(filename, 'csv$'))
@@ -167,9 +161,9 @@ read_files <- function(Grids,
     "RR_table", envir = globalenv(),
     if (is.na(CR_file)) NA_character_
     else expand_grid(excel_sheets(CR_file), CR_file) %>% deframe %>% 
-      imap( ~ read_excel(.x, sheet = .y) %>% 
-              mutate(across(where(is.numeric) & concentration, 
-                            ~ matchable(.x, dgt = dgt_conc))))
+      imap( ~ read_excel(.x, sheet = .y) %>% mutate(
+        across(where(is.numeric) & concentration, ~ matchable(.x, dgt = dgt_conc))
+      ))
   )
 }
 

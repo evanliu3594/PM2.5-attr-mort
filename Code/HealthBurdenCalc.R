@@ -30,18 +30,18 @@ source('./Code/Core.R', encoding = 'UTF8')
 # Supported C-R functions:  
 #              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'O3'
 
-set_Model('O3')
+set_Model('NCD+LRI')
 
 # Data load ----
 
 read_files(
-  Grids = './Data/check231219/Gridinfo.csv',
-  Pop = './Data/check231219/Gridpop.csv',
-  Conc_real = './Data/check231219/GridO3.csv',
+  Grids = './Data/GRID_information_instance_231220_iso.xlsx',
+  Pop = './Data/GridPop_instance_231220.xlsx',
+  Conc_real = './Data/GridPM25_instance_231220.xlsx',
   Conc_cf = './Data/PM_Ctrl.csv',  # PM_cf works only in counter-fact scenario
-  MortRate = "./Data/check231219/ISO_GBD2019_basemortal_country_2019.csv",
-  AgeGroup = './Data/check231219/ISO_GBD2019_agestructure_country_2015.csv',
-  dgt_grid = 6
+  MortRate = "./Data/GBD_mortality_instance_231220.xlsx",
+  AgeGroup = './Data/GBD_mortality_instance_231220.xlsx',
+  dgt_grid = 2
 )
 
 # Grid Full Result ----
@@ -70,8 +70,8 @@ grid_aggr <- Mort_Aggregate(grid_full, domain = 'Grid', write = F)
 
 # Nation Aggregation ----
 
-nation_aggr <- Mort_Aggregate(grid_full, domain = 'Country', includeConc = F)
+nation_aggr <- Mort_Aggregate(grid_full, domain = 'Country')
 
-nation_edpt <- Mort_Aggregate(grid_full, domain = 'Country', by = 'endpoint', includeConc = T, Conc_RMSE = 2)
+nation_edpt <- Mort_Aggregate(grid_full, domain = 'Country', by = 'endpoint', includeConc = T, Conc_RMSE = 10)
 
-nation_age <- Mort_Aggregate(grid_full, domain = 'Country', by = 'agegroup', Conc_sigma = .08)
+nation_age <- Mort_Aggregate(grid_full, domain = 'Country', by = 'agegroup', includeConc = T, Conc_RMSE = 10)
