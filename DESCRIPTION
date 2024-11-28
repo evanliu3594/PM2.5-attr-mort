@@ -1,0 +1,33 @@
+Package: AttrMort
+Type: Package
+Title: Attributing Mortality
+Description: usefull functions for calculating attributed mortality.
+Version: 0.0.1
+Author: 
+    person(given = "Yifan",
+           family = "LIU", role = c("aut", "cre"),
+           email = "yifan.liu@smail.nju.edu.cn", 
+           comment = c(ORCID = "0000-0002-7705-1987"))
+Maintainer: Yifan LIU <yifan.liu@smail.nju.edu.cn>
+URL: https://github.com/evanliu3594/PM2.5-attr-mort
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: TRUE
+RoxygenNote: 7.3.2
+Depends: 
+    R (>= 3.3)
+Imports:
+    dplyr,
+    forcats,
+    ggplot2,
+    lubridate,
+    purrr,
+    readr,
+    stringr,
+    tibble,
+    tidyr
+Suggests: 
+    knitr,
+    rmarkdown,
+    tidyverse
+VignetteBuilder: knitr

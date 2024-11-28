@@ -1,6 +1,14 @@
 # Genre
 This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theoretically, it also applies to other regions with corresponding population, pollution, and baseline mortality data.
 
+For several years, the project has been encapsulated in the form of Rproject, requiring the entire project folder to be cloned each time when used to ensure that the data format and output locations remain consistent. 
+
+This has caused significant inconvenience in flexibly applying the project's underlying methodology for calculating attributable mortality.
+
+In the latest pushed version, I have refactored the core code that this project relies on, allowing it to take advantage of the latest capabilities of the tidyverse packages. It has become more object-oriented and no longer strictly adheres to the initial design of grid-based computation, making it suitable for more flexible data resolutions.
+
+Moreover, installing a package is much more flexible than cloning the entire project—offering more adaptable function calls, more versatile update methods, and more flexible data imports.
+
 P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
 
 # Supported Researches
@@ -10,45 +18,66 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 
 3. Wang H, He X, Liang X, et al. Health benefits of on-road transportation pollution control programs in China[J]. Proceedings of the National Academy of Sciences, 2020, 117 (41): 25370-25377.
 
-# Usage
+# Installation
 
-1. Clone the repo and open it
+I've yet not considering putting this project into CRAN until it gets more well-functioned, so at present, it can only installed through github.
+```
+devtools::install_github("evanliu3594/PM2.5-attr-mort")    
+library(AttrMort)
+```
 
-2. Replace the sample data in `./Data/` with your customized ones: 
+# Data importing
+As I mentioned earlier, the functions in the `AttrMort` package accept a more flexible arrangement of data than before. 
+There is no longer a strict requirement for the input data to maintain a grid format of x-y. As long as the field data, population data, dose data, age structure data, and mortality data can be matched and combined according to some key columns, the calculations can be completed.
+This package includes some sample data. Please refer to the following for more information.
+```
+library(stringr)
+builtin_datas <- list.files(system.file('extdata', package = "AttrMort"), full.names = T)
 
-    - for estimations about China, you'll need to customize:
-        - the `GRID_information`, which stores the coordination and geophysical domain(e.g., countries, regions, provinces, cities, etc.) of each grid cell
-        - the `Grid_Pop`, which stores the population size (by column) of each grid cell
-        - the `Grid_*`, which stores the annual-average concentrations (by column) of each grid cell for pollution *.
+for (f in builtin_datas) {
+  nm <- basename(f) %>% str_extract(".+(?=\\.)")
+  assign(nm, readRDS(f))
+}
 
-    - for other regions, additional customize:
-        - the age structure data    
-        - the mortality rate data
-    - Note that all filenames shall be specified later in the `DataLoad` section in the `HealthBurdenCalc.R`.
+head(Grid_info)
+```
+# Calculating Attributable Mortality
+```{r}
+library(AttrMort)
 
-3. Open the `PM25-attr-mort.Rproj` file in Rstudio.
+set_Model("NCD+LRI")
 
-4. In script `HealthBurdenCalc.R`, specify filenames in the `DataLoad` section if data is customized.
+Mortality(
+  field = Grid_info %>% filter(location == "China"),
+  dose_real = get_at(Grid_PM25, scenario, "SSP1-Baseline_2030"),
+  pop = get_at(Grid_Pop, scenario, "SSP1-Baseline_2030"),
+  age = get_at(GBD_agestructure, scenario, "SSP1-Baseline_2030"),
+  mort = get_at(GBD_mortrate, scenario, "SSP1-Baseline_2030") %>% mutate(endpoint = tolower(endpoint))
+)
+```
+# Calculating Aggregated Attributable Mortality with uncertainty
 
-5. Run codes in `HealthBurdenCalc.R` by rows to calculate and summarise the result.
+```
+Mortality_Aggr(
+  field = Grid_info %>% filter(location == "China"),
+  dose_real = get_at(Grid_PM25, scenario, "base2015"),
+  pop = get_at(Grid_Pop, scenario, "base2015"),
+  age = get_at(GBD_agestructure, scenario, "base2015"),
+  mort = get_at(GBD_mortrate, scenario, "base2015") %>% mutate(endpoint = tolower(endpoint)),
+  doseRSME = 12, 
+  lvl = "location", 
+  uncertain = T
+)
+```
 
 # Changelog
-
 ## 1.0-release 
 The Initial published version of the PM25-attr-mort with a series of refined and easy-to-use functions to assess PM<sub>2.5</sub> health burden using the IER model.
-
 ## 2.0-release
 PM<sub>2.5</sub>-Attr-Mort v2.0 incorporated both GEMM and IER model in calculating the PM<sub>2.5</sub> health burden, by refering to different concentration-responce lookup-table.
-
 ## 3.0-release
 PM<sub>2.5</sub>-Attr-Mort v3.0 flushes the original linear algebra calculation with a more tidy-R grammar, which greatly improves the extensible of the scales of the model. 
-
 ## 4.0-release
 PM<sub>2.5</sub>-Attr-Mort v4.0 extends to international or other muiti-region scale calculation, and extends to O3 or NO<sub>2</sub> burden calculation, add MRBRT method CRF used by GBD2019.
-
-## 5.0-doing
-built-in population and mortality data, and warps to the pollution data grids flexibly, reduces data inputs.
-
-
-# Developer note
-I made the calculation process generalized to adopt to any attributable death estimations by applying the population table, incidence table, concentration table, and the concentration-correspondingly relative risk lookup table together.
+## 5.0-release
+Announce of the launch of AttrMort package

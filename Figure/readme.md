@@ -1,1 +1,0 @@
-this directory stores figures.
