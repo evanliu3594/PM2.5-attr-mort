@@ -1,4 +1,4 @@
-# Genre
+# Gener
 This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theoretically, it also applies to other regions with corresponding population, pollution, and baseline mortality data.
 
 For several years, the project has been encapsulated in the form of Rproject, requiring the entire project folder to be cloned each time when used to ensure that the data format and output locations remain consistent. 
