@@ -28,7 +28,7 @@ Mortality(
 
 \item{mort}{mortality data, a data.frame with column(s) of joining key(s) and a column of population}
 
-\item{lvl}{level of resolution, must corresponds to the `mort` data, if NULL, the calculations will be implement at no calibration on mort data.}
+\item{lvl}{level of resolution, must corresponds to the mort data, if NULL, the calculations will be implement at no calibration on mort data.}
 
 \item{RR}{param passed to `RR_std()`}
 }

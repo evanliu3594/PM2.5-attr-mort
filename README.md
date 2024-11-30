@@ -30,8 +30,10 @@ library(AttrMort)
 As I mentioned earlier, the functions in the `AttrMort` package accept a more flexible arrangement of data than before. 
 There is no longer a strict requirement for the input data to maintain a grid format of x-y. As long as the field data, population data, dose data, age structure data, and mortality data can be matched and combined according to some key columns, the calculations can be completed.
 This package includes some sample data. Please refer to the following for more information.
-```
-library(stringr)
+```{r}
+library(tidyverse)
+library(AttrMort) 
+
 builtin_datas <- list.files(system.file('extdata', package = "AttrMort"), full.names = T)
 
 for (f in builtin_datas) {
@@ -52,18 +54,19 @@ Mortality(
   dose_real = get_at(Grid_PM25, scenario, "SSP1-Baseline_2030"),
   pop = get_at(Grid_Pop, scenario, "SSP1-Baseline_2030"),
   age = get_at(GBD_agestructure, scenario, "SSP1-Baseline_2030"),
-  mort = get_at(GBD_mortrate, scenario, "SSP1-Baseline_2030") %>% mutate(endpoint = tolower(endpoint))
+  mort = get_at(GBD_mortrate, scenario, "SSP1-Baseline_2030"),
+  lvl = "location"
 )
 ```
 # Calculating Aggregated Attributable Mortality with uncertainty
 
-```
+```{r}
 Mortality_Aggr(
   field = Grid_info %>% filter(location == "China"),
   dose_real = get_at(Grid_PM25, scenario, "base2015"),
   pop = get_at(Grid_Pop, scenario, "base2015"),
   age = get_at(GBD_agestructure, scenario, "base2015"),
-  mort = get_at(GBD_mortrate, scenario, "base2015") %>% mutate(endpoint = tolower(endpoint)),
+  mort = get_at(GBD_mortrate, scenario, "base2015"),
   doseRSME = 12, 
   lvl = "location", 
   uncertain = T

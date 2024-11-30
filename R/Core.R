@@ -1,14 +1,6 @@
-# PM25 Health Impact Calc Core
-# By Yifan LIU 2021/05/15
-# Modify by Yifan LIU 2022/04/09
-# Modified By yifan liu on 23/12/19
-
-library(tidyverse)
-library(writexl)
-library(readxl)
-
 #' detect CRF model name and generate a name for file output
 #'
+#' @export
 #' @return formatted string of CRF name
 #'
 tell_Model <- function() {
@@ -126,8 +118,9 @@ RR_std <- function(index = "MEAN") {
       age = c('ALL', seq(0, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% 
       group_by(dose, endpoint) %>% fill(RR) %>% ungroup() %>% 
-      filter((str_detect(endpoint, 'copd|ihd|lc|stroke') & as.integer(age) >= 25) | 
-               (endpoint == 'lri' & as.integer(age) < 5)) 
+      filter(age != "ALL") %>% 
+      filter((str_detect(endpoint, 'copd|ihd|lc|stroke') & as.numeric(age) >= 25) | 
+               (endpoint == 'lri' & as.numeric(age) < 5)) 
     
   } else if (CR == 'MRBRT') {
     expand_grid(
@@ -136,8 +129,9 @@ RR_std <- function(index = "MEAN") {
       age = c('ALL', seq(0, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% 
       group_by(dose, endpoint) %>% fill(RR) %>% ungroup() %>% 
-      filter((str_detect(endpoint, 'copd|dm|ihd|lc|stroke') & as.integer(age) >= 25) | 
-               (endpoint == 'lri' & as.integer(age) < 5))
+      filter(age != "ALL") %>% 
+      filter((str_detect(endpoint, 'copd|dm|ihd|lc|stroke') & as.numeric(age) >= 25) |
+               (endpoint %in% 'lri' & as.numeric(age) < 5))
 
   } else if (CR == "O3") {
     expand_grid(
@@ -163,6 +157,7 @@ RR_std <- function(index = "MEAN") {
 #' @param where specify the scenario/year column
 #' @param at the year/scenario to choose
 #'
+#' @export
 #' @return data.frame, contains joining keys and the corrosponding data
 #'
 get_at <- function(x, where = scenario, at) {
@@ -177,8 +172,10 @@ get_at <- function(x, where = scenario, at) {
 #' @param pop population data, a data.frame with column(s) of joining key(s) and a column of population
 #' @param age population age-structure, a data.frame with column(s) of joining key(s) and a column of population
 #' @param mort mortality data, a data.frame with column(s) of joining key(s) and a column of population
-#' @param lvl level of resolution, must corresponds to the `mort` data, if NULL, the calculations will be implement at no calibration on mort data.
+#' @param lvl level of resolution, must corresponds to the mort data, if NULL, the calculations will be implement at no calibration on mort data.
 #' @param RR param passed to `RR_std()`
+#' 
+#' @export
 #'
 #' @return data.frame. death estimates for each endpoint & age-groups(columns) for every grids(rows)
 #'
@@ -205,13 +202,13 @@ Mortality <- function(field, dose_real, dose_cf = NULL, pop, age, mort, lvl = NU
         names_sep = '_',
         values_from = 'Mort'
       )
-  } else if (lvl %in%  names(mort)) {
+  } else if (lvl %in% names(mort)) {
     PWRR <- list(field, dose_real, pop, RR_tbl) %>% reduce(left_join) %>% na.omit %>% 
       group_by(pick(!!lvl)) %>% summarise(PWRR = weighted.mean(RR, pop, na.rm = T))
     
     list(field, dose_cf, pop, RR_tbl, mort, age, PWRR) %>% 
       reduce(left_join) %>% na.omit %>% 
-      mutate(Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5, .keep = 'unused') %>% 
+      mutate(Mort = pop * prop * mortrate * (RR - 1) / PWRR / 1e5, .keep = 'unused') %>% 
       pivot_wider(
         names_from = c('endpoint', 'age'),
         names_sep = '_',

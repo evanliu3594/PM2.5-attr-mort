@@ -1,10 +1,7 @@
 .Rhistory
-/.Rproj.user
-Data/check*
-Figure/*.png
-Figure/*.pdf
-Figure/*.zip
-Result/*.xlsx
-Result/*.csv
-Result/*.zip
+.RData
+.Rproj.user
 inst/doc
+.DS_Store
+.Rprofile
+.Renviron
