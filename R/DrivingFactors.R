@@ -292,22 +292,3 @@ Decomposition <- function(serie,
 
 }
 
-aggregate_drivers <- function(RUN24 = T, start.year = 'base2015', end.year = 'SSP1-Baseline_2030') {
-  
-  n <- if (RUN24) 1:24 else 1
-  
-  ls1 <- n %>% set_names() %>% map(
-    ~ Decomposition(serie = .x, start.y = start.year, end.y = end.year) %>% 
-      group_by(Country) %>% summarise(across(Start:End, sum))
-  )
-  
-  ls1[["Summary"]] <- ls1 %>% bind_rows %>% 
-    group_by(Country) %>% summarise(across(Start:End, mean)) 
-  
-  ls1 %>% write_xlsx(str_glue(
-    "./Result/{tell_CR()}_DrivingFactors\\
-    _{start.year}-{end.year}_\\
-    Build{format(Sys.Date(), '%y%m%d')}.xlsx"
-  ))
-}
-
