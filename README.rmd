@@ -1,13 +1,11 @@
 # General
 This project documents my current progress in evaluating the health burden of PM2.5 exposure globally.
 
-For several years, the project has been encapsulated in the form of Rproject, requiring the entire project folder to be cloned each time when used to ensure that the data format and output locations remain consistent. 
+For several years, the project was encapsulated as an R project, necessitating the cloning of the entire project folder each time it was used to ensure consistency in data formats and output locations. This approach posed significant challenges in the flexible application of the project's methodology for calculating attributable mortality.
 
-This has caused significant inconvenience in flexibly applying the project's underlying methodology for calculating attributable mortality.
+In the latest version I have released, I have refactored the core code upon which the project depends, enabling it to leverage the latest capabilities of the tidyverse packages. It now exhibits a more object-oriented design and no longer strictly follows the initial grid-based computation model, making it suitable for more flexible data resolutions.
 
-In the latest pushed version, I have refactored the core code that this project relies on, allowing it to take advantage of the latest capabilities of the tidyverse packages. It has become more object-oriented and no longer strictly adheres to the initial design of grid-based computation, making it suitable for more flexible data resolutions.
-
-Moreover, installing a package is much more flexible than cloning the entire project—offering more adaptable function calls, more versatile update methods, and more flexible data imports.
+Furthermore, installing a package offers greater flexibility than cloning the entire project. It allows for more adaptable function calls, more versatile update processes, and more flexible data import methods.
 
 P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
 
