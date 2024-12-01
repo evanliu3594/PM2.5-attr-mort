@@ -1,13 +1,11 @@
-# Gener
-This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theoretically, it also applies to other regions with corresponding population, pollution, and baseline mortality data.
+# General
+This project documents my current progress in evaluating the health burden of PM2.5 exposure globally.
 
-For several years, the project has been encapsulated in the form of Rproject, requiring the entire project folder to be cloned each time when used to ensure that the data format and output locations remain consistent. 
+For several years, the project was encapsulated as an R project, necessitating the cloning of the entire project folder each time it was used to ensure consistency in data formats and output locations. This approach posed significant challenges in the flexible application of the project's methodology for calculating attributable mortality.
 
-This has caused significant inconvenience in flexibly applying the project's underlying methodology for calculating attributable mortality.
+In the latest version I have released, I have refactored the core code upon which the project depends, enabling it to leverage the latest capabilities of the tidyverse packages. It now exhibits a more object-oriented design and no longer strictly follows the initial grid-based computation model, making it suitable for more flexible data resolutions.
 
-In the latest pushed version, I have refactored the core code that this project relies on, allowing it to take advantage of the latest capabilities of the tidyverse packages. It has become more object-oriented and no longer strictly adheres to the initial design of grid-based computation, making it suitable for more flexible data resolutions.
-
-Moreover, installing a package is much more flexible than cloning the entire project—offering more adaptable function calls, more versatile update methods, and more flexible data imports.
+Furthermore, installing a package offers greater flexibility than cloning the entire project. It allows for more adaptable function calls, more versatile update processes, and more flexible data import methods.
 
 P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
 
@@ -38,7 +36,7 @@ builtin_data <- list.files(system.file('extdata', package = "AttrMort"), full.na
 
 for (f in builtin_data) {
   nm <- basename(f) %>% str_extract(".+(?=\\.)")
-  assign(nm, read_csv(f,))
+  assign(nm, readxl::read_xlsx(f))
 }
 
 head(Grid_info)
@@ -46,13 +44,13 @@ head(Grid_info)
 # Calculation statement
 claim the Model to use in the next calculation.
 
-```
+```{R}
 set_Model("NCD+LRI")
 ```
 
 # Calculating Attributable Mortality
-```{r}
 
+```{r}
 Mortality(
   field = Grid_info %>% filter(location == "China"),
   dose_real = get_at(Grid_PM25, scenario, "base2015"),
@@ -65,18 +63,29 @@ Mortality(
 # Calculating Aggregated Attributable Mortality with uncertainty
 
 ```{r}
-
 Mortality_Aggr(
   field = Grid_info %>% filter(location == "China"),
   dose_real = get_at(Grid_PM25, scenario, "base2015"),
   pop = get_at(Grid_Pop, scenario, "base2015"),
   age = get_at(GBD_agestructure, scenario, "base2015"),
   mort = get_at(GBD_mortrate, scenario, "base2015"),
-  doseRSME = 12, 
+  doseRSME = 24, 
   lvl = "location", 
   uncertain = T
 )
 ```
+
+# Calculate the driving force of Attributable Mortality
+
+```{r}
+Decomposition(
+  serie = 1, 
+  G = Grid_info %>% filter(location == "China"),
+  D = Grid_PM25, P = Grid_Pop, A = GBD_agestructure, M = GBD_mortrate, L = "location", 
+  key = scenario, from = "base2015", to = "SSP1-Baseline_2030"
+)
+```
+
 
 # Changelog
 ## 1.0-release 
