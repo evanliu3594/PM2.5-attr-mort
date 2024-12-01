@@ -181,9 +181,11 @@ get_at <- function(x, where = scenario, at) {
 #'
 Mortality <- function(field, dose_real, dose_cf = NULL, pop, age, mort, lvl = NULL, RR = "MEAN") {
   
-  dose_real <- dose_real %>%  mutate(across(c(is.numeric & dose), ~ matchable(.x, 1)))
+  dose_real <- dose_real %>% mutate(across(c(is.numeric & dose), ~ matchable(.x, 1)))
   
-  if (is.null(dose_cf)) dose_cf <- dose_real
+  dose_cf <- if (is.null(dose_cf)) dose_real else {
+    dose_cf %>% mutate(across(c(is.numeric & dose), ~ matchable(.x, 1)))
+  }
     
   RR_tbl <- RR_std(RR)
   
@@ -195,25 +197,29 @@ Mortality <- function(field, dose_real, dose_cf = NULL, pop, age, mort, lvl = NU
   
   if (is.null(lvl)) {
     list(field, dose_real, RR_tbl, age, mort, pop) %>% 
-      reduce(left_join) %>% na.omit %>% 
-      mutate(Mort = pop * prop * mortrate * (RR - 1) / RR / 1e5, .keep = 'unused') %>% 
+      reduce(left_join) %>% select(-dose) %>% na.omit %>% 
+      mutate(M = pop * prop * mortrate, .keep = 'unused') %>% 
+      mutate(AttrMort = M * (RR - 1) / PWRR / 1e5, .keep = 'unused') %>% 
       pivot_wider(
         names_from = c('endpoint', 'age'),
         names_sep = '_',
-        values_from = 'Mort'
+        values_from = 'AttrMort'
       )
+    
   } else if (lvl %in% names(mort)) {
     PWRR <- list(field, dose_real, pop, RR_tbl) %>% reduce(left_join) %>% na.omit %>% 
       group_by(pick(!!lvl)) %>% summarise(PWRR = weighted.mean(RR, pop, na.rm = T))
     
     list(field, dose_cf, pop, RR_tbl, mort, age, PWRR) %>% 
-      reduce(left_join) %>% na.omit %>% 
-      mutate(Mort = pop * prop * mortrate * (RR - 1) / PWRR / 1e5, .keep = 'unused') %>% 
+      reduce(left_join) %>% select(-dose) %>% na.omit %>% 
+      mutate(M = pop * prop * mortrate, .keep = 'unused') %>% 
+      mutate(AttrMort = M * (RR - 1) / PWRR / 1e5, .keep = 'unused') %>% 
       pivot_wider(
         names_from = c('endpoint', 'age'),
         names_sep = '_',
-        values_from = 'Mort'
+        values_from = 'AttrMort'
       )
+    
   } else {
     warning("`lvl` is not the key of any field, calculation will regard the field as one")
     
@@ -222,14 +228,14 @@ Mortality <- function(field, dose_real, dose_cf = NULL, pop, age, mort, lvl = NU
       summarise(PWRR = weighted.mean(RR, pop, na.rm = T)) %>% ungroup()
     
     list(field, pop, mort, age) %>% 
-      reduce(left_join) %>% group_by(endpoint, age) %>% 
-      summarise(mort = sum(pop * prop * mortrate / 1E5, na.rm = T)) %>% 
+      reduce(left_join) %>% select(-dose) %>% group_by(endpoint, age) %>% 
+      summarise(M = sum(pop * prop * mortrate / 1E5, na.rm = T)) %>% 
       ungroup() %>% left_join(PWRR) %>% na.omit() %>% 
-      mutate(Mort = mort * (1 - 1 / PWRR), .keep = "unused") %>%
+      mutate(AttrMort = M * (1 - 1 / PWRR), .keep = "unused") %>%
       pivot_wider(
         names_from = c('endpoint', 'age'),
         names_sep = '_',
-        values_from = 'Mort'
+        values_from = 'AttrMort'
       )
   }
 }

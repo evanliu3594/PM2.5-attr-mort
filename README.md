@@ -34,33 +34,38 @@ This package includes some sample data. Please refer to the following for more i
 library(tidyverse)
 library(AttrMort) 
 
-builtin_datas <- list.files(system.file('extdata', package = "AttrMort"), full.names = T)
+builtin_data <- list.files(system.file('extdata', package = "AttrMort"), full.names = T)
 
-for (f in builtin_datas) {
+for (f in builtin_data) {
   nm <- basename(f) %>% str_extract(".+(?=\\.)")
-  assign(nm, readRDS(f))
+  assign(nm, read_csv(f,))
 }
 
 head(Grid_info)
 ```
+# Calculation statement
+claim the Model to use in the next calculation.
+
+```
+set_Model("NCD+LRI")
+```
+
 # Calculating Attributable Mortality
 ```{r}
-library(AttrMort)
-
-set_Model("NCD+LRI")
 
 Mortality(
   field = Grid_info %>% filter(location == "China"),
-  dose_real = get_at(Grid_PM25, scenario, "SSP1-Baseline_2030"),
-  pop = get_at(Grid_Pop, scenario, "SSP1-Baseline_2030"),
-  age = get_at(GBD_agestructure, scenario, "SSP1-Baseline_2030"),
-  mort = get_at(GBD_mortrate, scenario, "SSP1-Baseline_2030"),
+  dose_real = get_at(Grid_PM25, scenario, "base2015"),
+  pop = get_at(Grid_Pop, scenario, "base2015"),
+  age = get_at(GBD_agestructure, scenario, "base2015"),
+  mort = get_at(GBD_mortrate, scenario, "base2015"),
   lvl = "location"
 )
 ```
 # Calculating Aggregated Attributable Mortality with uncertainty
 
 ```{r}
+
 Mortality_Aggr(
   field = Grid_info %>% filter(location == "China"),
   dose_real = get_at(Grid_PM25, scenario, "base2015"),

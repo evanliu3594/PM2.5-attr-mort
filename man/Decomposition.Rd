@@ -4,10 +4,10 @@
 \alias{Decomposition}
 \title{Decomposition of attributed deaths}
 \usage{
-Decomposition(serie, G, D_r, D_c = NULL, P, A, M, L = NULL, key, from, to)
+Decomposition(serie, G, D, P, A, M, L = NULL, key, from, to)
 }
 \arguments{
-\item{serie}{# Calc Steps for Each Series:
+\item{serie}{Calculate Series, listed as follows:
 1. PG-PA-EXP-ORF
 2. PG-PA-ORF-EXP
 3. PG-EXP-PA-ORF
@@ -35,9 +35,7 @@ Decomposition(serie, G, D_r, D_c = NULL, P, A, M, L = NULL, key, from, to)
 
 \item{G}{refers to `field` in `Mortality()`}
 
-\item{D_r}{refers to `dose_real` in `Mortality()`}
-
-\item{D_c}{refers to `dose_cf` in `Mortality()`}
+\item{D}{refers to `dose_cf` in `Mortality()`}
 
 \item{P}{refers to `pop` in `Mortality()`}
 
@@ -47,11 +45,11 @@ Decomposition(serie, G, D_r, D_c = NULL, P, A, M, L = NULL, key, from, to)
 
 \item{L}{refers to `lvl` in `Mortality()`}
 
-\item{key}{name of key storing the scenario/year information}
-
 \item{from}{scenario/year when the driving space start}
 
 \item{to}{scenario/year when the driving space end}
+
+\item{{{key}}}{name of {{key}} storing the scenario/year information}
 }
 \value{
 a data.frame of decomposed attributed deaths
@@ -60,5 +58,8 @@ a data.frame of decomposed attributed deaths
 Decomposition of attributed deaths
 }
 \examples{
-1:24 \%>\% map(~ Decomposition(serie = .x, start.y = 'base2015', end.y = 'SSP1-Baseline_2030'))
+1:24 \%>\% map(~ Decomposition(serie = .x, G = ))
+
+
+
 }

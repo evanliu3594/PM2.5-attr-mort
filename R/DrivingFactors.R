@@ -1,6 +1,6 @@
 #' Decomposition of attributed deaths
 #'
-#' @param serie   # Calc Steps for Each Series:
+#' @param serie Calculate Series, listed as follows:
 #' 1. PG-PA-EXP-ORF
 #' 2. PG-PA-ORF-EXP
 #' 3. PG-EXP-PA-ORF
@@ -26,24 +26,24 @@
 #' 23. ORF-EXP-PG-PA
 #' 24. ORF-EXP-PA-PG
 #' @param G refers to `field` in `Mortality()` 
-#' @param D_r refers to `dose_real` in `Mortality()` 
-#' @param D_c refers to `dose_cf` in `Mortality()` 
+#' @param D refers to `dose_real` in `Mortality()` 
+#' @param D refers to `dose_cf` in `Mortality()` 
 #' @param P refers to `pop` in `Mortality()` 
 #' @param A refers to `age` in `Mortality()` 
 #' @param M refers to `mort` in `Mortality()` 
 #' @param L refers to `lvl` in `Mortality()`
-#' @param key name of key storing the scenario/year information
+#' @param {{key}} name of {{key}} storing the scenario/year information
 #' @param from scenario/year when the driving space start
 #' @param to scenario/year when the driving space end
 #'
 #' @return a data.frame of decomposed attributed deaths
 #' @export
 #'
-#' @examples 1:24 %>% map(~ Decomposition(serie = .x, start.y = 'base2015', end.y = 'SSP1-Baseline_2030'))
-Decomposition <- function(serie,
-                          G, D_r, D_c = NULL,
-                          P, A, M, L = NULL,
-                          key, from, to) {
+#' @examples 1:24 %>% map(~ Decomposition(serie = .x, G = ))
+#' 
+#' 
+#' 
+Decomposition <- function(serie, G, D, P, A, M, L = NULL, key, from, to) {
   
   serie.step <- expand_grid(
     step1 = c('PA','PG','EXP','ORF'), step2 = c('PA','PG','EXP','ORF'),
@@ -51,19 +51,17 @@ Decomposition <- function(serie,
   ) %>% filter(
     step1 != step2 & step2 != step3 & step3 != step4 & 
     step4 != step1 & step1 != step3 & step2 != step4
-  ) %>% slice(serie) %>% unlist
-  
-  D_c <- if (is.null(D_c)) D_r
+  ) %>% slice(serie) %>% unlist()
   
   Decomp <- list(
     # Mort.Start ----
     Mort_0 = Mortality(
       field = G, 
-      dose_cf = get_at(D_c, key, from),
-      pop = get_at(p, key, from), 
-      age = get_at(A, key, from), 
-      dose_real = get_at(D_r, key, from), 
-      mort = get_at(M, key, from),
+      dose_cf = get_at(D, {{key}}, from),
+      pop = get_at(P, {{key}}, from), 
+      age = get_at(A, {{key}}, from), 
+      dose_real = get_at(D, {{key}}, from), 
+      mort = get_at(M, {{key}}, from),
       lvl = L,
       RR = "MEAN"
     ),
@@ -71,11 +69,11 @@ Decomposition <- function(serie,
     Mort_1 = if (serie.step[1] == 'PG') {
       Mortality(
         field = G,
-        dose_cf = get_at(D_c, key, from),
-        pop = get_at(P, key, to),
-        age = get_at(A, key, from),
-        dose_real = get_at(D_r, key, from),
-        mort = get_at(M, key, from),
+        dose_cf = get_at(D, {{key}}, from),
+        pop = get_at(P, {{key}}, to),
+        age = get_at(A, {{key}}, from),
+        dose_real = get_at(D, {{key}}, from),
+        mort = get_at(M, {{key}}, from),
         lvl = L,
         RR = "MEAN"
       )
@@ -83,11 +81,11 @@ Decomposition <- function(serie,
     } else if (serie.step[1] == 'PA') {
       Mortality(
         field = G,
-        dose_cf = get_at(D_c, key, from),
-        pop = get_at(P, key, from),
-        age = get_at(A, key, to),
-        dose_real = get_at(D_r, key, from),
-        mort = get_at(M, key, from),
+        dose_cf = get_at(D, {{key}}, from),
+        pop = get_at(P, {{key}}, from),
+        age = get_at(A, {{key}}, to),
+        dose_real = get_at(D, {{key}}, from),
+        mort = get_at(M, {{key}}, from),
         lvl = L,
         RR = "MEAN"
       )
@@ -95,11 +93,11 @@ Decomposition <- function(serie,
     } else if (serie.step[1] == 'EXP') {
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, to),
-        pop = get_at(p, key, from), 
-        age = get_at(A, key, from), 
-        dose_real = get_at(D_r, key, from), 
-        mort = get_at(M, key, from),
+        dose_cf = get_at(D, {{key}}, to),
+        pop = get_at(P, {{key}}, from), 
+        age = get_at(A, {{key}}, from), 
+        dose_real = get_at(D, {{key}}, from), 
+        mort = get_at(M, {{key}}, from),
         lvl = L,
         RR = "MEAN"
       )
@@ -107,11 +105,11 @@ Decomposition <- function(serie,
     } else if (serie.step[1] == 'ORF') {
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, from),
-        pop = get_at(p, key, from), 
-        age = get_at(A, key, from), 
-        dose_real = get_at(D_r, key, to), 
-        mort = get_at(M, key, to),
+        dose_cf = get_at(D, {{key}}, from),
+        pop = get_at(P, {{key}}, from), 
+        age = get_at(A, {{key}}, from), 
+        dose_real = get_at(D, {{key}}, to), 
+        mort = get_at(M, {{key}}, to),
         lvl = L,
         RR = "MEAN"
       )
@@ -122,11 +120,11 @@ Decomposition <- function(serie,
       # PG  PA
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, from),
-        pop = get_at(p, key, to), 
-        age = get_at(A, key, to), 
-        dose_real = get_at(D_r, key, from), 
-        mort = get_at(M, key, from),
+        dose_cf = get_at(D, {{key}}, from),
+        pop = get_at(P, {{key}}, to), 
+        age = get_at(A, {{key}}, to), 
+        dose_real = get_at(D, {{key}}, from), 
+        mort = get_at(M, {{key}}, from),
         lvl = L,
         RR = "MEAN"
       )
@@ -135,11 +133,11 @@ Decomposition <- function(serie,
       #  PG  EXP
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, to),
-        pop = get_at(p, key, from), 
-        age = get_at(A, key, to), 
-        dose_real = get_at(D_r, key, from), 
-        mort = get_at(M, key, from),
+        dose_cf = get_at(D, {{key}}, to),
+        pop = get_at(P, {{key}}, from), 
+        age = get_at(A, {{key}}, to), 
+        dose_real = get_at(D, {{key}}, from), 
+        mort = get_at(M, {{key}}, from),
         lvl = L,
         RR = "MEAN"
       )
@@ -148,11 +146,11 @@ Decomposition <- function(serie,
       #  PG  ORF
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, from),
-        pop = get_at(p, key, to), 
-        age = get_at(A, key, from), 
-        dose_real = get_at(D_r, key, to), 
-        mort = get_at(M, key, to),
+        dose_cf = get_at(D, {{key}}, from),
+        pop = get_at(P, {{key}}, to), 
+        age = get_at(A, {{key}}, from), 
+        dose_real = get_at(D, {{key}}, to), 
+        mort = get_at(M, {{key}}, to),
         lvl = L,
         RR = "MEAN"
       )
@@ -161,11 +159,11 @@ Decomposition <- function(serie,
       #  PA  EXP
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, to),
-        pop = get_at(p, key, from), 
-        age = get_at(A, key, to), 
-        dose_real = get_at(D_r, key, from), 
-        mort = get_at(M, key, from),
+        dose_cf = get_at(D, {{key}}, to),
+        pop = get_at(P, {{key}}, from), 
+        age = get_at(A, {{key}}, to), 
+        dose_real = get_at(D, {{key}}, from), 
+        mort = get_at(M, {{key}}, from),
         lvl = L,
         RR = "MEAN"
       )
@@ -174,11 +172,11 @@ Decomposition <- function(serie,
       #  PA  ORF
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, from),
-        pop = get_at(p, key, from), 
-        age = get_at(A, key, to), 
-        dose_real = get_at(D_r, key, to), 
-        mort = get_at(M, key, to),
+        dose_cf = get_at(D, {{key}}, from),
+        pop = get_at(P, {{key}}, from), 
+        age = get_at(A, {{key}}, to), 
+        dose_real = get_at(D, {{key}}, to), 
+        mort = get_at(M, {{key}}, to),
         lvl = L,
         RR = "MEAN"
       )
@@ -187,11 +185,11 @@ Decomposition <- function(serie,
       #  EXP ORF
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, to),
-        pop = get_at(p, key, from), 
-        age = get_at(A, key, from), 
-        dose_real = get_at(D_r, key, to), 
-        mort = get_at(M, key, to),
+        dose_cf = get_at(D, {{key}}, to),
+        pop = get_at(P, {{key}}, from), 
+        age = get_at(A, {{key}}, from), 
+        dose_real = get_at(D, {{key}}, to), 
+        mort = get_at(M, {{key}}, to),
         lvl = L,
         RR = "MEAN"
       )
@@ -202,11 +200,11 @@ Decomposition <- function(serie,
       # PG PA EXP
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, to),
-        pop = get_at(p, key, to), 
-        age = get_at(A, key, to), 
-        dose_real = get_at(D_r, key, from), 
-        mort = get_at(M, key, from),
+        dose_cf = get_at(D, {{key}}, to),
+        pop = get_at(P, {{key}}, to), 
+        age = get_at(A, {{key}}, to), 
+        dose_real = get_at(D, {{key}}, from), 
+        mort = get_at(M, {{key}}, from),
         lvl = L,
         RR = "MEAN"
       )
@@ -215,11 +213,11 @@ Decomposition <- function(serie,
       # PG  PA ORF
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, from),
-        pop = get_at(p, key, to), 
-        age = get_at(A, key, to), 
-        dose_real = get_at(D_r, key, to), 
-        mort = get_at(M, key, to),
+        dose_cf = get_at(D, {{key}}, from),
+        pop = get_at(P, {{key}}, to), 
+        age = get_at(A, {{key}}, to), 
+        dose_real = get_at(D, {{key}}, to), 
+        mort = get_at(M, {{key}}, to),
         lvl = L,
         RR = "MEAN"
       )
@@ -228,11 +226,11 @@ Decomposition <- function(serie,
       #  PG	EXP	ORF
       Mortality(
         field = G, 
-        dose_cf = get_at(D_c, key, to),
-        pop = get_at(p, key, to), 
-        age = get_at(A, key, from), 
-        dose_real = get_at(D_r, key, to), 
-        mort = get_at(M, key, to),
+        dose_cf = get_at(D, {{key}}, to),
+        pop = get_at(P, {{key}}, to), 
+        age = get_at(A, {{key}}, from), 
+        dose_real = get_at(D, {{key}}, to), 
+        mort = get_at(M, {{key}}, to),
         lvl = L,
         RR = "MEAN"
       )
@@ -241,11 +239,11 @@ Decomposition <- function(serie,
       #  PA	EXP	ORF
       Mortality(
         field = G, 
-        dose_real = get_at(D_r, key, to), 
-        dose_cf = get_at(D_c, key, to),
-        pop = get_at(p, key, from), 
-        age = get_at(A, key, to), 
-        mort = get_at(M, key, to),
+        dose_real = get_at(D, {{key}}, to), 
+        dose_cf = get_at(D, {{key}}, to),
+        pop = get_at(P, {{key}}, from), 
+        age = get_at(A, {{key}}, to), 
+        mort = get_at(M, {{key}}, to),
         lvl = L,
         RR = "MEAN"
       )
@@ -254,11 +252,11 @@ Decomposition <- function(serie,
     # Mort.End ----
     Mort_4 = Mortality(
       field = G, 
-      dose_cf = get_at(D_c, key, to),
-      pop = get_at(p, key, to), 
-      age = get_at(A, key, to), 
-      dose_real = get_at(D_r, key, to), 
-      mort = get_at(M, key, to),
+      dose_cf = get_at(D, {{key}}, to),
+      pop = get_at(P, {{key}}, to), 
+      age = get_at(A, {{key}}, to), 
+      dose_real = get_at(D, {{key}}, to), 
+      mort = get_at(M, {{key}}, to),
       lvl = L,
       RR = "MEAN"
     )
@@ -269,7 +267,8 @@ Decomposition <- function(serie,
     .x %>% pivot_longer(
       matches("[05]$"), names_to = "Cause_Age",values_to = 'Mort'
     ) %>% mutate(Step = .y)
-  }) %>% pivot_wider(names_from = 'Step', values_from = 'Mort') %>% mutate(
+  }) %>% list_rbind() %>% 
+    pivot_wider(names_from = 'Step', values_from = 'Mort') %>% mutate(
     Start = Mort_0,
     !!serie.step[1] := Mort_1 - Mort_0,
     !!serie.step[2] := Mort_2 - Mort_1,
@@ -281,7 +280,7 @@ Decomposition <- function(serie,
   
   # Print Result ----
   {
-    cat(str_c('Drivers Between', start.y, 'and', end.y, ':\n', sep = ' '))
+    cat(str_c('Drivers Between', from, 'and', to, ':\n', sep = ' '))
     cat(str_c(serie.step[1], ':\t', sum(Decomp %>% pull(PA) %>% sum %>% round)),'\n')
     cat(str_c(serie.step[2], ':\t', sum(Decomp %>% pull(PG) %>% sum %>% round)),'\n')
     cat(str_c(serie.step[3], ':\t', sum(Decomp %>% pull(EXP) %>% sum %>% round)),'\n')
