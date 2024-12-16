@@ -266,7 +266,7 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
   }
   
   if (is.null(aggr_by)) 
-    warning("`aggr_by` set to NULL, output will aggregate both age and caouse.")
+    warning("`aggr_by` set to NULL, output will aggregate both age and cause.")
   else if (!aggr_by %in% names(mort)) {
     stop("supplied `aggr_by` not found in the mortality data.")
   }
@@ -289,7 +289,7 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
     mutate(PAF = 1 - 1 / RR) %>% select(-dose, -RR)
   
   AttrMort <- left_join(PAF, Mort) %>% mutate(AM = M * PAF, .keep = "unused") %>% 
-    group_by(domain, pick(!!aggr_by)) %>% summarise(AM = sum(AM)) %>% ungroup()
+    group_by(domain, pick(!!aggr_by)) %>% summarise(AM = sum(AM, na.rm = TRUE)) %>% ungroup()
 
   if (uncertain) {
     
@@ -368,9 +368,9 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
     
     CI <- left_join(
       left_join(Sensi_up, test_sigma_up) %>% group_by(domain, pick(!!aggr_by)) %>%
-        summarise(CI_UP = sqrt(sum(Sensi ^ 2 * sigma ^ 2))) %>% ungroup(),
+        summarise(CI_UP = sqrt(sum(Sensi ^ 2 * sigma ^ 2, na.rm = T))) %>% ungroup(),
       left_join(Sensi_low, test_sigma_low) %>% group_by(domain, pick(!!aggr_by)) %>%
-        summarise(CI_LOW = sqrt(sum(Sensi ^ 2 * sigma ^ 2))) %>% ungroup()
+        summarise(CI_LOW = sqrt(sum(Sensi ^ 2 * sigma ^ 2, na.rm = T))) %>% ungroup()
     )
     
     AttrMort <- left_join(AttrMort, CI)
