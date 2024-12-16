@@ -256,7 +256,7 @@ Mortality <- function(field, dose_real, dose_cf = NULL, pop, age, mort, lvl = NU
 #' @return the aggregated burden
 #' @export
 #'
-Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, doseRSME = 0,
+Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, doseUncert = 0,
                            lvl = NULL, aggr_by = NULL, uncertain = F, write = T) {
   
   if (is.null(lvl)) {
@@ -288,8 +288,10 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
     left_join(RR_std('MEAN'), relationship = "many-to-many") %>% 
     mutate(PAF = 1 - 1 / RR) %>% select(-dose, -RR)
   
-  AttrMort <- left_join(PAF, Mort) %>% mutate(AM = M * PAF, .keep = "unused") %>% 
-    group_by(domain, pick(!!aggr_by)) %>% summarise(AM = sum(AM, na.rm = TRUE)) %>% ungroup()
+  AttrMort <- left_join(PAF, Mort) %>% 
+    mutate(AM = M * PAF, .keep = "unused") %>% 
+    group_by(domain, pick(!!aggr_by)) %>% 
+    summarise(AM = sum(AM, na.rm = TRUE)) %>% ungroup()
 
   if (uncertain) {
     
@@ -305,9 +307,9 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
       mutate(varname = paste("test_CR", domain, endpoint, age, sep = "_")) %>% 
       pivot_wider(names_from = 'varname',values_from = 'PAF_test')
     
-    if (doseRSME >= 0) {
+    if (doseUncert >= 0) {
       PAF_up <- PAF_up %>% left_join(
-        PWE %>% mutate(dose = matchable(dose + doseRSME, 1)) %>% 
+        PWE %>% mutate(dose = matchable(dose * (1 + doseUncert), 1)) %>% 
           left_join(RR_std('MEAN'), relationship = "many-to-many") %>% 
           select(-dose) %>% mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% 
           mutate(varname = paste("test_Pollu", domain, "Pollu_Pollu", sep = "_")) %>% 
@@ -315,7 +317,7 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
       )
       
       PAF_low <- PAF_low %>% left_join(
-        PWE %>% mutate(dose = matchable(pmax(dose - doseRSME, 0), 1)) %>% 
+        PWE %>% mutate(dose = matchable(pmax(dose * (1 - doseUncert), 0), 1)) %>% 
           left_join(RR_std('MEAN'), relationship = "many-to-many") %>% 
           select(-dose) %>% mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% 
           mutate(varname = paste("test_Pollu", domain, "Pollu_Pollu", sep = "_")) %>% 

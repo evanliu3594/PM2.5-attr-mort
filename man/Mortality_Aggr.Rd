@@ -11,7 +11,7 @@ Mortality_Aggr(
   pop,
   age,
   mort,
-  doseRSME = 0,
+  doseUncert = 0,
   lvl = NULL,
   aggr_by = NULL,
   uncertain = F,
@@ -31,13 +31,13 @@ Mortality_Aggr(
 
 \item{mort}{mortality data, a data.frame with column(s) of joining key(s) and a column of population}
 
-\item{doseRSME}{uncertainty of dose data}
-
 \item{lvl}{the aggregate level, corresponds to the field's keys, string.}
 
 \item{aggr_by}{additional keys to aggregate, age (group) or endpoint}
 
 \item{uncertain}{incorporate uncertainty calculation in aggregation}
+
+\item{doseRSME}{uncertainty of dose data}
 }
 \value{
 the aggregated burden
