@@ -125,12 +125,12 @@ RR_std <- function(index = "MEAN") {
   } else if (CR == 'MRBRT') {
     expand_grid(
       dose = RR[[index]] %>% pull(dose),
-      endpoint = c('copd', 'dm', 'ihd', 'lc', 'lri', 'stroke'),
+      endpoint = c('copd', 'dm2', 'ihd', 'lc', 'lri', 'stroke'),
       age = c('ALL', seq(0, 95, 5) %>% matchable(0))
     ) %>% left_join(RR_tbl) %>% 
       group_by(dose, endpoint) %>% fill(RR) %>% ungroup() %>% 
       filter(age != "ALL") %>% 
-      filter((str_detect(endpoint, 'copd|dm|ihd|lc|stroke') & as.numeric(age) >= 25) |
+      filter((str_detect(endpoint, 'copd|dm2|ihd|lc|stroke') & as.numeric(age) >= 25) |
                (endpoint %in% 'lri' & as.numeric(age) < 5))
 
   } else if (CR == "O3") {
