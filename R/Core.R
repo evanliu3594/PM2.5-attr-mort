@@ -273,16 +273,16 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
   
   if (is.null(dose_cf)) dose_cf <- dose_real
 
-  PWE <- list(field, dose_real, pop) %>% reduce(left_join) %>% 
+  PWE <- list(field, dose_real, pop) %>% reduce(left_join) %>% na.omit() %>% 
     rename_with(~"domain", !!lvl) %>% group_by(domain) %>% 
-    summarise(dose = weighted.mean(as.numeric(dose), pop, na.rm = T)) %>% 
-    ungroup() %>% na.omit()
+    summarise(dose = weighted.mean(as.numeric(dose), pop)) %>% 
+    ungroup()
   
-  Mort <- list(field, pop, age, mort) %>% reduce(left_join) %>% 
+  Mort <- list(field, pop, age, mort) %>% reduce(left_join) %>% na.omit() %>% 
     rename_with(~"domain", !!lvl) %>% 
     mutate(M = pop * prop * mortrate / 1e5, endpoint = tolower(endpoint)) %>% 
-    group_by(domain, age, endpoint) %>% summarise(M = sum(M, na.rm = T)) %>%
-    ungroup() %>% na.omit()
+    group_by(domain, age, endpoint) %>% summarise(M = sum(M)) %>%
+    ungroup()
   
   PAF <- PWE %>% mutate(dose = matchable(dose, 1)) %>% 
     left_join(RR_std('MEAN'), relationship = "many-to-many") %>% 
