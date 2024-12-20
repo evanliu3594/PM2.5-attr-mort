@@ -3,14 +3,14 @@
 \docType{data}
 \name{O3_CR_Lookup_Table}
 \alias{O3_CR_Lookup_Table}
-\title{the O3 C-R model lookuptable.}
+\title{the C-R curves for O3 by Carey et al.}
 \format{
-data.frame
+list
 }
 \usage{
 O3_CR_Lookup_Table
 }
 \description{
-the O3 C-R model lookuptable.
+the C-R curves for O3 by Carey et al.
 }
 \keyword{datasets}

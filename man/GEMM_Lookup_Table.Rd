@@ -3,14 +3,14 @@
 \docType{data}
 \name{GEMM_Lookup_Table}
 \alias{GEMM_Lookup_Table}
-\title{the GEMM C-R model lookuptable.}
+\title{the GEMM C-R curves by Burnett et al.}
 \format{
-data.frame
+list
 }
 \usage{
 GEMM_Lookup_Table
 }
 \description{
-the GEMM C-R model lookuptable.
+the GEMM C-R curves by Burnett et al.
 }
 \keyword{datasets}

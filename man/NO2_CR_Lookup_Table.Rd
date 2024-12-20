@@ -3,14 +3,14 @@
 \docType{data}
 \name{NO2_CR_Lookup_Table}
 \alias{NO2_CR_Lookup_Table}
-\title{the NO2 C-R model lookuptable.}
+\title{the C-R curves for NO2 by Larkin et al.}
 \format{
-data.frame
+list
 }
 \usage{
 NO2_CR_Lookup_Table
 }
 \description{
-the NO2 C-R model lookuptable.
+the C-R curves for NO2 by Larkin et al.
 }
 \keyword{datasets}

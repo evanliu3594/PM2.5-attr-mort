@@ -66,8 +66,10 @@ RR_std <- function(index = "MEAN") {
     stop("Please specify a C-R function with `set_Model()`")
   } else get(".CR_Model", envir = globalenv())
   
-  RR <- if (.CR_Model == 'MRBRT') {
-    MRBRT_Lookup_Table
+  RR <- if (.CR_Model %in% c('MRBRT', "MRBRT2021")) {
+    MRBRT2021_Lookup_Table
+  } else if (.CR_Model == "MRBRT2019") {
+    MRBRT2019_Lookup_Table
   } else if (.CR_Model %in% c('NCD+LRI', '5COD')) {
     GEMM_Lookup_Table
   } else if (.CR_Model %in% c('IER', 'IER2017')) {
@@ -122,7 +124,7 @@ RR_std <- function(index = "MEAN") {
       filter((str_detect(endpoint, 'copd|ihd|lc|stroke') & as.numeric(age) >= 25) | 
                (endpoint == 'lri' & as.numeric(age) < 5)) 
     
-  } else if (CR == 'MRBRT') {
+  } else if (str_detect(CR, 'MRBRT')) {
     expand_grid(
       dose = RR[[index]] %>% pull(dose),
       endpoint = c('copd', 'dm2', 'ihd', 'lc', 'lri', 'stroke'),
@@ -130,8 +132,7 @@ RR_std <- function(index = "MEAN") {
     ) %>% left_join(RR_tbl) %>% 
       group_by(dose, endpoint) %>% fill(RR) %>% ungroup() %>% 
       filter(age != "ALL") %>% 
-      filter((str_detect(endpoint, 'copd|dm2|ihd|lc|stroke') & as.numeric(age) >= 25) |
-               (endpoint %in% 'lri' & as.numeric(age) < 5))
+      filter(str_detect(endpoint, 'copd|dm2|ihd|lc|stroke|lri') & as.numeric(age) >= 25)
 
   } else if (CR == "O3") {
     expand_grid(

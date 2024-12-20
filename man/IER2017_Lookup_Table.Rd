@@ -3,14 +3,14 @@
 \docType{data}
 \name{IER2017_Lookup_Table}
 \alias{IER2017_Lookup_Table}
-\title{the IER2017 C-R model lookuptable.}
+\title{the IER C-R curves by GBD2017.}
 \format{
-data.frame
+list
 }
 \usage{
 IER2017_Lookup_Table
 }
 \description{
-the IER2017 C-R model lookuptable.
+the IER C-R curves by GBD2017.
 }
 \keyword{datasets}
