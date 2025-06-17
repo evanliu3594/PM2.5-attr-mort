@@ -5,11 +5,11 @@
 #'
 tell_Model <- function() {
   return(
-    if (.CR_Model %>% str_detect('IER'))
+    if (str_detect(.CR_Model, 'IER'))
       str_c(.CR_Model)
     else if (.CR_Model %in% c('5COD', 'NCD+LRI'))
       str_c('PM2.5_GEMM', .CR_Model, sep = '_')
-    else if (.CR_Model == 'MRBRT')
+    else if (str_detect(.CR_Model, 'MRBRT'))
       str_c("PM2.5_", .CR_Model)
     else if (.CR_Model == 'O3')
       str_c(.CR_Model) 
@@ -121,10 +121,12 @@ RR_std <- function(index = "MEAN") {
     ) %>% left_join(RR_tbl) %>% 
       group_by(dose, endpoint) %>% fill(RR) %>% ungroup() %>% 
       filter(age != "ALL") %>% 
-      filter((str_detect(endpoint, 'copd|ihd|lc|stroke') & as.numeric(age) >= 25) | 
-               (endpoint == 'lri' & as.numeric(age) < 5)) 
+      filter(
+        (endpoint %in% c('copd','ihd','lc','stroke') & as.numeric(age) >= 25) | 
+          (endpoint == 'lri' & as.numeric(age) < 5)
+      )
     
-  } else if (str_detect(CR, 'MRBRT')) {
+  } else if (str_detect(CR, 'MRBRT2021')) {
     expand_grid(
       dose = RR[[index]] %>% pull(dose),
       endpoint = c('copd', 'dm2', 'ihd', 'lc', 'lri', 'stroke'),
@@ -132,8 +134,21 @@ RR_std <- function(index = "MEAN") {
     ) %>% left_join(RR_tbl) %>% 
       group_by(dose, endpoint) %>% fill(RR) %>% ungroup() %>% 
       filter(age != "ALL") %>% 
-      filter(str_detect(endpoint, 'copd|dm2|ihd|lc|stroke|lri') & as.numeric(age) >= 25)
-
+      filter(endpoint %in% c('copd','dm2','ihd','lc','stroke','lri') & as.numeric(age) >= 25)
+    
+  } else if (str_detect(CR, 'MRBRT2019')) {
+    expand_grid(
+      dose = RR[[index]] %>% pull(dose),
+      endpoint = c('copd', 'dm2', 'ihd', 'lc', 'lri', 'stroke'),
+      age = c('ALL', seq(0, 95, 5) %>% matchable(0))
+    ) %>% left_join(RR_tbl) %>% 
+      group_by(dose, endpoint) %>% fill(RR) %>% ungroup() %>% 
+      filter(age != "ALL") %>% 
+      filter(
+        (endpoint %in% c('copd','dm2','ihd','lc','stroke') & as.numeric(age) >= 25) | 
+          (endpoint == "lri" & as.numeric(age) < 5)
+      )
+    
   } else if (CR == "O3") {
     expand_grid(
       dose = RR[[index]] %>% pull(dose),
@@ -200,7 +215,7 @@ Mortality <- function(field, dose_real, dose_cf = NULL, pop, age, mort, lvl = NU
     list(field, dose_real, RR_tbl, age, mort, pop) %>% 
       reduce(left_join) %>% select(-dose) %>% na.omit %>% 
       mutate(M = pop * prop * mortrate, .keep = 'unused') %>% 
-      mutate(AttrMort = M * (RR - 1) / PWRR / 1e5, .keep = 'unused') %>% 
+      mutate(AttrMort = M * (RR - 1) / RR / 1e5, .keep = 'unused') %>% 
       pivot_wider(
         names_from = c('endpoint', 'age'),
         names_sep = '_',
@@ -257,8 +272,17 @@ Mortality <- function(field, dose_real, dose_cf = NULL, pop, age, mort, lvl = NU
 #' @return the aggregated burden
 #' @export
 #'
-Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, doseUncert = 0,
-                           lvl = NULL, aggr_by = NULL, uncertain = F, write = T) {
+Mortality_Aggr <- function(field,
+                           dose_real,
+                           dose_cf = NULL,
+                           pop,
+                           age,
+                           mort,
+                           doseUncert = 0,
+                           lvl = NULL,
+                           aggr_by = NULL,
+                           uncertain = F,
+                           write = T) {
   
   if (is.null(lvl)) {
     warning("`lvl` set to NULL, aggregation based on full fields will be implement.")
@@ -266,23 +290,21 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
     stop("supplied `lvl` not found in the field.")
   }
   
-  if (is.null(aggr_by)) 
+  if (is.null(aggr_by)) {
     warning("`aggr_by` set to NULL, output will aggregate both age and cause.")
-  else if (!aggr_by %in% names(mort)) {
+  } else if (!aggr_by %in% names(mort)) {
     stop("supplied `aggr_by` not found in the mortality data.")
   }
   
   if (is.null(dose_cf)) dose_cf <- dose_real
 
   PWE <- list(field, dose_real, pop) %>% reduce(left_join) %>% na.omit() %>% 
-    rename_with(~"domain", !!lvl) %>% group_by(domain) %>% 
-    summarise(dose = weighted.mean(as.numeric(dose), pop)) %>% 
+    group_by(pick(!!lvl)) %>% summarise(dose = weighted.mean(as.numeric(dose), pop)) %>% 
     ungroup()
   
   Mort <- list(field, pop, age, mort) %>% reduce(left_join) %>% na.omit() %>% 
-    rename_with(~"domain", !!lvl) %>% 
     mutate(M = pop * prop * mortrate / 1e5, endpoint = tolower(endpoint)) %>% 
-    group_by(domain, age, endpoint) %>% summarise(M = sum(M)) %>%
+    group_by(pick(!!lvl), age, endpoint) %>% summarise(M = sum(M)) %>%
     ungroup()
   
   PAF <- PWE %>% mutate(dose = matchable(dose, 1)) %>% 
@@ -291,71 +313,80 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
   
   AttrMort <- left_join(PAF, Mort) %>% 
     mutate(AM = M * PAF, .keep = "unused") %>% 
-    group_by(domain, pick(!!aggr_by)) %>% 
+    group_by(pick(!!lvl), pick(!!aggr_by)) %>% 
     summarise(AM = sum(AM, na.rm = TRUE)) %>% ungroup()
 
   if (uncertain) {
     
-    PAF_up <- PWE %>% mutate(dose = matchable(dose, 1)) %>% 
+    PAF_CR_up <- PWE %>% mutate(dose = matchable(dose, 1)) %>% 
       left_join(RR_std('UP'), relationship = "many-to-many") %>% 
       select(-dose) %>% mutate(PAF_test = 1 - 1 / RR, .keep = "unused") %>% 
-      mutate(varname = paste("test_CR", domain, endpoint, age, sep = "_")) %>% 
+      unite(varname, !!lvl, endpoint, age, remove = F) %>% 
+      mutate(varname = paste0("test_CR_", varname)) %>% 
       pivot_wider(names_from = 'varname',values_from = 'PAF_test')
     
-    PAF_low <- PWE %>% mutate(dose = matchable(dose, 1)) %>% 
+    PAF_CR_low <- PWE %>% mutate(dose = matchable(dose, 1)) %>% 
       left_join(RR_std('LOW'), relationship = "many-to-many") %>% 
       select(-dose) %>% mutate(PAF_test = 1 - 1 / RR, .keep = "unused") %>% 
-      mutate(varname = paste("test_CR", domain, endpoint, age, sep = "_")) %>% 
+      unite(varname, !!lvl, endpoint, age, remove = F) %>% 
+      mutate(varname = paste0("test_CR_", varname)) %>% 
       pivot_wider(names_from = 'varname',values_from = 'PAF_test')
     
     if (doseUncert >= 0) {
-      PAF_up <- PAF_up %>% left_join(
-        PWE %>% mutate(dose = matchable(dose * (1 + doseUncert), 1)) %>% 
-          left_join(RR_std('MEAN'), relationship = "many-to-many") %>% 
-          select(-dose) %>% mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% 
-          mutate(varname = paste("test_Pollu", domain, "Pollu_Pollu", sep = "_")) %>% 
-          pivot_wider(names_from = 'varname', values_from = 'PAF_test') 
-      )
+      PAF_Pollu_up <- PWE %>% 
+        mutate(dose = matchable(dose * (1 + doseUncert), 1)) %>%
+        left_join(RR_std('MEAN'), relationship = "many-to-many") %>% 
+        select(-dose) %>% mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% 
+        unite(varname, !!lvl, endpoint, age, remove = F) %>% 
+        mutate(varname = paste0("test_Pollu_", varname)) %>% 
+        pivot_wider(names_from = 'varname', values_from = 'PAF_test')
       
-      PAF_low <- PAF_low %>% left_join(
-        PWE %>% mutate(dose = matchable(pmax(dose * (1 - doseUncert), 0), 1)) %>% 
+      PAF_Pollu_low <- PWE %>% 
+        mutate(dose = matchable(pmax(dose * (1 - doseUncert), 0), 1)) %>% 
           left_join(RR_std('MEAN'), relationship = "many-to-many") %>% 
           select(-dose) %>% mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>% 
-          mutate(varname = paste("test_Pollu", domain, "Pollu_Pollu", sep = "_")) %>% 
+          unite(varname, !!lvl, endpoint, age, remove = F) %>% 
+          mutate(varname = paste0("test_Pollu_", varname)) %>% 
           pivot_wider(names_from = 'varname', values_from = 'PAF_test')
-      )
+      
+      PAF_up <- left_join(PAF_CR_up, PAF_Pollu_up)
+      
+      PAF_low <- left_join(PAF_CR_low, PAF_Pollu_low)
+      
+    } else {
+      
+      PAF_up <- PAF_CR_up
+      
+      PAF_low <- PAF_CR_low
     }
     
-    Sensi_up <- PAF_up %>% left_join(PAF) %>% 
-      mutate(across(matches("^test"), ~ replace(.x, is.na(.x), PAF[is.na(.x)]))) %>% 
-      left_join(Mort) %>% mutate(across(matches("^test"), ~ M * abs(.x - PAF))) %>% 
+    Sensi_up <- PAF_up %>% left_join(PAF) %>% left_join(Mort) %>% 
+      mutate(across(matches("^test"), ~ M * abs(.x - PAF))) %>% 
       summarise(across(matches("^test"), ~ sum(.x, na.rm = T))) %>% 
       pivot_longer(
         everything(),
-        names_to = c('item', 'domain', 'endpoint','age'),
-        names_pattern = "test_(.+)_(.+)_(.+)_(.+)",
+        names_to = c('item',if_else(is.null(lvl),"loc",lvl), 'endpoint','age'),
+        names_pattern = "test_(.*)_(.*)_(.*)_(.*)",
         values_to = 'Sensi'
       )
     
-    Sensi_low <- PAF_up %>% left_join(PAF) %>% 
-      mutate(across(matches("^test"), ~ replace(.x, is.na(.x), PAF[is.na(.x)]))) %>% 
-      left_join(Mort) %>% mutate(across(matches("^test_"), ~ M * abs(.x - PAF))) %>% 
+    Sensi_low <- PAF_low %>% left_join(PAF) %>% left_join(Mort) %>% 
+      mutate(across(matches("^test_"), ~ M * abs(.x - PAF))) %>% 
       summarise(across(matches("^test"), ~sum(.x, na.rm = T))) %>% 
       pivot_longer(
         everything(),
-        names_to = c('item', 'domain', 'endpoint','age'),
-        names_pattern = "test_(.+)_(.+)_(.+)_(.+)",
+        names_to = c('item',if_else(is.null(lvl),"loc",lvl), 'endpoint','age'),
+        names_pattern = "test_(.*)_(.*)_(.*)_(.*)",
         values_to = 'Sensi'
       )
-    
     
     test_sigma_up <- left_join(PAF, PAF_up) %>%
       mutate(across(matches("^test"), ~ abs(.x - PAF))) %>%
       summarise(across(matches("^test"), ~ sum(.x, na.rm = T))) %>%
       pivot_longer(
         everything(),
-        names_to = c('item', 'domain', 'endpoint', 'age'),
-        names_pattern = "test_(.+)_(.+)_(.+)_(.+)",
+        names_to = c('item',if_else(is.null(lvl), "loc", lvl), 'endpoint', 'age'),
+        names_pattern = "test_(.*)_(.*)_(.*)_(.*)",
         values_to = 'sigma'
       )
     
@@ -364,16 +395,16 @@ Mortality_Aggr <- function(field, dose_real, dose_cf = NULL, pop, age, mort, dos
       summarise(across(matches("^test"), ~ sum(.x, na.rm = T))) %>%
       pivot_longer(
         everything(),
-        names_to = c('item', 'domain', 'endpoint', 'age'),
-        names_pattern = "test_(.+)_(.+)_(.+)_(.+)",
+        names_to = c('item',if_else(is.null(lvl), "loc", lvl), 'endpoint', 'age'),
+        names_pattern = "test_(.*)_(.*)_(.*)_(.*)",
         values_to = 'sigma'
       )
     
     CI <- left_join(
-      left_join(Sensi_up, test_sigma_up) %>% group_by(domain, pick(!!aggr_by)) %>%
-        summarise(CI_UP = sqrt(sum(Sensi ^ 2 * sigma ^ 2, na.rm = T))) %>% ungroup(),
-      left_join(Sensi_low, test_sigma_low) %>% group_by(domain, pick(!!aggr_by)) %>%
-        summarise(CI_LOW = sqrt(sum(Sensi ^ 2 * sigma ^ 2, na.rm = T))) %>% ungroup()
+      left_join(Sensi_up, test_sigma_up) %>% group_by(pick(!!lvl), pick(!!aggr_by)) %>%
+        summarise(CI_UP = sqrt(sum(Sensi ^ 2 / sigma ^ 2, na.rm = T))) %>% ungroup(),
+      left_join(Sensi_low, test_sigma_low) %>% group_by(pick(!!lvl), pick(!!aggr_by)) %>%
+        summarise(CI_LOW = sqrt(sum(Sensi ^ 2 / sigma ^ 2, na.rm = T))) %>% ungroup()
     )
     
     AttrMort <- left_join(AttrMort, CI)
