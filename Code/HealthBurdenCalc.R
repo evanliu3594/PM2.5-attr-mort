@@ -35,19 +35,19 @@ set_Model('NCD+LRI')
 # Data load ----
 
 read_files(
-  Grids = './Data/GRID_information_instance_231220_iso.xlsx',
+  Grids = './Data/GRID_information_instance_220628.xlsx',
   Pop = './Data/GridPop_instance_231220.xlsx',
   Conc_real = './Data/GridPM25_instance_231220.xlsx',
   Conc_cf = './Data/PM_Ctrl.csv',  # PM_cf works only in counter-fact scenario
   MortRate = "./Data/GBD_mortality_instance_231220.xlsx",
-  AgeGroup = './Data/GBD_mortality_instance_231220.xlsx',
+  AgeGroup = './Data/GBD_agestructure_instance_231220.xlsx',
   dgt_grid = 2
 )
 
 # Grid Full Result ----
 
 grid_full <- names(Conc_real)[c(-1:-2)] %>% set_names %>% 
-  map(~  Mortality_at(at = .x, RR = "MEAN", domain = "Country"))
+  map(~Mortality_at(at = .x, RR = "MEAN", domain = "Country"))
 
 # Grid Aggregation ----
  
