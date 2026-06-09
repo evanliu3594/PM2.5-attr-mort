@@ -355,16 +355,16 @@ read_files <- function(
   }
 
   # ---- Guard: coordinate consistency summary ----
-  n_grid <- nrow(Grid_info)
-  n_conc <- nrow(Conc_real)
-  n_pop <- nrow(Pop)
-  overlap_gc <- Grid_info %>%
+  n_grid <- nrow(grid_df)
+  n_conc <- nrow(conc_real_df)
+  n_pop  <- nrow(pop_df)
+  overlap_gc <- grid_df %>%
     select(x, y) %>%
-    inner_join(Conc_real %>% select(x, y), by = c("x", "y")) %>%
+    inner_join(conc_real_df %>% select(x, y), by = c("x", "y")) %>%
     nrow
-  overlap_gp <- Grid_info %>%
+  overlap_gp <- grid_df %>%
     select(x, y) %>%
-    inner_join(Pop %>% select(x, y), by = c("x", "y")) %>%
+    inner_join(pop_df %>% select(x, y), by = c("x", "y")) %>%
     nrow
 
   cat(str_glue(
