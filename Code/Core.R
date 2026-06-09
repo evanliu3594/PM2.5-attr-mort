@@ -1084,7 +1084,8 @@ Uncertainty <- function(
           mutate(concentration = matchable(concentration + Conc_RMSE, 1)) %>%
           left_join(RR_std('MEAN')) %>%
           select(-concentration) %>%
-          mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>%
+          mutate(PAF_test = 1 - 1 / RR) %>%
+          select(domain, PAF_test) %>%
           left_join(RR_base) %>%
           mutate(varname = str_glue("test_Pollu_{domain}_Pollu_Pollu")) %>%
           pivot_wider(names_from = 'varname', values_from = 'PAF_test') %>%
@@ -1304,8 +1305,8 @@ Mort_Aggregate <- function(
       set_names %>%
       map(
         ~ Uncertainty(
-          #...,
-          includeConc = F,
+          includeConc = list(...)[["includeConc"]] %||% FALSE,
+          Conc_RMSE   = list(...)[["Conc_RMSE"]]   %||% 26.3,
           m_Rate = getMortRate(.x),
           aggr_pop = Grid_info %>%
             left_join(getPop(.x)) %>%
