@@ -1012,7 +1012,7 @@ Mortality_at <- function(at, RR = "MEAN", domain) {
 #' @param aggr_pop 分区汇总人口
 #' @param age_struc 分区年龄结构
 #' @param includeConc 浓度不确定性开关
-#' @param Conc_RMSE 浓度数据相对不确定性（百分比），默认 12 表示 +/-12%
+#' @param Conc_ERR 浓度数据相对不确定性（百分比），默认 12 表示 +/-12%
 #'
 #' @export
 #'
@@ -1025,11 +1025,11 @@ Uncertainty <- function(
   age_struc,
   m_Rate,
   includeConc = FALSE,
-  Conc_RMSE = 12
+  Conc_ERR = 12
 ) {
   if (includeConc) {
     warning(str_glue(
-      "Including concentration uncertainty at +/-{Conc_RMSE}% of PWE."
+      "Including concentration uncertainty at +/-{Conc_ERR}% of PWE."
     ))
   }
 
@@ -1077,40 +1077,51 @@ Uncertainty <- function(
     ))
 
   if (includeConc) {
+    # Perturb concentration by +/- Conc_ERR%, look up new RR, compute perturbed PAF.
+    # Must preserve domain, endpoint, agegroup for 1:1 join with RR_base below.
+    conc_perturb_up <- PWE %>%
+      mutate(
+        concentration = matchable(concentration * (1 + Conc_ERR / 100), 1)
+      ) %>%
+      left_join(RR_std('MEAN'), by = "concentration") %>%
+      mutate(PAF_test = 1 - 1 / RR) %>%
+      select(domain, endpoint, agegroup, PAF_test)
+
     test_PAF_up <- test_PAF_up %>%
       left_join(
-        PWE %>%
-          mutate(concentration = matchable(concentration * (1 + Conc_RMSE / 100), 1)) %>%
-          left_join(RR_std('MEAN')) %>%
-          select(-concentration) %>%
-          mutate(PAF_test = 1 - 1 / RR) %>%
-          select(domain, PAF_test) %>%
-          left_join(RR_base) %>%
+        conc_perturb_up %>%
+          left_join(RR_base, by = c("domain", "endpoint", "agegroup")) %>%
           mutate(varname = str_glue("test_Pollu_{domain}_Pollu_Pollu")) %>%
           pivot_wider(names_from = 'varname', values_from = 'PAF_test') %>%
           mutate(across(
             matches("^test_Pollu"),
             ~ replace(.x, is.na(.x), PAF_base[is.na(.x)])
           )) %>%
-          select(-PAF_base)
+          select(-PAF_base),
+        by = "domain"
       )
 
-    test_PAF_low <- left_join(
-      test_PAF_low,
-      PWE %>%
-        mutate(concentration = matchable(concentration * (1 - Conc_RMSE / 100), 1)) %>%
-        left_join(RR_std('MEAN')) %>%
-        select(-concentration) %>%
-        mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>%
-        left_join(RR_base) %>%
-        mutate(varname = str_glue("test_Pollu_{domain}_Pollu_Pollu")) %>%
-        pivot_wider(names_from = 'varname', values_from = 'PAF_test') %>%
-        mutate(across(
-          matches("^test_Pollu"),
-          ~ replace(.x, is.na(.x), PAF_base[is.na(.x)])
-        )) %>%
-        select(-PAF_base)
-    )
+    conc_perturb_low <- PWE %>%
+      mutate(
+        concentration = matchable(concentration * (1 - Conc_ERR / 100), 1)
+      ) %>%
+      left_join(RR_std('MEAN'), by = "concentration") %>%
+      mutate(PAF_test = 1 - 1 / RR) %>%
+      select(domain, endpoint, agegroup, PAF_test)
+
+    test_PAF_low <- test_PAF_low %>%
+      left_join(
+        conc_perturb_low %>%
+          left_join(RR_base, by = c("domain", "endpoint", "agegroup")) %>%
+          mutate(varname = str_glue("test_Pollu_{domain}_Pollu_Pollu")) %>%
+          pivot_wider(names_from = 'varname', values_from = 'PAF_test') %>%
+          mutate(across(
+            matches("^test_Pollu"),
+            ~ replace(.x, is.na(.x), PAF_base[is.na(.x)])
+          )) %>%
+          select(-PAF_base),
+        by = "domain"
+      )
   }
 
   Sensi_up <- list(test_PAF_up, aggr_pop, age_struc, m_Rate) %>%
@@ -1149,7 +1160,7 @@ Uncertainty <- function(
       add_column(item = 'CR'),
     PWE %>%
       bind_cols(item = 'Pollu', endpoint = "Pollu", agegroup = 'Pollu') %>%
-      mutate(sigma = Conc_RMSE, .keep = 'unused')
+      mutate(sigma = Conc_ERR, .keep = 'unused')
   )
 
   test_sigma_low <- bind_rows(
@@ -1158,7 +1169,7 @@ Uncertainty <- function(
       add_column(item = 'CR'),
     PWE %>%
       bind_cols(item = 'Pollu', endpoint = "Pollu", agegroup = 'Pollu') %>%
-      mutate(sigma = Conc_RMSE, .keep = 'unused')
+      mutate(sigma = Conc_ERR, .keep = 'unused')
   )
 
   # Error propagation: σ_M² = Σ (∂M/∂x_i)² × σ_xi²
@@ -1305,7 +1316,7 @@ Mort_Aggregate <- function(
       map(
         ~ Uncertainty(
           includeConc = list(...)[["includeConc"]] %||% FALSE,
-          Conc_RMSE   = list(...)[["Conc_RMSE"]]   %||% 12,
+          Conc_ERR = list(...)[["Conc_ERR"]] %||% 12,
           m_Rate = getMortRate(.x),
           aggr_pop = Grid_info %>%
             left_join(getPop(.x)) %>%
