@@ -38,7 +38,7 @@ read_files(
   Grids = './Data/GRID_information_instance_220628.xlsx',
   Pop = './Data/GridPop_instance_231220.xlsx',
   Conc_real = './Data/GridPM25_instance_231220.xlsx',
-  Conc_cf = './Data/PM_Ctrl.csv',  # PM_cf works only in counter-fact scenario
+  Conc_cf = './Data/GridPM25_cf_instance_260325.xlsx',  # PM_cf works only in counter-fact scenario
   MortRate = "./Data/GBD_mortality_instance_231220.xlsx",
   AgeGroup = './Data/GBD_agestructure_instance_231220.xlsx',
   dgt_grid = 2

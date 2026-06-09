@@ -119,39 +119,3 @@ Mortality_mtcl <- function(RR, PM_r, PM_c, ag, mRate, pop, core = 10, n = 10000,
   return(MTCL)
 }
 
-# test ----
-
-# y = 2005
-
-result <- Mortality_mtcl(
-  mode = mode,
-  RR = RR_table,
-  PM_r = PM_real %>% select(FID, concentration = !!as.name(y)),
-  PM_c = PM_cf %>% select(FID, concentration = !!as.name(y)),
-  pop = Pop %>% select(FID, Pop = !!as.name(y)),
-  ag = AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y)),
-  mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y))
-)
-
-result <- Mortality_mtcl(
-  mode = mode,
-  RR = RR_table,
-  PM_r = left_join(
-    PM_real %>% select(FID, concentration = !!as.name(y)),
-    Pop %>% select(FID, Pop = !!as.name(y)),
-    by = 'FID'
-  ) %>% summarise(concentration = weighted.mean(as.numeric(concentration),Pop) %>% matchable) %>% 
-    mutate(FID = '000'),
-  PM_c = left_join(
-    PM_cf %>% select(FID, concentration = !!as.name(y)),
-    Pop %>% select(FID, Pop = !!as.name(y)),
-    by = 'FID'
-  ) %>% summarise(concentration = weighted.mean(as.numeric(concentration),Pop) %>% matchable) %>% 
-    mutate(FID = '000'),
-  pop = Pop %>% summarise(Pop = !!as.name(y) %>% sum) %>% mutate(FID = '000'),
-  mRate = MortRate %>% select(endpoint, agegroup, MortRate = !!as.name(y)),
-  ag =  AgeGroup %>% select(agegroup, AgeStruc = !!as.name(y))
-)
-
-result %>% unlist %>% quantile(c(.025, .5, .975))
-

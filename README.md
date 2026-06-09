@@ -10,6 +10,8 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 
 3. Wang H, He X, Liang X, et al. Health benefits of on-road transportation pollution control programs in China[J]. Proceedings of the National Academy of Sciences, 2020, 117 (41): 25370-25377.
 
+4. XING Z, LIU Y, CHEPELIEV M, et al. Global food trade can mitigate substantial health burdens attributed to ambient PM2.5 pollution[J]. Nature Food, 2026, 7(3): 223—233.
+
 # Usage
 
 1. Clone the repo and open it
