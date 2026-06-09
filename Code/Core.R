@@ -195,9 +195,13 @@ read_files <- function(
     normalize_coords() %>%
     mutate(across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)))
 
-  if (!all(c("x", "y") %in% names(grid_df)))
-    stop("Grid_info must contain geographic coordinate columns (x/lon/long, y/lat). ",
-         "Found: ", paste(names(grid_df), collapse = ", "))
+  if (!all(c("x", "y") %in% names(grid_df))) {
+    stop(
+      "Grid_info must contain geographic coordinate columns (x/lon/long, y/lat). ",
+      "Found: ",
+      paste(names(grid_df), collapse = ", ")
+    )
+  }
 
   assign('Grid_info', envir = globalenv(), grid_df)
 
@@ -205,9 +209,13 @@ read_files <- function(
     normalize_coords() %>%
     mutate(across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)))
 
-  if (!all(c("x", "y") %in% names(pop_df)))
-    stop("Pop data must contain geographic coordinate columns (x/lon/long, y/lat). ",
-         "Found: ", paste(names(pop_df), collapse = ", "))
+  if (!all(c("x", "y") %in% names(pop_df))) {
+    stop(
+      "Pop data must contain geographic coordinate columns (x/lon/long, y/lat). ",
+      "Found: ",
+      paste(names(pop_df), collapse = ", ")
+    )
+  }
 
   assign("Pop", envir = globalenv(), pop_df)
 
@@ -218,9 +226,13 @@ read_files <- function(
       across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
     )
 
-  if (!all(c("x", "y") %in% names(conc_real_df)))
-    stop("Conc_real must contain geographic coordinate columns (x/lon/long, y/lat). ",
-         "Found: ", paste(names(conc_real_df), collapse = ", "))
+  if (!all(c("x", "y") %in% names(conc_real_df))) {
+    stop(
+      "Conc_real must contain geographic coordinate columns (x/lon/long, y/lat). ",
+      "Found: ",
+      paste(names(conc_real_df), collapse = ", ")
+    )
+  }
 
   assign('Conc_real', envir = globalenv(), conc_real_df)
 
@@ -233,9 +245,13 @@ read_files <- function(
         across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)),
         across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
       )
-    if (!all(c("x", "y") %in% names(conc_cf_df)))
-      stop("Conc_cf must contain geographic coordinate columns (x/lon/long, y/lat). ",
-           "Found: ", paste(names(conc_cf_df), collapse = ", "))
+    if (!all(c("x", "y") %in% names(conc_cf_df))) {
+      stop(
+        "Conc_cf must contain geographic coordinate columns (x/lon/long, y/lat). ",
+        "Found: ",
+        paste(names(conc_cf_df), collapse = ", ")
+      )
+    }
   } else {
     conc_cf_df <- NULL
   }
@@ -292,7 +308,7 @@ read_files <- function(
   CR_file <- if (.CR_Model == 'MRBRT') {
     './Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx'
   } else if (.CR_Model %in% c('NCD+LRI', '5COD')) {
-    './Data/RR_index/GEMM_Lookup_Table_Build_220601.xlsx'
+    './Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx'
   } else if (.CR_Model %in% c('IER', 'IER2017')) {
     './Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx'
   } else if (.CR_Model == 'IER2015') {
@@ -357,7 +373,7 @@ read_files <- function(
   # ---- Guard: coordinate consistency summary ----
   n_grid <- nrow(grid_df)
   n_conc <- nrow(conc_real_df)
-  n_pop  <- nrow(pop_df)
+  n_pop <- nrow(pop_df)
   overlap_gc <- grid_df %>%
     select(x, y) %>%
     inner_join(conc_real_df %>% select(x, y), by = c("x", "y")) %>%
@@ -377,12 +393,16 @@ read_files <- function(
   # a grid file covering a larger region than Conc/Pop is normal (extra grids
   # without data are simply dropped).
   conc_overlap_pct <- overlap_gc / min(n_grid, n_conc)
-  pop_overlap_pct  <- overlap_gp / min(n_grid, n_pop)
+  pop_overlap_pct <- overlap_gp / min(n_grid, n_pop)
 
   if (conc_overlap_pct < 0.8 || pop_overlap_pct < 0.8) {
     warning(
       "Low coordinate overlap between Grid_info and Conc/Pop data ",
-      "(Conc: ", round(conc_overlap_pct * 100), "%, Pop: ", round(pop_overlap_pct * 100), "% of smaller). ",
+      "(Conc: ",
+      round(conc_overlap_pct * 100),
+      "%, Pop: ",
+      round(pop_overlap_pct * 100),
+      "% of smaller). ",
       "Check that all files use the same (x, y) precision (dgt_grid = ",
       dgt_grid,
       ") and cover the same geographic domain."
@@ -870,12 +890,14 @@ Mortality <- function(
   }
 
   PWRR <- PWRR_data %>%
-    group_by(pick(domain)) %>%
+    group_by(pick(all_of(domain))) %>%
     summarise(PWRR = weighted.mean(RR, Pop, na.rm = TRUE), .groups = "drop")
 
   # ---- Guard: PWRR validity ----
+  # PWRR >= 1 is valid (PWRR = 1 means all grids at or below TMREL).
+  # Only PWRR < 1 is physically impossible for PM2.5.
   if (
-    any(is.na(PWRR$PWRR)) || any(is.infinite(PWRR$PWRR)) || any(PWRR$PWRR <= 1)
+    any(is.na(PWRR$PWRR)) || any(is.infinite(PWRR$PWRR)) || any(PWRR$PWRR < 1)
   ) {
     stop(
       "Invalid PWRR detected. ",
@@ -883,14 +905,13 @@ Mortality <- function(
         "Some domains have NA PWRR (no valid grids after na.omit). "
       },
       if (any(is.infinite(PWRR$PWRR))) "Some domains have Inf PWRR. ",
-      if (any(PWRR$PWRR <= 1)) {
-        "Some domains have PWRR <= 1 (population-weighted mean RR "
+      if (any(PWRR$PWRR < 1)) {
+        "Some domains have PWRR < 1 (RR cannot be < 1 for PM2.5). "
       },
-      "must be > 1 at any non-zero concentration). ",
       "Check concentration and population data for these domains: ",
       paste(
         PWRR[[domain]][
-          is.na(PWRR$PWRR) | is.infinite(PWRR$PWRR) | PWRR$PWRR <= 1
+          is.na(PWRR$PWRR) | is.infinite(PWRR$PWRR) | PWRR$PWRR < 1
         ],
         collapse = ", "
       )
@@ -1214,14 +1235,7 @@ Mort_Aggregate <- function(
             names_to = c('endpoint', 'agegroup'),
             names_sep = '_'
           ) %>%
-          group_by(pick(
-            {
-              domain
-            },
-            {
-              by
-            }
-          )) %>%
+          group_by(pick(all_of(c(domain, by)))) %>%
           summarise(Mort = sum(Mort)) %>%
           ungroup %>%
           pivot_wider(names_from = by, values_from = 'Mort')
@@ -1230,9 +1244,7 @@ Mort_Aggregate <- function(
     full_result %>%
       map(
         ~ left_join(.x, Grid_info) %>%
-          group_by(pick({
-            domain
-          })) %>%
+          group_by(pick(all_of(domain))) %>%
           summarise(across(matches('_[1-9]?(0|5)$'), sum)) %>%
           ungroup
       )
@@ -1247,14 +1259,7 @@ Mort_Aggregate <- function(
             names_sep = '_',
             values_to = 'Mort'
           ) %>%
-          group_by(pick(
-            {
-              domain
-            },
-            {
-              by
-            }
-          )) %>%
+          group_by(pick(all_of(c(domain, by)))) %>%
           summarise(Mort = sum(Mort)) %>%
           ungroup %>%
           pivot_wider(names_from = by, values_from = 'Mort')
@@ -1304,18 +1309,14 @@ Mort_Aggregate <- function(
           m_Rate = getMortRate(.x),
           aggr_pop = Grid_info %>%
             left_join(getPop(.x)) %>%
-            group_by(pick({
-              domain
-            })) %>%
+            group_by(pick(all_of(domain))) %>%
             summarise(Pop = sum(Pop, na.rm = T)) %>%
             na.omit,
           age_struc = getAgeGroup(.x),
           PWE = list(Grid_info, getConc_real(.x), getPop(.x)) %>%
             reduce(left_join) %>%
             na.omit %>%
-            group_by(pick({
-              domain
-            })) %>%
+            group_by(pick(all_of(domain))) %>%
             summarise(
               PWE = weighted.mean(as.numeric(concentration), Pop, na.rm = T)
             )
@@ -1339,10 +1340,12 @@ Mort_Aggregate <- function(
 
   aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y)) %>%
     {
-      if (domain %in% c("Country", "Province", "Region")) {
-        imap_dfr(., ~ .x %>% add_column(year = .y, .before = T))
-      } else {
-        .
+      \(x) {
+        if (domain %in% c("Country", "Province", "Region")) {
+          imap_dfr(x, ~ .x %>% add_column(year = .y, .before = T))
+        } else {
+          x
+        }
       }
     }
 
