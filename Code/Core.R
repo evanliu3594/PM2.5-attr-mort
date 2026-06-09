@@ -1012,7 +1012,7 @@ Mortality_at <- function(at, RR = "MEAN", domain) {
 #' @param aggr_pop 分区汇总人口
 #' @param age_struc 分区年龄结构
 #' @param includeConc 浓度不确定性开关
-#' @param Conc_RMSE 浓度数据RMSE
+#' @param Conc_RMSE 浓度数据相对不确定性（百分比），默认 12 表示 +/-12%
 #'
 #' @export
 #'
@@ -1024,13 +1024,12 @@ Uncertainty <- function(
   aggr_pop,
   age_struc,
   m_Rate,
-  includeConc = F,
-  Conc_RMSE = 26.3
+  includeConc = FALSE,
+  Conc_RMSE = 12
 ) {
   if (includeConc) {
     warning(str_glue(
-      "including uncentainty from concentration data, \\
-                     running at RMSE = {Conc_RMSE}."
+      "Including concentration uncertainty at +/-{Conc_RMSE}% of PWE."
     ))
   }
 
@@ -1081,7 +1080,7 @@ Uncertainty <- function(
     test_PAF_up <- test_PAF_up %>%
       left_join(
         PWE %>%
-          mutate(concentration = matchable(concentration + Conc_RMSE, 1)) %>%
+          mutate(concentration = matchable(concentration * (1 + Conc_RMSE / 100), 1)) %>%
           left_join(RR_std('MEAN')) %>%
           select(-concentration) %>%
           mutate(PAF_test = 1 - 1 / RR) %>%
@@ -1099,7 +1098,7 @@ Uncertainty <- function(
     test_PAF_low <- left_join(
       test_PAF_low,
       PWE %>%
-        mutate(concentration = matchable(concentration - Conc_RMSE, 1)) %>%
+        mutate(concentration = matchable(concentration * (1 - Conc_RMSE / 100), 1)) %>%
         left_join(RR_std('MEAN')) %>%
         select(-concentration) %>%
         mutate(PAF_test = 1 - 1 / RR, .keep = 'unused') %>%
@@ -1306,7 +1305,7 @@ Mort_Aggregate <- function(
       map(
         ~ Uncertainty(
           includeConc = list(...)[["includeConc"]] %||% FALSE,
-          Conc_RMSE   = list(...)[["Conc_RMSE"]]   %||% 26.3,
+          Conc_RMSE   = list(...)[["Conc_RMSE"]]   %||% 12,
           m_Rate = getMortRate(.x),
           aggr_pop = Grid_info %>%
             left_join(getPop(.x)) %>%
