@@ -959,9 +959,9 @@ Mortality <- function(
 
   result <- mort_data %>%
     mutate(
-      Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5,
-      .keep = 'unused'
+      Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5
     ) %>%
+    select(x, y, endpoint, agegroup, Mort) %>%
     pivot_wider(
       names_from = c('endpoint', 'agegroup'),
       names_sep = '_',
@@ -1282,13 +1282,13 @@ Mort_Aggregate <- function(
       if (domain == 'Grid') {
         ~ .x %>%
           mutate(
-            Total = rowSums(select(., matches('_[1-9]?(0|5)$'))),
+            Total = rowSums(select(., matches('_[1-9]?(0|5)$')), na.rm = TRUE),
             .after = x:y
           )
       } else {
         ~ .x %>%
           mutate(
-            Total = rowSums(select(., -all_of(!!domain))),
+            Total = rowSums(select(., -all_of(!!domain)), na.rm = TRUE),
             .after = !!domain
           )
       }
