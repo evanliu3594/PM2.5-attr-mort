@@ -369,17 +369,23 @@ read_files <- function(
 
   cat(str_glue(
     "Data loaded: {n_grid} grids, {n_conc} concentration records, {n_pop} population records.\n",
-    "  Grids × Conc overlap: {overlap_gc}/{n_grid}\n",
-    "  Grids × Pop  overlap: {overlap_gp}/{n_grid}\n"
+    "  Grids × Conc overlap: {overlap_gc}/{n_grid}  ({round(overlap_gc/min(n_grid,n_conc)*100)}% of smaller)\n",
+    "  Grids × Pop  overlap: {overlap_gp}/{n_grid}  ({round(overlap_gp/min(n_grid,n_pop)*100)}% of smaller)\n"
   ))
 
-  if (overlap_gc < n_grid * 0.8 || overlap_gp < n_grid * 0.8) {
+  # Warn only if overlap is low from the perspective of the SMALLER dataset —
+  # a grid file covering a larger region than Conc/Pop is normal (extra grids
+  # without data are simply dropped).
+  conc_overlap_pct <- overlap_gc / min(n_grid, n_conc)
+  pop_overlap_pct  <- overlap_gp / min(n_grid, n_pop)
+
+  if (conc_overlap_pct < 0.8 || pop_overlap_pct < 0.8) {
     warning(
-      "Low coordinate overlap between Grid_info and Conc/Pop data. ",
-      "Many grids will be dropped during calculation. ",
+      "Low coordinate overlap between Grid_info and Conc/Pop data ",
+      "(Conc: ", round(conc_overlap_pct * 100), "%, Pop: ", round(pop_overlap_pct * 100), "% of smaller). ",
       "Check that all files use the same (x, y) precision (dgt_grid = ",
       dgt_grid,
-      ")."
+      ") and cover the same geographic domain."
     )
   }
 }
