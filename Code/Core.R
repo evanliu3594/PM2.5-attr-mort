@@ -1338,16 +1338,12 @@ Mort_Aggregate <- function(
     }
   }
 
-  aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y)) %>%
-    {
-      \(x) {
-        if (domain %in% c("Country", "Province", "Region")) {
-          imap_dfr(x, ~ .x %>% add_column(year = .y, .before = T))
-        } else {
-          x
-        }
-      }
-    }
+  aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y))
+
+  if (domain %in% c("Country", "Province", "Region")) {
+    aggr_result <- aggr_result %>%
+      imap_dfr(~ .x %>% add_column(year = .y, .before = TRUE))
+  }
 
   # ---- Guard: final result not empty ----
   if (is.data.frame(aggr_result) && nrow(aggr_result) == 0) {
