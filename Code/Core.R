@@ -1098,7 +1098,7 @@ Uncertainty <- function(
             ~ replace(.x, is.na(.x), PAF_base[is.na(.x)])
           )) %>%
           select(-PAF_base),
-        by = "domain"
+        by = c("domain", "endpoint", "agegroup")
       )
 
     conc_perturb_low <- PWE %>%
@@ -1120,7 +1120,7 @@ Uncertainty <- function(
             ~ replace(.x, is.na(.x), PAF_base[is.na(.x)])
           )) %>%
           select(-PAF_base),
-        by = "domain"
+        by = c("domain", "endpoint", "agegroup")
       )
   }
 
