@@ -1025,7 +1025,8 @@ Uncertainty <- function(
   age_struc,
   m_Rate,
   includeConc = FALSE,
-  Conc_ERR = 12
+  Conc_ERR = 12,
+  verbose  = FALSE
 ) {
   if (includeConc) {
     warning(str_glue(
@@ -1175,7 +1176,25 @@ Uncertainty <- function(
   # Error propagation: σ_M² = Σ (∂M/∂x_i)² × σ_xi²
   # With finite-difference: ∂M/∂x_i ≈ ΔM_i / σ_xi, where ΔM_i (= Sensi) is the
   # mortality change from a 1σ perturbation. Therefore σ_M² = Σ Sensi_i².
-  # (test_sigma_* tables are retained for diagnostic inspection if needed.)
+  if (verbose) {
+    ci_debug <- Sensi_up %>%
+      group_by(domain, item) %>%
+      summarise(contrib = sqrt(sum(Sensi^2)), .groups = "drop") %>%
+      pivot_wider(names_from = item, values_from = contrib, values_fill = 0)
+    cat("\n--- Uncertainty diagnostics (UP side) ---\n")
+    print(ci_debug, n = Inf)
+    if (includeConc && "Pollu" %in% names(Sensi_up$item)) {
+      ci_with  <- Sensi_up %>% group_by(domain) %>%
+        summarise(CI = sqrt(sum(Sensi^2)), .groups = "drop")
+      ci_without <- Sensi_up %>% filter(item == "CR") %>% group_by(domain) %>%
+        summarise(CI = sqrt(sum(Sensi^2)), .groups = "drop")
+      ci_compare <- left_join(ci_with, ci_without, by = "domain",
+                              suffix = c("_withConc", "_CRonly"))
+      cat("\n--- includeConc impact ---\n")
+      print(ci_compare, n = Inf)
+    }
+  }
+
   left_join(
     Sensi_up %>%
       group_by(domain) %>%
@@ -1317,6 +1336,7 @@ Mort_Aggregate <- function(
         ~ Uncertainty(
           includeConc = list(...)[["includeConc"]] %||% FALSE,
           Conc_ERR = list(...)[["Conc_ERR"]] %||% 12,
+          verbose  = list(...)[["verbose"]]  %||% FALSE,
           m_Rate = getMortRate(.x),
           aggr_pop = Grid_info %>%
             left_join(getPop(.x)) %>%
