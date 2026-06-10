@@ -1330,13 +1330,19 @@ Mort_Aggregate <- function(
         ~ Grid_info %>% select(x:y, any_of(c("Country", "Region", "Province")))
       )
   } else {
+    # Evaluate ... outside the map formula to avoid lazy-eval issues
+    extra_args <- list(...)
+    inc_conc  <- extra_args[["includeConc"]] %||% FALSE
+    conc_err  <- extra_args[["Conc_ERR"]]   %||% 12
+    verb_flag <- extra_args[["verbose"]]    %||% FALSE
+
     names(full_result) %>%
       set_names %>%
       map(
         ~ Uncertainty(
-          includeConc = list(...)[["includeConc"]] %||% FALSE,
-          Conc_ERR = list(...)[["Conc_ERR"]] %||% 12,
-          verbose  = list(...)[["verbose"]]  %||% FALSE,
+          includeConc = inc_conc,
+          Conc_ERR    = conc_err,
+          verbose     = verb_flag,
           m_Rate = getMortRate(.x),
           aggr_pop = Grid_info %>%
             left_join(getPop(.x)) %>%
