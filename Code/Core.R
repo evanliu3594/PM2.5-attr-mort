@@ -1207,56 +1207,13 @@ Uncertainty <- function(
     return()
 }
 
-Mort_Aggregate <- function(
-  full_result,
-  domain = 'Grid',
-  by = NULL,
-  write = T,
-  ...
-) {
-  # ---- Guard: full_result not empty ----
-  if (is.null(full_result) || length(full_result) == 0) {
-    stop(
-      "full_result is NULL or empty. Mortality_at() must return results before aggregation."
-    )
-  }
-
-  if (!is.list(full_result)) {
-    stop(
-      "full_result must be a named list of data frames (output of map(~ Mortality_at(...))). ",
-      "Got: ",
-      class(full_result)[1]
-    )
-  }
-
-  # ---- Guard: domain validity ----
-  if (domain != 'Grid') {
-    if (!all(domain %in% names(Grid_info))) {
-      stop(
-        "Domain column \"",
-        paste(setdiff(domain, names(Grid_info)), collapse = "\", \""),
-        "\" not found in Grid_info. Available: ",
-        paste(names(Grid_info), collapse = ", ")
-      )
-    }
-  }
-
-  # ---- Guard: by column validity (for Grid domain where column names are endpoint_agegroup) ----
-  valid_by <- c("endpoint", "agegroup", names(Grid_info))
-  if (!is.null(by) && !by %in% valid_by) {
-    stop(
-      "by = \"",
-      by,
-      "\" is not a valid aggregation dimension. ",
-      "Use \"endpoint\", \"agegroup\", or a column name from Grid_info: ",
-      paste(setdiff(names(Grid_info), c("x", "y")), collapse = ", ")
-    )
-  }
-
-  pre_aggr_result <- if (domain == 'Grid' & is.null(by)) {
-    full_result
+# Internal helper: aggregate grid-level Mortality results to domain level.
+# Used by Mort_Aggregate for the heavy lifting, and reused for RR branch runs.
+aggregate_full <- function(full, domain, by) {
+  pre <- if (domain == 'Grid' & is.null(by)) {
+    full
   } else if (domain == 'Grid' & !is.null(by)) {
-    full_result %>%
+    full %>%
       map(
         ~ .x %>%
           pivot_longer(
@@ -1271,7 +1228,7 @@ Mort_Aggregate <- function(
           pivot_wider(names_from = by, values_from = 'Mort')
       )
   } else if (domain != 'Grid' & is.null(by)) {
-    full_result %>%
+    full %>%
       map(
         ~ left_join(.x, Grid_info) %>%
           group_by(pick(all_of(domain))) %>%
@@ -1279,7 +1236,7 @@ Mort_Aggregate <- function(
           ungroup
       )
   } else if (domain != 'Grid' & !is.null(by)) {
-    full_result %>%
+    full %>%
       map(
         ~ .x %>%
           left_join(Grid_info) %>%
@@ -1296,18 +1253,8 @@ Mort_Aggregate <- function(
       )
   }
 
-  # ---- Guard: aggregation produced non-empty results ----
-  empty_results <- pre_aggr_result %>% map_lgl(~ nrow(.x) == 0)
-  if (any(empty_results)) {
-    warning(
-      "Some scenarios produced empty aggregation results: ",
-      paste(names(full_result)[empty_results], collapse = ", "),
-      ". ",
-      "Check that the domain column has valid values for all grids."
-    )
-  }
-
-  pre_aggr_result <- pre_aggr_result %>%
+  # Add Total column
+  pre <- pre %>%
     map(
       if (domain == 'Grid') {
         ~ .x %>%
@@ -1324,84 +1271,149 @@ Mort_Aggregate <- function(
       }
     )
 
-  CI <- if (domain == 'Grid') {
-    full_result %>%
-      map(
-        ~ Grid_info %>% select(x:y, any_of(c("Country", "Region", "Province")))
-      )
+  return(pre)
+}
+
+Mort_Aggregate <- function(
+  full_result,
+  domain    = 'Grid',
+  by        = NULL,
+  write     = TRUE,
+  ci_method = c("rr_substitution", "error_propagation"),
+  ...
+) {
+  ci_method <- match.arg(ci_method)
+
+  # ---- Guard: full_result not empty ----
+  if (is.null(full_result) || length(full_result) == 0)
+    stop("full_result is NULL or empty. Mortality_at() must return results before aggregation.")
+
+  if (!is.list(full_result))
+    stop("full_result must be a named list of data frames (output of map(~ Mortality_at(...))). ",
+         "Got: ", class(full_result)[1])
+
+  # ---- Guard: domain validity ----
+  if (domain != 'Grid') {
+    if (!all(domain %in% names(Grid_info)))
+      stop("Domain column \"", paste(setdiff(domain, names(Grid_info)), collapse = "\", \""),
+           "\" not found in Grid_info. Available: ", paste(names(Grid_info), collapse = ", "))
+  }
+
+  # ---- Guard: by column validity ----
+  valid_by <- c("endpoint", "agegroup", names(Grid_info))
+  if (!is.null(by) && !by %in% valid_by)
+    stop("by = \"", by, "\" is not a valid aggregation dimension. ",
+         "Use \"endpoint\", \"agegroup\", or a column name from Grid_info: ",
+         paste(setdiff(names(Grid_info), c("x", "y")), collapse = ", "))
+
+  # ---- Aggregate MEAN results ----
+  pre_aggr_result <- aggregate_full(full_result, domain, by)
+
+  # ---- Guard: aggregation produced non-empty results ----
+  empty_results <- pre_aggr_result %>% map_lgl(~ nrow(.x) == 0)
+  if (any(empty_results))
+    warning("Some scenarios produced empty aggregation results: ",
+            paste(names(full_result)[empty_results], collapse = ", "),
+            ". Check that the domain column has valid values for all grids.")
+
+  # ---- CI computation ----
+  scenarios <- names(full_result)
+
+  if (ci_method == "rr_substitution") {
+
+    # Compute grid-level results for UP and LOW RR branches, aggregate, diff.
+    cat("Computing 95% CI by RR substitution (UP / LOW branches)...\n")
+
+    full_up  <- scenarios %>% set_names %>% map(
+      ~ Mortality_at(at = .x, RR = "UP",  domain = domain)
+    )
+    full_low <- scenarios %>% set_names %>% map(
+      ~ Mortality_at(at = .x, RR = "LOW", domain = domain)
+    )
+
+    aggr_up  <- aggregate_full(full_up,  domain, by)
+    aggr_low <- aggregate_full(full_low, domain, by)
+
+    CI <- scenarios %>% set_names %>% map(function(scen) {
+      tot_mean <- pre_aggr_result[[scen]]
+      tot_up   <- aggr_up[[scen]]
+      tot_low  <- aggr_low[[scen]]
+
+      # Sum Total to domain level for CI (one CI value per domain)
+      ci_domain_mean <- tot_mean %>%
+        group_by(pick(all_of(domain))) %>%
+        summarise(Total_mean = sum(Total), .groups = "drop")
+      ci_domain_up <- tot_up %>%
+        group_by(pick(all_of(domain))) %>%
+        summarise(Total_up = sum(Total), .groups = "drop")
+      ci_domain_low <- tot_low %>%
+        group_by(pick(all_of(domain))) %>%
+        summarise(Total_low = sum(Total), .groups = "drop")
+
+      ci_domain_mean %>%
+        mutate(
+          CI_UP  = ci_domain_up$Total_up   - Total_mean,
+          CI_LOW = Total_mean - ci_domain_low$Total_low
+        ) %>%
+        select(-Total_mean)
+    })
+
   } else {
-    # Evaluate ... outside the map formula to avoid lazy-eval issues
+    # ---- Original error-propagation method (Uncertainty) ----
     extra_args <- list(...)
     inc_conc  <- extra_args[["includeConc"]] %||% FALSE
     conc_err  <- extra_args[["Conc_ERR"]]   %||% 12
     verb_flag <- extra_args[["verbose"]]    %||% FALSE
 
-    names(full_result) %>%
-      set_names %>%
-      map(
-        ~ Uncertainty(
-          includeConc = inc_conc,
-          Conc_ERR    = conc_err,
-          verbose     = verb_flag,
-          m_Rate = getMortRate(.x),
-          aggr_pop = Grid_info %>%
-            left_join(getPop(.x)) %>%
-            group_by(pick(all_of(domain))) %>%
-            summarise(Pop = sum(Pop, na.rm = T)) %>%
-            na.omit,
-          age_struc = getAgeGroup(.x),
-          PWE = list(Grid_info, getConc_real(.x), getPop(.x)) %>%
-            reduce(left_join) %>%
-            na.omit %>%
-            group_by(pick(all_of(domain))) %>%
-            summarise(
-              PWE = weighted.mean(as.numeric(concentration), Pop, na.rm = T)
-            )
-        ) %>%
-          rename_with(~domain, where(is.character))
-      )
+    CI <- scenarios %>% set_names %>% map(
+      ~ Uncertainty(
+        includeConc = inc_conc,
+        Conc_ERR    = conc_err,
+        verbose     = verb_flag,
+        m_Rate   = getMortRate(.x),
+        aggr_pop = Grid_info %>%
+          left_join(getPop(.x)) %>%
+          group_by(pick(all_of(domain))) %>%
+          summarise(Pop = sum(Pop, na.rm = TRUE)) %>%
+          na.omit,
+        age_struc = getAgeGroup(.x),
+        PWE = list(Grid_info, getConc_real(.x), getPop(.x)) %>%
+          reduce(left_join) %>%
+          na.omit %>%
+          group_by(pick(all_of(domain))) %>%
+          summarise(PWE = weighted.mean(as.numeric(concentration), Pop, na.rm = TRUE))
+      ) %>%
+        rename_with(~ domain, where(is.character))
+    )
   }
 
   # ---- Guard: CI computed successfully ----
   if (domain != 'Grid') {
     empty_ci <- CI %>% map_lgl(~ is.null(.x) || nrow(.x) == 0)
-    if (any(empty_ci)) {
-      warning(
-        "Uncertainty CI could not be computed for: ",
-        paste(names(full_result)[empty_ci], collapse = ", "),
-        ". ",
-        "Check that aggr_pop and PWE have matching domain values with age_struc and m_Rate."
-      )
-    }
+    if (any(empty_ci))
+      warning("Uncertainty CI could not be computed for: ",
+              paste(scenarios[empty_ci], collapse = ", "),
+              ". Check domain mapping consistency.")
   }
 
-  aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y))
+  # ---- Join CI with aggregated results ----
+  aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y, by = domain))
 
-  if (domain %in% c("Country", "Province", "Region")) {
+  if (domain %in% c("Country", "Province", "Region"))
     aggr_result <- aggr_result %>%
       imap_dfr(~ .x %>% add_column(year = .y, .before = TRUE))
-  }
 
   # ---- Guard: final result not empty ----
-  if (is.data.frame(aggr_result) && nrow(aggr_result) == 0) {
-    stop(
-      "Aggregation produced 0 rows. Check domain/region mapping consistency."
-    )
-  }
+  if (is.data.frame(aggr_result) && nrow(aggr_result) == 0)
+    stop("Aggregation produced 0 rows. Check domain/region mapping consistency.")
 
   if (write) {
-    by_label <- if (is.null(by)) {
-      "Everything"
-    } else {
-      str_replace(by, "^.{1}", toupper)
-    }
+    by_label <- if (is.null(by)) "Everything" else str_replace(by, "^.{1}", toupper)
     outpath <- str_glue(
       "./Result/{tell_Model()}_{domain}_by{by_label}_\\
-       {head(names(full_result),1)}-\\
-       {tail(names(full_result),1)}_\\
+       {head(scenarios, 1)}-{tail(scenarios, 1)}_\\
        Build{format(Sys.Date(), '%y%m%d')}.xlsx"
     )
-    # Ensure output directory exists
     dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
     aggr_result %>% write_xlsx(outpath)
     cat("Result written to: ", outpath, "\n")
