@@ -1319,8 +1319,33 @@ Mort_Aggregate <- function(
   # ---- CI computation ----
   scenarios <- names(full_result)
 
-  if (domain == 'Grid') {
-    # Grid-level: no aggregation uncertainty, just attach domain metadata
+  if (domain == 'Grid' && ci_method == "rr_substitution") {
+    # Grid-level RR substitution: direct subtraction of UP/LOW from MEAN per grid
+    full_up  <- scenarios %>% set_names %>% map(
+      ~ Mortality_at(at = .x, RR = "UP",  domain = "Country")
+    )
+    full_low <- scenarios %>% set_names %>% map(
+      ~ Mortality_at(at = .x, RR = "LOW", domain = "Country")
+    )
+
+    CI <- scenarios %>% set_names %>% map(function(scen) {
+      mean_total <- rowSums(
+        select(full_result[[scen]], matches('_[1-9]?(0|5)$')), na.rm = TRUE)
+      up_total   <- rowSums(
+        select(full_up[[scen]],   matches('_[1-9]?(0|5)$')), na.rm = TRUE)
+      low_total  <- rowSums(
+        select(full_low[[scen]],  matches('_[1-9]?(0|5)$')), na.rm = TRUE)
+
+      full_result[[scen]] %>%
+        select(x, y) %>%
+        mutate(
+          CI_UP  = up_total  - mean_total,
+          CI_LOW = mean_total - low_total
+        )
+    })
+
+  } else if (domain == 'Grid') {
+    # Grid-level, error_propagation: just attach domain metadata (no CI)
     CI <- full_result %>%
       map(~ Grid_info %>% select(x:y, any_of(c("Country", "Region", "Province"))))
 
