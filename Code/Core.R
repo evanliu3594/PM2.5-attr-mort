@@ -1319,7 +1319,12 @@ Mort_Aggregate <- function(
   # ---- CI computation ----
   scenarios <- names(full_result)
 
-  if (ci_method == "rr_substitution") {
+  if (domain == 'Grid') {
+    # Grid-level: no aggregation uncertainty, just attach domain metadata
+    CI <- full_result %>%
+      map(~ Grid_info %>% select(x:y, any_of(c("Country", "Region", "Province"))))
+
+  } else if (ci_method == "rr_substitution") {
 
     # Compute grid-level results for UP and LOW RR branches, aggregate, diff.
     cat("Computing 95% CI by RR substitution (UP / LOW branches)...\n")
@@ -1397,7 +1402,11 @@ Mort_Aggregate <- function(
   }
 
   # ---- Join CI with aggregated results ----
-  aggr_result <- map2(CI, pre_aggr_result, ~ left_join(.x, .y, by = domain))
+  aggr_result <- if (domain == 'Grid') {
+    map2(CI, pre_aggr_result, ~ left_join(.x, .y))       # join on common (x, y)
+  } else {
+    map2(CI, pre_aggr_result, ~ left_join(.x, .y, by = domain))
+  }
 
   if (domain %in% c("Country", "Province", "Region"))
     aggr_result <- aggr_result %>%
