@@ -1284,13 +1284,24 @@ Mort_Aggregate <- function(
 ) {
   ci_method <- match.arg(ci_method)
 
-  # ---- Guard: full_result not empty ----
-  if (is.null(full_result) || length(full_result) == 0)
-    stop("full_result is NULL or empty. Mortality_at() must return results before aggregation.")
+  # ---- Auto-detect: character vector = scenario names, compute internally ----
+  if (is.character(full_result)) {
+    scenarios   <- full_result
+    cat("Computing grid-level mortality for", length(scenarios), "scenarios...\n")
+    full_result <- scenarios %>% set_names %>% map(
+      ~ Mortality_at(at = .x, RR = "MEAN", domain = if (domain == 'Grid') "Country" else domain)
+    )
+  } else if (is.list(full_result)) {
+    scenarios <- names(full_result)
+    if (is.null(scenarios) || any(scenarios == ""))
+      stop("full_result must be a NAMED list. Use set_names() when creating it.")
+  } else {
+    stop("full_result must be either a character vector of scenario names ",
+         "or a named list of data frames. Got: ", class(full_result)[1])
+  }
 
-  if (!is.list(full_result))
-    stop("full_result must be a named list of data frames (output of map(~ Mortality_at(...))). ",
-         "Got: ", class(full_result)[1])
+  if (length(full_result) == 0)
+    stop("No scenarios to process. full_result is empty.")
 
   # ---- Guard: domain validity ----
   if (domain != 'Grid') {
@@ -1313,19 +1324,18 @@ Mort_Aggregate <- function(
   empty_results <- pre_aggr_result %>% map_lgl(~ nrow(.x) == 0)
   if (any(empty_results))
     warning("Some scenarios produced empty aggregation results: ",
-            paste(names(full_result)[empty_results], collapse = ", "),
+            paste(scenarios[empty_results], collapse = ", "),
             ". Check that the domain column has valid values for all grids.")
-
-  # ---- CI computation ----
-  scenarios <- names(full_result)
 
   if (domain == 'Grid' && ci_method == "rr_substitution") {
     # Grid-level RR substitution: direct subtraction of UP/LOW from MEAN per grid
+    # PWRR domain: use "Country" when output is grid-level
+    pwr_domain <- if (domain == 'Grid') "Country" else domain
     full_up  <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, RR = "UP",  domain = "Country")
+      ~ Mortality_at(at = .x, RR = "UP",  domain = pwr_domain)
     )
     full_low <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, RR = "LOW", domain = "Country")
+      ~ Mortality_at(at = .x, RR = "LOW", domain = pwr_domain)
     )
 
     CI <- scenarios %>% set_names %>% map(function(scen) {

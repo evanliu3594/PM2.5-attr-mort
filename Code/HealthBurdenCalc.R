@@ -45,46 +45,51 @@ read_files(
   dgt_grid = 2
 )
 
-# Grid Full Result ----
+# Grid Full Result & Aggregation ----
+# Mort_Aggregate accepts scenario names directly and computes MEAN/UP/LOW internally.
 
-grid_full <- names(Conc_real)[c(-1:-2)] %>%
-  set_names %>%
-  map(~ Mortality_at(at = .x, RR = "MEAN", domain = "Country"))
+scenarios <- names(Conc_real)[c(-1:-2)]
 
-# Grid Aggregation ----
+grid_aggr <- Mort_Aggregate(scenarios, domain = 'Grid', write = FALSE)
 
-grid_aggr <- Mort_Aggregate(grid_full, domain = 'Grid', write = F)
+# grid_edpt <- Mort_Aggregate(scenarios, domain = 'Grid', by = 'endpoint')
 
-# the below 2 aggregation at grid level is time-hungry, not recommended.
-
-# grid_edpt <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'endpoint')
-
-# grid_age <- Mort_Aggregate(grid_full, domain = 'Grid', by = 'agegroup')
+# grid_age <- Mort_Aggregate(scenarios, domain = 'Grid', by = 'agegroup')
 
 # Province Aggregation ----
 
-# prov_aggr <- Mort_Aggregate(grid_full, domain = 'Province')
+# prov_aggr <- Mort_Aggregate(scenarios, domain = 'Province')
 
-# prov_edpt <- Mort_Aggregate(grid_full, domain = 'Province', by = 'endpoint')
+# prov_edpt <- Mort_Aggregate(scenarios, domain = 'Province', by = 'endpoint')
 
-# prov_age <- Mort_Aggregate(grid_full, domain = 'Province', by = 'agegroup')
+# prov_age <- Mort_Aggregate(scenarios, domain = 'Province', by = 'agegroup')
 
 # Nation Aggregation ----
 
-nation_aggr <- Mort_Aggregate(grid_full, domain = 'Country')
+nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
 
 nation_edpt <- Mort_Aggregate(
-  grid_full,
+  scenarios,
   domain = 'Country',
   by = 'endpoint',
-  includeConc = T,
-  Conc_RMSE = 12
+  includeConc = TRUE,
+  Conc_ERR = 10,
+  write = FALSE
 )
 
-nation_age <- Mort_Aggregate(
-  grid_full,
+nation_age_CR <- Mort_Aggregate(
+  scenarios,
   domain = 'Country',
   by = 'agegroup',
+  verbose = TRUE,
   includeConc = T,
-  Conc_RMSE = 12
+  Conc_ERR = 18,
+  write = F
+)
+
+nation_age_CR_noConc <- Mort_Aggregate(
+  scenarios,
+  domain = 'Country',
+  by = 'agegroup',
+  write = FALSE
 )
