@@ -64,7 +64,7 @@ Decomposition <- function(serie, start.y, end.y) {
   Decomp <- list(
     # Mort.Start ----
     Mort_0 = Mortality(Grids = Grid_info,
-                       RR = RR_table$MEAN,
+                       CI = "MEAN",
                        pop = Pop %>% select(x:y, Pop = !!start.y),
                        ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                        Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -73,7 +73,7 @@ Decomposition <- function(serie, start.y, end.y) {
     # Mort.1----
     Mort_1 = if (serie.step[1] == 'PG') {
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!end.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -81,7 +81,7 @@ Decomposition <- function(serie, start.y, end.y) {
                 mRate = getMortRate(start.y))
     } else if (serie.step[1] == 'PA') {
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!start.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -89,7 +89,7 @@ Decomposition <- function(serie, start.y, end.y) {
                 mRate = getMortRate(start.y))
     } else if (serie.step[1] == 'EXP') {
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!start.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),
@@ -97,7 +97,7 @@ Decomposition <- function(serie, start.y, end.y) {
                 mRate = getMortRate(start.y))
     } else if (serie.step[1] == 'ORF') {
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!start.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -108,7 +108,7 @@ Decomposition <- function(serie, start.y, end.y) {
     Mort_2 = if (all(serie.step[1:2] %in% c('PG','PA'))) {
       # PG  PA
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!end.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -117,7 +117,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:2] %in% c('PG','EXP'))) {
       #  PG  EXP
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!end.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),
@@ -126,7 +126,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:2] %in% c('PG', 'ORF'))) {
       #  PG  ORF
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!end.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -135,7 +135,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:2] %in% c('PA', 'EXP'))) {
       #  PA  EXP
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!start.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),
@@ -144,7 +144,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:2] %in% c('PA', 'ORF'))) {
       #  PA  ORF
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!start.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -153,7 +153,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:2] %in% c('EXP', 'ORF'))) {
       #  EXP ORF
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!start.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),
@@ -164,7 +164,7 @@ Decomposition <- function(serie, start.y, end.y) {
     Mort_3 = if (all(serie.step[1:3] %in% c('PG', 'PA', 'EXP'))) {
       # PG PA EXP
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!end.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),
@@ -173,7 +173,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:3] %in% c('PG', 'PA', 'ORF'))) {
       # PG  PA ORF
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!end.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!start.y),
@@ -182,7 +182,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:3] %in% c('PG', 'EXP', 'ORF'))) {
       #  PG	EXP	ORF
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!end.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!start.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),
@@ -191,7 +191,7 @@ Decomposition <- function(serie, start.y, end.y) {
     } else if (all(serie.step[1:3] %in% c('PA', 'EXP', 'ORF'))) {
       #  PA	EXP	ORF
       Mortality(Grids = Grid_info,
-                RR = RR_table$MEAN,
+                CI = "MEAN",
                 pop = Pop %>% select(x:y, Pop = !!start.y),
                 ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                 Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),
@@ -200,7 +200,7 @@ Decomposition <- function(serie, start.y, end.y) {
     },
     # Mort.End ----
     Mort_4 = Mortality(Grids = Grid_info,
-                       RR = RR_table$MEAN,
+                       CI = "MEAN",
                        pop = Pop %>% select(x:y, Pop = !!end.y),
                        ag = AgeGroup %>% select(domain, agegroup, AgeStruc = !!end.y),
                        Conc_c = Conc_real %>% select(x:y, concentration = !!end.y),

@@ -744,10 +744,11 @@ getAgeGroup <- function(at) {
 #' @param ag proportions of 20 age-groups inside the population structure
 #' @param mRate the domain-level baseline mortality rates per endpoint and age group
 #' @param pop a 3-column dataframe stores population volume of each grid
-#' @param RR param passed to `RR_std()`
+#' @param CI RR branch: "MEAN" (default), "UP", "LOW", or "RANGE"
 #' @param domain the spatial aggregation level (e.g., "Country", "Province") for PWRR computation
 #'
-#' @return a table of death estimates for each endpoint & age-groups(columns) for every grids(rows)
+#' @return When CI is "MEAN"/"UP"/"LOW", a wide table of death estimates per endpoint-agegroup per grid.
+#'   When CI is "RANGE", the table also includes _UP and _LOW suffixed columns for the 95% CI bounds.
 #'
 #' @examples
 Mortality <- function(
@@ -757,225 +758,184 @@ Mortality <- function(
   ag,
   mRate,
   pop,
-  RR,
+  CI = "MEAN",
   domain = NULL
 ) {
   # ---- Guard: input presence ----
-  if (is.null(Conc_c)) {
-    Conc_c <- Conc_r
-  }
+  if (is.null(Conc_c)) Conc_c <- Conc_r
 
-  if (is.null(domain)) {
-    stop(
-      "No grouping domain specified — cannot compute PWRR. ",
-      "Pass domain = \"Country\" or the column name in Grid_info that defines your aggregation units."
-    )
-  }
+  if (is.null(domain))
+    stop("No grouping domain specified — cannot compute PWRR. ",
+         "Pass domain = \"Country\" or the column name in Grid_info that defines your aggregation units.")
 
   # ---- Guard: domain column exists ----
-  if (!all(domain %in% names(Grids))) {
-    stop(
-      "Domain column \"",
-      paste(setdiff(domain, names(Grids)), collapse = "\", \""),
-      "\" not found in Grid_info. ",
-      "Available columns: ",
-      paste(names(Grids), collapse = ", ")
-    )
-  }
+  if (!all(domain %in% names(Grids)))
+    stop("Domain column \"", paste(setdiff(domain, names(Grids)), collapse = "\", \""),
+         "\" not found in Grid_info. Available: ", paste(names(Grids), collapse = ", "))
 
-  RR_tbl <- RR_std(RR)
+  # ---- Build RR table(s) ----
+  if (CI == "RANGE") {
+    # Pre-combine MEAN/UP/LOW into one table for a single join pass.
+    # PWRR is always computed from MEAN RR.
+    RR_all <- RR_std("MEAN") %>%
+      rename(RR = RR) %>%
+      left_join(
+        RR_std("UP") %>% rename(RR_UP = RR),
+        by = c("concentration", "endpoint", "agegroup")
+      ) %>%
+      left_join(
+        RR_std("LOW") %>% rename(RR_LOW = RR),
+        by = c("concentration", "endpoint", "agegroup")
+      )
 
-  # ---- Guard: RR lookup table not empty ----
-  if (nrow(RR_tbl) == 0) {
-    stop(
-      "RR lookup table is empty for index \"",
-      RR,
-      "\". Check that RR_table[[\"",
-      RR,
-      "\"]] exists and contains data."
-    )
+    if (nrow(RR_all) == 0)
+      stop("Combined RR lookup table (MEAN+UP+LOW) is empty.")
+
+    rr_conc_range <- range(as.numeric(RR_all$concentration), na.rm = TRUE)
+
+  } else {
+    # Single RR branch
+    RR_tbl <- RR_std(CI)
+
+    if (nrow(RR_tbl) == 0)
+      stop("RR lookup table is empty for index \"", CI,
+           "\". Check that RR_table[[\"", CI, "\"]] exists and contains data.")
+
+    rr_conc_range <- range(as.numeric(RR_tbl$concentration), na.rm = TRUE)
   }
 
   # ---- Guard: concentration range vs RR lookup ----
   conc_range_r <- range(as.numeric(Conc_r$concentration), na.rm = TRUE)
   conc_range_c <- range(as.numeric(Conc_c$concentration), na.rm = TRUE)
-  rr_conc_range <- range(as.numeric(RR_tbl$concentration), na.rm = TRUE)
 
-  if (
-    conc_range_r[1] < rr_conc_range[1] || conc_range_r[2] > rr_conc_range[2]
-  ) {
-    warning(
-      "Conc_r contains concentrations [",
-      conc_range_r[1],
-      ", ",
-      conc_range_r[2],
-      "] outside RR lookup range [",
-      rr_conc_range[1],
-      ", ",
-      rr_conc_range[2],
-      "]. These grids will get NA RR and be dropped by na.omit."
-    )
-  }
+  if (conc_range_r[1] < rr_conc_range[1] || conc_range_r[2] > rr_conc_range[2])
+    warning("Conc_r contains concentrations [", conc_range_r[1], ", ", conc_range_r[2],
+            "] outside RR lookup range [", rr_conc_range[1], ", ", rr_conc_range[2],
+            "]. These grids will get NA RR and be dropped by na.omit.")
 
-  if (
-    conc_range_c[1] < rr_conc_range[1] || conc_range_c[2] > rr_conc_range[2]
-  ) {
-    warning(
-      "Conc_c contains concentrations [",
-      conc_range_c[1],
-      ", ",
-      conc_range_c[2],
-      "] outside RR lookup range [",
-      rr_conc_range[1],
-      ", ",
-      rr_conc_range[2],
-      "]. These grids will get NA RR and be dropped by na.omit."
-    )
-  }
+  if (conc_range_c[1] < rr_conc_range[1] || conc_range_c[2] > rr_conc_range[2])
+    warning("Conc_c contains concentrations [", conc_range_c[1], ", ", conc_range_c[2],
+            "] outside RR lookup range [", rr_conc_range[1], ", ", rr_conc_range[2],
+            "]. These grids will get NA RR and be dropped by na.omit.")
 
   # ---- Guard: coordinate overlap ----
   grid_xy <- Grids %>% select(x, y) %>% distinct()
   conc_xy <- Conc_r %>% select(x, y) %>% distinct()
-  pop_xy <- pop %>% select(x, y) %>% distinct()
-  orphan_grids <- grid_xy %>% anti_join(conc_xy, by = c("x", "y"))
+  pop_xy  <- pop   %>% select(x, y) %>% distinct()
 
-  if (nrow(orphan_grids) > 0) {
-    warning(
-      nrow(orphan_grids),
-      " grid(s) in Grid_info have no matching concentration in Conc_r. ",
-      "They will be dropped by na.omit."
-    )
-  }
+  orphan_grids <- grid_xy %>% anti_join(conc_xy, by = c("x", "y"))
+  if (nrow(orphan_grids) > 0)
+    warning(nrow(orphan_grids), " grid(s) in Grid_info have no matching concentration in Conc_r. ",
+            "They will be dropped by na.omit.")
 
   orphan_pop <- grid_xy %>% anti_join(pop_xy, by = c("x", "y"))
-  if (nrow(orphan_pop) > 0) {
-    warning(
-      nrow(orphan_pop),
-      " grid(s) in Grid_info have no matching population in pop. ",
-      "They will be dropped by na.omit."
-    )
-  }
+  if (nrow(orphan_pop) > 0)
+    warning(nrow(orphan_pop), " grid(s) in Grid_info have no matching population in pop. ",
+            "They will be dropped by na.omit.")
 
-  # ---- PWRR calculation ----
-  n_grid_total <- nrow(Grids %>% select(x, y) %>% distinct())
+  # ---- PWRR calculation (always uses MEAN RR) ----
+  rr_for_pwr <- if (CI == "RANGE") RR_all %>% select(concentration, endpoint, agegroup, RR)
+                else RR_tbl
 
-  PWRR_pre <- list(Grids, Conc_r, pop, RR_tbl) %>%
-    reduce(left_join)
-
+  PWRR_pre <- list(Grids, Conc_r, pop, rr_for_pwr) %>% reduce(left_join)
   n_before <- nrow(PWRR_pre)
   PWRR_data <- PWRR_pre %>% na.omit
-  n_after <- nrow(PWRR_data)
+  n_after  <- nrow(PWRR_data)
 
-  if (n_after == 0) {
-    stop(
-      "PWRR step: all ",
-      n_before,
-      " rows dropped by na.omit. ",
-      "Check that concentration values fall within the RR lookup table range, ",
-      "and that Grid_info, Conc_r, and pop share common (x, y) coordinates."
-    )
-  }
+  if (n_after == 0)
+    stop("PWRR step: all ", n_before, " rows dropped by na.omit. ",
+         "Check that concentration values fall within the RR lookup table range, ",
+         "and that Grid_info, Conc_r, and pop share common (x, y) coordinates.")
 
-  if (n_after < n_before * 0.5) {
-    warning(
-      "PWRR step: ",
-      n_before - n_after,
-      " of ",
-      n_before,
-      " rows (",
-      round(100 * (1 - n_after / n_before)),
-      "%) dropped by na.omit. ",
-      "Check concentration range vs RR lookup and coordinate consistency."
-    )
-  }
+  if (n_after < n_before * 0.5)
+    warning("PWRR step: ", n_before - n_after, " of ", n_before, " rows (",
+            round(100 * (1 - n_after / n_before)), "%) dropped by na.omit. ",
+            "Check concentration range vs RR lookup and coordinate consistency.")
 
   PWRR <- PWRR_data %>%
     group_by(pick(all_of(domain))) %>%
     summarise(PWRR = weighted.mean(RR, Pop, na.rm = TRUE), .groups = "drop")
 
   # ---- Guard: PWRR validity ----
-  # PWRR >= 1 is valid (PWRR = 1 means all grids at or below TMREL).
-  # Only PWRR < 1 is physically impossible for PM2.5.
-  if (
-    any(is.na(PWRR$PWRR)) || any(is.infinite(PWRR$PWRR)) || any(PWRR$PWRR < 1)
-  ) {
-    stop(
-      "Invalid PWRR detected. ",
-      if (any(is.na(PWRR$PWRR))) {
-        "Some domains have NA PWRR (no valid grids after na.omit). "
-      },
-      if (any(is.infinite(PWRR$PWRR))) "Some domains have Inf PWRR. ",
-      if (any(PWRR$PWRR < 1)) {
-        "Some domains have PWRR < 1 (RR cannot be < 1 for PM2.5). "
-      },
-      "Check concentration and population data for these domains: ",
-      paste(
-        PWRR[[domain]][
-          is.na(PWRR$PWRR) | is.infinite(PWRR$PWRR) | PWRR$PWRR < 1
-        ],
-        collapse = ", "
-      )
-    )
-  }
+  if (any(is.na(PWRR$PWRR)) || any(is.infinite(PWRR$PWRR)) || any(PWRR$PWRR < 1))
+    stop("Invalid PWRR detected. ",
+         if (any(is.na(PWRR$PWRR))) "Some domains have NA PWRR (no valid grids after na.omit). ",
+         if (any(is.infinite(PWRR$PWRR))) "Some domains have Inf PWRR. ",
+         if (any(PWRR$PWRR < 1)) "Some domains have PWRR < 1 (RR cannot be < 1 for PM2.5). ",
+         "Check concentration and population data for these domains: ",
+         paste(PWRR[[domain]][is.na(PWRR$PWRR) | is.infinite(PWRR$PWRR) | PWRR$PWRR < 1],
+               collapse = ", "))
 
   # ---- Main mortality calculation ----
-  mort_pre <- list(
-    Grids,
-    Conc_c,
-    pop,
-    RR_tbl,
-    mRate %>% rename({{ domain }} := domain),
-    ag %>% rename({{ domain }} := domain),
-    PWRR
-  )
+  if (CI == "RANGE") {
 
-  n_before_mort <- nrow(reduce(mort_pre, left_join))
-  mort_data <- mort_pre %>% reduce(left_join) %>% na.omit
-  n_after_mort <- nrow(mort_data)
+    mort_data <- list(
+      Grids, Conc_c, pop, RR_all,
+      mRate %>% rename({{ domain }} := domain),
+      ag %>% rename({{ domain }} := domain),
+      PWRR
+    ) %>% reduce(left_join) %>% na.omit
 
-  if (n_after_mort == 0) {
-    stop(
-      "Mortality step: all ",
-      n_before_mort,
-      " rows dropped by na.omit. ",
-      "Common causes: (1) age groups in mRate/AgeGroup don't match RR_tbl's agegroup list; ",
-      "(2) endpoint names don't match between mRate and RR_tbl; ",
-      "(3) domain names differ between Grid_info, mRate, and AgeGroup. ",
-      "Check with Mortality_debug() or inspect the join intermediates."
-    )
+    if (nrow(mort_data) == 0)
+      stop("Mortality step (RANGE): all rows dropped by na.omit. ",
+           "Check age groups, endpoint names, and domain values in input data.")
+
+    # Compute three branches, then pivot each separately
+    mort_long <- mort_data %>%
+      mutate(
+        Mort     = Pop * AgeStruc * MortRate * (RR     - 1) / PWRR / 1e5,
+        Mort_UP  = Pop * AgeStruc * MortRate * (RR_UP  - 1) / PWRR / 1e5,
+        Mort_LOW = Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR / 1e5,
+      ) %>%
+      select(x, y, endpoint, agegroup, Mort, Mort_UP, Mort_LOW)
+
+    # Pivot MEAN (no suffix)
+    mean_wide <- mort_long %>%
+      select(x, y, endpoint, agegroup, Mort) %>%
+      pivot_wider(names_from = c('endpoint', 'agegroup'),
+                  names_sep = '_', values_from = 'Mort')
+
+    # Pivot UP (with _UP suffix)
+    up_wide <- mort_long %>%
+      select(x, y, endpoint, agegroup, Mort_UP) %>%
+      pivot_wider(names_from = c('endpoint', 'agegroup'),
+                  names_sep = '_', values_from = 'Mort_UP') %>%
+      rename_with(~ str_c(.x, "_UP"), matches('_[0-9]+$'))
+
+    # Pivot LOW (with _LOW suffix)
+    low_wide <- mort_long %>%
+      select(x, y, endpoint, agegroup, Mort_LOW) %>%
+      pivot_wider(names_from = c('endpoint', 'agegroup'),
+                  names_sep = '_', values_from = 'Mort_LOW') %>%
+      rename_with(~ str_c(.x, "_LOW"), matches('_[0-9]+$'))
+
+    result <- mean_wide %>%
+      left_join(up_wide, by = c("x", "y")) %>%
+      left_join(low_wide, by = c("x", "y"))
+
+  } else {
+    # ---- Single RR branch (existing logic) ----
+    mort_data <- list(
+      Grids, Conc_c, pop, RR_tbl,
+      mRate %>% rename({{ domain }} := domain),
+      ag %>% rename({{ domain }} := domain),
+      PWRR
+    ) %>% reduce(left_join) %>% na.omit
+
+    if (nrow(mort_data) == 0)
+      stop("Mortality step: all rows dropped by na.omit. ",
+           "Check age groups, endpoint names, and domain values in input data.")
+
+    result <- mort_data %>%
+      mutate(Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5) %>%
+      select(x, y, endpoint, agegroup, Mort) %>%
+      pivot_wider(names_from = c('endpoint', 'agegroup'),
+                  names_sep = '_', values_from = 'Mort')
   }
-
-  if (n_after_mort < n_before_mort * 0.5) {
-    warning(
-      "Mortality step: ",
-      n_before_mort - n_after_mort,
-      " of ",
-      n_before_mort,
-      " rows (",
-      round(100 * (1 - n_after_mort / n_before_mort)),
-      "%) dropped by na.omit."
-    )
-  }
-
-  result <- mort_data %>%
-    mutate(
-      Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5
-    ) %>%
-    select(x, y, endpoint, agegroup, Mort) %>%
-    pivot_wider(
-      names_from = c('endpoint', 'agegroup'),
-      names_sep = '_',
-      values_from = 'Mort'
-    )
 
   # ---- Guard: result not empty ----
-  if (nrow(result) == 0) {
-    stop(
-      "Mortality result has 0 rows. ",
-      "This should not happen after passing the na.omit check — ",
-      "check pivot_wider inputs."
-    )
-  }
+  if (nrow(result) == 0)
+    stop("Mortality result has 0 rows. Check pivot_wider inputs.")
 
   return(result)
 }
@@ -984,14 +944,14 @@ Mortality <- function(
 #' Calculate Attributable Mortality at a certain year/scenario
 #'
 #' @param at year/scenario
-#' @param RR RR branch
+#' @param CI RR branch: "MEAN" (default), "UP", "LOW", or "RANGE"
 #' @param domain grid domain
 #'
-#' @return
+#' @return data frame of grid-level mortality estimates
 #' @export
 #'
 #' @examples
-Mortality_at <- function(at, RR = "MEAN", domain) {
+Mortality_at <- function(at, CI = "MEAN", domain) {
   Mortality(
     Grids = Grid_info,
     Conc_r = getConc_real(at),
@@ -999,7 +959,7 @@ Mortality_at <- function(at, RR = "MEAN", domain) {
     pop = getPop(at),
     ag = getAgeGroup(at),
     mRate = getMortRate(at),
-    RR = RR,
+    CI = CI,
     domain = domain
   )
 }
@@ -1209,87 +1169,23 @@ Uncertainty <- function(
 
 # Internal helper: aggregate grid-level Mortality results to domain level.
 # Used by Mort_Aggregate for the heavy lifting, and reused for RR branch runs.
-aggregate_full <- function(full, domain, by) {
-  pre <- if (domain == 'Grid' & is.null(by)) {
-    full
-  } else if (domain == 'Grid' & !is.null(by)) {
-    full %>%
-      map(
-        ~ .x %>%
-          pivot_longer(
-            cols = matches('_[1-9]?(0|5)$'),
-            values_to = 'Mort',
-            names_to = c('endpoint', 'agegroup'),
-            names_sep = '_'
-          ) %>%
-          group_by(pick(all_of(c(domain, by)))) %>%
-          summarise(Mort = sum(Mort)) %>%
-          ungroup %>%
-          pivot_wider(names_from = by, values_from = 'Mort')
-      )
-  } else if (domain != 'Grid' & is.null(by)) {
-    full %>%
-      map(
-        ~ left_join(.x, Grid_info) %>%
-          group_by(pick(all_of(domain))) %>%
-          summarise(across(matches('_[1-9]?(0|5)$'), sum)) %>%
-          ungroup
-      )
-  } else if (domain != 'Grid' & !is.null(by)) {
-    full %>%
-      map(
-        ~ .x %>%
-          left_join(Grid_info) %>%
-          pivot_longer(
-            cols = matches('_[1-9]?(0|5)$'),
-            names_to = c('endpoint', 'agegroup'),
-            names_sep = '_',
-            values_to = 'Mort'
-          ) %>%
-          group_by(pick(all_of(c(domain, by)))) %>%
-          summarise(Mort = sum(Mort)) %>%
-          ungroup %>%
-          pivot_wider(names_from = by, values_from = 'Mort')
-      )
-  }
-
-  # Add Total column
-  pre <- pre %>%
-    map(
-      if (domain == 'Grid') {
-        ~ .x %>%
-          mutate(
-            Total = rowSums(select(., matches('_[1-9]?(0|5)$')), na.rm = TRUE),
-            .after = x:y
-          )
-      } else {
-        ~ .x %>%
-          mutate(
-            Total = rowSums(select(., -all_of(!!domain)), na.rm = TRUE),
-            .after = !!domain
-          )
-      }
-    )
-
-  return(pre)
-}
-
+# ---- Aggregation helper ----
+# Aggregate grid-level Mortality results to domain level, with optional
+# error-propagation uncertainty (Uncertainty).
 Mort_Aggregate <- function(
   full_result,
-  domain    = 'Grid',
-  by        = NULL,
-  write     = TRUE,
-  ci_method = c("rr_substitution", "error_propagation"),
+  domain = 'Grid',
+  by     = NULL,
+  write  = TRUE,
   ...
 ) {
-  ci_method <- match.arg(ci_method)
-
   # ---- Auto-detect: character vector = scenario names, compute internally ----
   if (is.character(full_result)) {
-    scenarios   <- full_result
+    scenarios <- full_result
+    pwr_domain <- if (domain == 'Grid') "Country" else domain
     cat("Computing grid-level mortality for", length(scenarios), "scenarios...\n")
     full_result <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, RR = "MEAN", domain = if (domain == 'Grid') "Country" else domain)
+      ~ Mortality_at(at = .x, CI = "MEAN", domain = pwr_domain)
     )
   } else if (is.list(full_result)) {
     scenarios <- names(full_result)
@@ -1317,95 +1213,76 @@ Mort_Aggregate <- function(
          "Use \"endpoint\", \"agegroup\", or a column name from Grid_info: ",
          paste(setdiff(names(Grid_info), c("x", "y")), collapse = ", "))
 
-  # ---- Aggregate MEAN results ----
-  pre_aggr_result <- aggregate_full(full_result, domain, by)
+  # ---- Determine which columns to aggregate ----
+  # Includes MEAN columns (e.g., copd_25) and RANGE _UP/_LOW suffixed columns
+  sample_names <- names(full_result[[1]])
+  mort_cols   <- str_subset(sample_names, '_[1-9]?(0|5)$')
+  has_ci      <- any(str_detect(mort_cols, "_(UP|LOW)$"))
 
-  # ---- Guard: aggregation produced non-empty results ----
-  empty_results <- pre_aggr_result %>% map_lgl(~ nrow(.x) == 0)
-  if (any(empty_results))
-    warning("Some scenarios produced empty aggregation results: ",
-            paste(scenarios[empty_results], collapse = ", "),
-            ". Check that the domain column has valid values for all grids.")
-
-  if (domain == 'Grid' && ci_method == "rr_substitution") {
-    # Grid-level RR substitution: direct subtraction of UP/LOW from MEAN per grid
-    # PWRR domain: use "Country" when output is grid-level
-    pwr_domain <- if (domain == 'Grid') "Country" else domain
-    full_up  <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, RR = "UP",  domain = pwr_domain)
+  # ---- Aggregate ----
+  pre_aggr <- if (domain == 'Grid' & is.null(by)) {
+    full_result
+  } else if (domain == 'Grid' & !is.null(by)) {
+    full_result %>% map(
+      ~ .x %>%
+        pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
+                     names_to = c('endpoint', 'agegroup'), names_sep = '_') %>%
+        group_by(pick(all_of(c(domain, by)))) %>%
+        summarise(Mort = sum(Mort), .groups = "drop") %>%
+        pivot_wider(names_from = by, values_from = 'Mort')
     )
-    full_low <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, RR = "LOW", domain = pwr_domain)
+  } else if (domain != 'Grid' & is.null(by)) {
+    full_result %>% map(
+      ~ left_join(.x, Grid_info) %>%
+        group_by(pick(all_of(domain))) %>%
+        summarise(across(any_of(mort_cols), sum), .groups = "drop")
     )
+  } else if (domain != 'Grid' & !is.null(by)) {
+    full_result %>% map(
+      ~ .x %>% left_join(Grid_info) %>%
+        pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
+                     names_to = c('endpoint', 'agegroup'), names_sep = '_') %>%
+        group_by(pick(all_of(c(domain, by)))) %>%
+        summarise(Mort = sum(Mort), .groups = "drop") %>%
+        pivot_wider(names_from = by, values_from = 'Mort')
+    )
+  }
 
-    CI <- scenarios %>% set_names %>% map(function(scen) {
-      mean_total <- rowSums(
-        select(full_result[[scen]], matches('_[1-9]?(0|5)$')), na.rm = TRUE)
-      up_total   <- rowSums(
-        select(full_up[[scen]],   matches('_[1-9]?(0|5)$')), na.rm = TRUE)
-      low_total  <- rowSums(
-        select(full_low[[scen]],  matches('_[1-9]?(0|5)$')), na.rm = TRUE)
-
-      full_result[[scen]] %>%
-        select(x, y) %>%
+  # ---- Add Total column(s) ----
+  if (has_ci) {
+    pre_aggr <- pre_aggr %>% map(function(df) {
+      mean_cols <- str_subset(names(df), '_[1-9]?(0|5)$') %>%
+        str_subset("_(UP|LOW)$", negate = TRUE)
+      up_cols   <- str_subset(names(df), '_UP$')
+      low_cols  <- str_subset(names(df), '_LOW$')
+      df %>%
         mutate(
-          CI_UP  = up_total  - mean_total,
-          CI_LOW = mean_total - low_total
+          Total      = rowSums(select(., any_of(mean_cols)), na.rm = TRUE),
+          Total_UP   = rowSums(select(., any_of(up_cols)),   na.rm = TRUE),
+          Total_LOW  = rowSums(select(., any_of(low_cols)),  na.rm = TRUE),
+          .after = if (domain == 'Grid') x:y else all_of(domain)
         )
     })
-
-  } else if (domain == 'Grid') {
-    # Grid-level, error_propagation: just attach domain metadata (no CI)
-    CI <- full_result %>%
-      map(~ Grid_info %>% select(x:y, any_of(c("Country", "Region", "Province"))))
-
-  } else if (ci_method == "rr_substitution") {
-
-    # Compute grid-level results for UP and LOW RR branches, aggregate, diff.
-    cat("Computing 95% CI by RR substitution (UP / LOW branches)...\n")
-
-    full_up  <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, RR = "UP",  domain = domain)
-    )
-    full_low <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, RR = "LOW", domain = domain)
-    )
-
-    aggr_up  <- aggregate_full(full_up,  domain, by)
-    aggr_low <- aggregate_full(full_low, domain, by)
-
-    CI <- scenarios %>% set_names %>% map(function(scen) {
-      tot_mean <- pre_aggr_result[[scen]]
-      tot_up   <- aggr_up[[scen]]
-      tot_low  <- aggr_low[[scen]]
-
-      # Sum Total to domain level for CI (one CI value per domain)
-      ci_domain_mean <- tot_mean %>%
-        group_by(pick(all_of(domain))) %>%
-        summarise(Total_mean = sum(Total), .groups = "drop")
-      ci_domain_up <- tot_up %>%
-        group_by(pick(all_of(domain))) %>%
-        summarise(Total_up = sum(Total), .groups = "drop")
-      ci_domain_low <- tot_low %>%
-        group_by(pick(all_of(domain))) %>%
-        summarise(Total_low = sum(Total), .groups = "drop")
-
-      ci_domain_mean %>%
-        mutate(
-          CI_UP  = ci_domain_up$Total_up   - Total_mean,
-          CI_LOW = Total_mean - ci_domain_low$Total_low
-        ) %>%
-        select(-Total_mean)
-    })
-
   } else {
-    # ---- Original error-propagation method (Uncertainty) ----
-    extra_args <- list(...)
-    inc_conc  <- extra_args[["includeConc"]] %||% FALSE
-    conc_err  <- extra_args[["Conc_ERR"]]   %||% 12
-    verb_flag <- extra_args[["verbose"]]    %||% FALSE
+    pre_aggr <- pre_aggr %>% map(
+      if (domain == 'Grid') {
+        ~ .x %>% mutate(Total = rowSums(select(., any_of(mort_cols)), na.rm = TRUE), .after = x:y)
+      } else {
+        ~ .x %>% mutate(Total = rowSums(select(., -all_of(!!domain)), na.rm = TRUE), .after = !!domain)
+      }
+    )
+  }
 
-    CI <- scenarios %>% set_names %>% map(
+  # ---- CI: error propagation (Uncertainty) or grid metadata ----
+  extra_args <- list(...)
+  inc_conc  <- extra_args[["includeConc"]] %||% FALSE
+  conc_err  <- extra_args[["Conc_ERR"]]   %||% 12
+  verb_flag <- extra_args[["verbose"]]    %||% FALSE
+
+  CI <- if (domain == 'Grid') {
+    full_result %>% map(~ Grid_info %>% select(x:y, any_of(c("Country", "Region", "Province"))))
+  } else {
+    scenarios %>% set_names %>% map(
       ~ Uncertainty(
         includeConc = inc_conc,
         Conc_ERR    = conc_err,
@@ -1418,44 +1295,32 @@ Mort_Aggregate <- function(
           na.omit,
         age_struc = getAgeGroup(.x),
         PWE = list(Grid_info, getConc_real(.x), getPop(.x)) %>%
-          reduce(left_join) %>%
-          na.omit %>%
+          reduce(left_join) %>% na.omit %>%
           group_by(pick(all_of(domain))) %>%
           summarise(PWE = weighted.mean(as.numeric(concentration), Pop, na.rm = TRUE))
-      ) %>%
-        rename_with(~ domain, where(is.character))
+      ) %>% rename_with(~ domain, where(is.character))
     )
-  }
-
-  # ---- Guard: CI computed successfully ----
-  if (domain != 'Grid') {
-    empty_ci <- CI %>% map_lgl(~ is.null(.x) || nrow(.x) == 0)
-    if (any(empty_ci))
-      warning("Uncertainty CI could not be computed for: ",
-              paste(scenarios[empty_ci], collapse = ", "),
-              ". Check domain mapping consistency.")
   }
 
   # ---- Join CI with aggregated results ----
   aggr_result <- if (domain == 'Grid') {
-    map2(CI, pre_aggr_result, ~ left_join(.x, .y))       # join on common (x, y)
+    map2(CI, pre_aggr, ~ left_join(.x, .y))
   } else {
-    map2(CI, pre_aggr_result, ~ left_join(.x, .y, by = domain))
+    map2(CI, pre_aggr, ~ left_join(.x, .y, by = domain))
   }
 
   if (domain %in% c("Country", "Province", "Region"))
     aggr_result <- aggr_result %>%
       imap_dfr(~ .x %>% add_column(year = .y, .before = TRUE))
 
-  # ---- Guard: final result not empty ----
-  if (is.data.frame(aggr_result) && nrow(aggr_result) == 0)
+  if (nrow(aggr_result) == 0)
     stop("Aggregation produced 0 rows. Check domain/region mapping consistency.")
 
   if (write) {
     by_label <- if (is.null(by)) "Everything" else str_replace(by, "^.{1}", toupper)
     outpath <- str_glue(
-      "./Result/{tell_Model()}_{domain}_by{by_label}_\\
-       {head(scenarios, 1)}-{tail(scenarios, 1)}_\\
+      "./Result/{tell_Model()}_{domain}_by{by_label}_\
+       {head(scenarios, 1)}-{tail(scenarios, 1)}_\
        Build{format(Sys.Date(), '%y%m%d')}.xlsx"
     )
     dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
