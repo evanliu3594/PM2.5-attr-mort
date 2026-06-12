@@ -427,11 +427,15 @@ aggregate_mort <- function(
   for (lv_name in names(at_levels)) {
     gv_geo <- at_levels[[lv_name]]
 
-    for (br_key in c("Total", str_c("by_", by))) {
+    # Only Total when by is empty; otherwise only the requested breakdown(s)
+    breakdown_keys <- if (length(by) == 0) "Total" else str_c("by_", by)
+    for (br_key in breakdown_keys) {
       gv <- if (br_key == "Total") {
         gv_geo
       } else {
-        c(gv_geo, str_remove(br_key, "^by_"))
+        # Grid-level breakdowns need x,y to keep per-grid rows
+        c(if (length(gv_geo) == 0) c("x", "y") else gv_geo,
+          str_remove(br_key, "^by_"))
       }
 
       # Compute per scenario, then combine: rename value cols with scenario prefix, join
