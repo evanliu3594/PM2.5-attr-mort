@@ -105,6 +105,8 @@ normalize_coords <- function(df) {
 #' @param Conc_cf path to counter-fact concentration
 #' @param MortRate path to mortality rate
 #' @param AgeGroup path to population age structure
+#' @param RR_table_path optional path to a custom RR lookup table (xlsx with
+#'   MEAN/LOW/UP sheets). Overrides automatic detection from .CR_Model.
 #' @param dgt_grid int, digit of map grids
 #' @param dgt_conc int, digit of concentrations, by default `1`
 #'
@@ -119,6 +121,7 @@ read_files <- function(
   Conc_cf,
   MortRate,
   AgeGroup,
+  RR_table_path = NULL,
   dgt_grid = 2,
   dgt_conc = 1
 ) {
@@ -261,7 +264,11 @@ read_files <- function(
     )
   }
 
-  CR_file <- if (.CR_Model == 'MRBRT') {
+  # ---- Resolve RR table path ----
+  if (!is.null(RR_table_path)) {
+    CR_file <- RR_table_path
+    cat(str_glue("  Using custom RR lookup table: {CR_file}\n"))
+  } else if (.CR_Model == 'MRBRT') {
     './Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx'
   } else if (.CR_Model %in% c('NCD+LRI', '5COD')) {
     './Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx'
@@ -376,13 +383,13 @@ read_files <- function(
 #' @examples
 RR_std <- function(RR_index = "MEAN") {
   # ---- Guard: CR model must be set ----
-  if (!exists('.CR_Model', envir = globalenv())) {
+  if (!exists('.CR_Base', envir = globalenv())) {
     stop("C-R model not set. Call set_Model() before using RR_std().")
   }
 
   CR <- tryCatch(
-    get(".CR_Model", envir = globalenv()),
-    error = function(e) stop("Cannot access .CR_Model from global environment.")
+    get(".CR_Base", envir = globalenv()),
+    error = function(e) stop("Cannot access .CR_Base from global environment.")
   )
 
   # ---- Guard: RR_table is loaded ----

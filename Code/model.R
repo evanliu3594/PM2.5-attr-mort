@@ -30,20 +30,31 @@ tell_Model <- function() {
 
 #' set CRF for calculation
 #'
-#' @param Model string, one of `IER`, `NCD+LRI`, `5COD`, `MRBRT`, `O3` or `NO2`
+#' @param Model string, one of the built-in models (`IER`, `NCD+LRI`, `5COD`,
+#'   `MRBRT`, `O3`, `NO2`) or a custom name.
+#' @param base For custom models: which built-in model's endpoint and agegroup
+#'   structure to reuse (e.g. `base = "NCD+LRI"` for a custom GEMM table).
+#'   Ignored when `Model` is a built-in.
 #'
 #' @export
-set_Model <- function(Model) {
+set_Model <- function(Model, base = NULL) {
   assign(".CR_Model", Model, envir = globalenv())
 
-  if (str_detect(Model, "IER|NCD\\+LRI|5COD|MRBRT|O3|NO2")) {
-    cat(str_glue(
-      "C-R Model \"{tell_Model()}\" is set as the default methodology"
-    ))
+  builtins <- c("IER", "NCD+LRI", "5COD", "MRBRT", "O3", "NO2",
+                "IER2010", "IER2013", "IER2015", "IER2017")
+  is_builtin <- Model %in% builtins
+
+  if (is_builtin) {
+    assign(".CR_Base", Model, envir = globalenv())
+    cat(str_glue("C-R Model \"{tell_Model()}\" is set as the default methodology.\n"))
+  } else if (!is.null(base) && base %in% builtins) {
+    assign(".CR_Base", base, envir = globalenv())
+    cat(str_glue("Custom C-R Model \"{Model}\" (base: {base}) is set.\n"))
   } else {
-    warning(str_glue(
-      "\"{Model}\" is not a bnuilt-in CR model, \\
-      please provide a corrosponding `RR_table` after `read_file()`"
-    ))
+    assign(".CR_Base", Model, envir = globalenv())
+    warning(str_glue("\"{Model}\" is not a built-in CR model. ",
+      "Pass base = \"NCD+LRI\" (or similar) so RR_std() knows the ",
+      "endpoint/agegroup structure to use. ",
+      "You must also provide a custom RR_table via read_files(RR_table_path = ...)."))
   }
 }
