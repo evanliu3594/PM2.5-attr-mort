@@ -49,25 +49,32 @@ scenarios <- names(Conc_real)[c(-1:-2)]
 
 # ---- Grid-level with 95% CI (MEAN + UP + LOW in one pass) ----
 grid_ci <- scenarios %>%
-  map(~ Mortality_at(at = .x, CI = "RANGE", domain = "Country")) %>%
-  set_names(scenarios)
+  set_names() %>%
+  map(~ Mortality_at(at = .x, CI = "RANGE", domain = "Country"))
 
-# ---- Aggregation with RR-substitution CI ----
-# at  = "grid" | "geo" | "Country" | c("Country","Province")
-# by  = NULL | "all" | "endpoint" | "agegroup"
+# ---- Aggregation ----
+# Uncomment the level(s) and breakdown(s) you need.
+# at  = "grid" | "geo" | "Country" | "Province" | "Region"
+# by  = NULL (Total) | "all" | "endpoint" | "agegroup"
 # write = FALSE | TRUE (-> ./Result/) | "./my/path"
 
-all_aggr <- aggregate_mort(
-  grid_ci,
-  at    = c("Country", "Province"),
-  by    = "all",
-  write = FALSE
-)
+# ---- Grid-level ----
+# aggregate_mort(grid_ci, at = "grid", write = FALSE)
 
-# Access results:
-#   all_aggr$Total$base2015         — national totals
-#   all_aggr$by_endpoint$base2015   — by cause of death
-#   all_aggr$by_agegroup$base2015   — by age group
+# ---- National ----
+# aggregate_mort(grid_ci, at = "Country", by = NULL,      write = FALSE)   # Total
+# aggregate_mort(grid_ci, at = "Country", by = "endpoint", write = FALSE)   # x endpoint
+# aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = FALSE)   # x agegroup
+# aggregate_mort(grid_ci, at = "Country", by = "all",      write = FALSE)   # all above
+
+# ---- Provincial ----
+# aggregate_mort(grid_ci, at = "Province", by = "all", write = FALSE)
+
+# ---- Regional ----
+# aggregate_mort(grid_ci, at = "Region", by = "all", write = FALSE)
+
+# ---- All geo levels at once ----
+# aggregate_mort(grid_ci, at = "geo", by = "all", write = FALSE)
 
 # ---- Convenience: Mort_Aggregate with error-propagation CI ----
 # nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
