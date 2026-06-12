@@ -301,7 +301,7 @@ Mort_Aggregate <- function(
 aggregate_mort <- function(
   x,
   at = c("Country"),
-  by = c("endpoint", "agegroup"),
+  by = NULL,
   write = FALSE
 ) {
   # Normalise to named list of data frames
