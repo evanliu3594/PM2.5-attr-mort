@@ -1,5 +1,6 @@
 .DS_Store
 Thumbs.db
+.RData
 .Rhistory
 .Rproj.user/
 Data/check*/
