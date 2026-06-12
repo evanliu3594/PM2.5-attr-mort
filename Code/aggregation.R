@@ -458,6 +458,9 @@ aggregate_mort <- function(
         }) %>%
         reduce(left_join, by = id_cols)
 
+      cat("  [DEBUG] combined cols:", paste(names(combined), collapse = ", "), "\n")
+      cat("  [DEBUG] combined rows:", nrow(combined), "\n")
+
       sheet_name <- str_c(lv_name, "_", br_key)
       result[[sheet_name]] <- combined
     }
