@@ -1,11 +1,13 @@
 {
   "NCD+LRI": {
+    "label": "PM2.5_GEMM_NCD+LRI",
     "lookup": "./Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx",
     "endpoints": [
       { "name": "ncd+lri", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
     ]
   },
   "5COD": {
+    "label": "PM2.5_GEMM_5COD",
     "lookup": "./Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx",
     "endpoints": [
       { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
@@ -16,6 +18,7 @@
     ]
   },
   "IER": {
+    "label": "IER",
     "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
       { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
@@ -26,18 +29,23 @@
     ]
   },
   "IER2010": {
+    "label": "IER2010",
     "lookup": "./Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx"
   },
   "IER2013": {
+    "label": "IER2013",
     "lookup": "./Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx"
   },
   "IER2015": {
+    "label": "IER2015",
     "lookup": "./Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx"
   },
   "IER2017": {
+    "label": "IER2017",
     "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx"
   },
   "MRBRT": {
+    "label": "PM2.5_MRBRT",
     "lookup": "./Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx",
     "endpoints": [
       { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
@@ -49,12 +57,14 @@
     ]
   },
   "O3": {
+    "label": "O3",
     "lookup": "./Data/RR_index/O3_CR_Lookup_Table.xlsx",
     "endpoints": [
       { "name": "copd", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
     ]
   },
   "NO2": {
+    "label": "NO2",
     "lookup": "./Data/RR_index/NO2_CR_Lookup_Table.xlsx",
     "endpoints": [
       { "name": "allcause", "ages": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }

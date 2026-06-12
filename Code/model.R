@@ -9,24 +9,20 @@ library(jsonlite)
 
 #' detect CRF model name and generate a name for file output
 #'
+#' Reads the label from RR_std_config.json. Falls back to .CR_Model
+#' if the config or label is unavailable.
+#'
 #' @return formatted string of CRF name
 #' @export
 #'
 tell_Model <- function() {
-  return(
-    if (.CR_Model %>% str_detect('IER')) {
-      str_c(.CR_Model)
-    } else if (.CR_Model %in% c('5COD', 'NCD+LRI')) {
-      str_c('PM2.5_GEMM', .CR_Model, sep = '_')
-    } else if (.CR_Model == 'MRBRT') {
-      str_c("PM2.5_", .CR_Model)
-    } else if (.CR_Model == 'O3') {
-      #新增
-      str_c(.CR_Model)
-    } else if (.CR_Model == 'NO2') {
-      str_c(.CR_Model)
-    } #新增
-  )
+  cfg_path <- './Data/RR_std_config.json'
+  if (file.exists(cfg_path)) {
+    cfg <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
+    entry <- cfg[[.CR_Model]]
+    if (!is.null(entry$label)) return(entry$label)
+  }
+  .CR_Model
 }
 
 #' set CRF for calculation
