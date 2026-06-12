@@ -46,17 +46,30 @@ set_Model <- function(Model, path = NULL) {
 
     raw <- read_xlsx(path, sheet = "MEAN")
     mort_cols <- str_subset(names(raw), '_[0-9]+$')
-    if (length(mort_cols) == 0)
-      stop("No {endpoint}_{age} columns found in ", path,
-           ". Expected pattern like copd_25 or ncd+lri_30.")
 
-    parsed <- str_match(mort_cols, '^(.+)_([0-9]+)$')
-    ep_ages <- tibble(
-      endpoint = str_to_lower(parsed[, 2]),
-      age = as.integer(parsed[, 3])
-    ) %>%
-      group_by(endpoint) %>%
-      summarise(ages = list(sort(unique(age))), .groups = "drop")
+    if (length(mort_cols) > 0) {
+      parsed <- str_match(mort_cols, '^(.+)_([0-9]+)$')
+      ep_ages <- tibble(
+        endpoint = str_to_lower(parsed[, 2]),
+        age = as.integer(parsed[, 3])
+      ) %>%
+        group_by(endpoint) %>%
+        summarise(ages = list(sort(unique(age))), .groups = "drop")
+    } else {
+      all_cols <- str_subset(names(raw), '_ALL$')
+      if (length(all_cols) == 0)
+        stop("No {endpoint}_{age} or {endpoint}_ALL columns found in ", path,
+             ". Expected columns like copd_25 or copd_ALL.")
+      default_ages <- seq(0, 95, 5)
+      ep_names <- str_to_lower(str_remove(all_cols, '_ALL$'))
+      ep_ages <- tibble(
+        endpoint = ep_names,
+        ages = rep(list(default_ages), length(ep_names))
+      )
+      cat(str_glue("  Only _ALL columns found; auto-generated ages ",
+                   "{min(default_ages)}-{max(default_ages)} ",
+                   "for {length(ep_names)} endpoint(s).\n"))
+    }
 
     ep_entries <- ep_ages %>% rowwise() %>%
       summarise(
