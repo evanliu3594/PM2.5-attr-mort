@@ -27,11 +27,11 @@
 library(tidyverse)
 library(writexl)
 library(readxl)
-source('./Code/model.R',        encoding = 'UTF8')
-source('./Code/data.R',         encoding = 'UTF8')
-source('./Code/mortality.R',    encoding = 'UTF8')
-source('./Code/uncertainty.R',  encoding = 'UTF8')
-source('./Code/aggregation.R',  encoding = 'UTF8')
+source('./Code/model.R', encoding = 'UTF8')
+source('./Code/data.R', encoding = 'UTF8')
+source('./Code/mortality.R', encoding = 'UTF8')
+source('./Code/uncertainty.R', encoding = 'UTF8')
+source('./Code/aggregation.R', encoding = 'UTF8')
 
 # C-R Model setting ----
 # this section used to choose C-R Model for Health Impact Calculation.
@@ -60,13 +60,15 @@ grid_ci <- set_names(scenarios) %>%
 
 # Aggregation ----
 # Uncomment the level(s) and breakdown(s) you need.
-# at  = "grid" | "geo" | "x" | "y" | "Country" | "Province" | "Region"
-#       or any column in Grid_info
+# at  = "grid" | "geo" | "x" | "y" | "Country" | or any column in Grid_info
 # by  = NULL | "total" (Total only) | "all" | "endpoint" | "agegroup"
 # write = FALSE | TRUE (-> ./Result/) | "./my/path"
 
 ## Grid-level ----
-# aggregate_mort(grid_ci, at = "grid", write = FALSE)
+# aggregate_mort(grid_ci, at = "grid", by = NULL,       write = FALSE)
+# aggregate_mort(grid_ci, at = "grid", by = "endpoint", write = FALSE)
+# aggregate_mort(grid_ci, at = "grid", by = "agegroup", write = FALSE)
+# aggregate_mort(grid_ci, at = "grid", by = "all",      write = FALSE)
 
 ## Zonal / Meridional ----
 # aggregate_mort(grid_ci, at = "x", write = FALSE)   # sum along latitude bands -> by longitude
@@ -78,13 +80,13 @@ grid_ci <- set_names(scenarios) %>%
 # aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = FALSE) # x agegroup
 # aggregate_mort(grid_ci, at = "Country", by = "all",      write = FALSE) # all above
 
-## Provincial ----
-# aggregate_mort(grid_ci, at = "Province", by = NULL,       write = FALSE)
+## Provincial (if available)----
+# aggregate_mort(grid_ci, at = "Province", by = NULL,       write = FALSE) # Total
 # aggregate_mort(grid_ci, at = "Province", by = "endpoint", write = FALSE) # x endpoint
 # aggregate_mort(grid_ci, at = "Province", by = "agegroup", write = FALSE) # x agegroup
 # aggregate_mort(grid_ci, at = "Province", by = "all",      write = FALSE) # all above
 
-## Regional ----
+## Regional (if available)----
 # aggregate_mort(grid_ci, at = "Region", by = "all", write = FALSE)
 
 ##  All geo levels and all group field at once ----

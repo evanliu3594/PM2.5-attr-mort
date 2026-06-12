@@ -16,9 +16,7 @@ Uncertainty <- function(
   verbose  = FALSE
 ) {
   if (includeConc) {
-    warning(str_glue(
-      "Including concentration uncertainty at +/-{Conc_ERR}% of PWE."
-    ))
+    log_msg(WARN, "Including concentration uncertainty at +/-{Conc_ERR}% of PWE.")
   }
 
   PWE <- PWE %>%

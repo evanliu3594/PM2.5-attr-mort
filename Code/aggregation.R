@@ -18,11 +18,7 @@ Mort_Aggregate <- function(
   # ---- Auto-detect: character vector = scenario names, compute internally ----
   if (is.character(full_result)) {
     scenarios <- full_result
-    cat(
-      "Computing grid-level mortality for",
-      length(scenarios),
-      "scenarios...\n"
-    )
+    log_msg(INFO, "Computing grid-level mortality for {length(scenarios)} scenarios...")
     full_result <- scenarios %>%
       set_names %>%
       map(
@@ -264,7 +260,7 @@ Mort_Aggregate <- function(
     )
     dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
     aggr_result %>% write_xlsx(outpath)
-    cat("Result written to: ", outpath, "\n")
+    log_msg(INFO, "Result written to: ", outpath)
   }
 
   return(aggr_result)
@@ -470,7 +466,7 @@ aggregate_mort <- function(
       str_glue("{tell_Model()}_Build{format(Sys.Date(), '%y%m%d')}.xlsx")
     )
     result %>% write_xlsx(outpath)
-    cat("Written:", outpath, "\n")
+    log_msg(INFO, "Written: ", outpath)
   }
 
   return(result)

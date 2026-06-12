@@ -7,6 +7,16 @@ library(writexl)
 library(readxl)
 library(jsonlite)
 
+log_msg <- function(level = c("INFO", "WARN", "ERROR"), ...) {
+  level <- match.arg(level)
+  msg <- str_glue(...)
+  switch(level,
+    INFO  = cli::cli_alert_info(msg),
+    WARN  = cli::cli_alert_warning(msg),
+    ERROR = cli::cli_alert_danger(msg)
+  )
+}
+
 #' detect CRF model name and generate a name for file output
 #'
 #' Reads the label from RR_std_config.json. Falls back to .CR_Model
@@ -37,7 +47,7 @@ tell_Model <- function() {
 #' @export
 set_Model <- function(Model, path = NULL) {
   assign(".CR_Model", Model, envir = globalenv())
-  cat(str_glue("C-R Model \"{tell_Model()}\" is set.\n"))
+  log_msg(INFO, "C-R Model \"{tell_Model()}\" is set.")
 
   # ---- Auto-generate standardisation config from custom lookup table ----
   if (!is.null(path)) {
@@ -66,9 +76,9 @@ set_Model <- function(Model, path = NULL) {
         endpoint = ep_names,
         ages = rep(list(default_ages), length(ep_names))
       )
-      cat(str_glue("  Only _ALL columns found; auto-generated ages ",
-                   "{min(default_ages)}-{max(default_ages)} ",
-                   "for {length(ep_names)} endpoint(s).\n"))
+      log_msg(INFO, "Only _ALL columns found; auto-generated ages ",
+              "{min(default_ages)}-{max(default_ages)} ",
+              "for {length(ep_names)} endpoint(s).")
     }
 
     ep_entries <- ep_ages %>% rowwise() %>%
@@ -85,12 +95,12 @@ set_Model <- function(Model, path = NULL) {
       '  }'
     )
 
-    cat("\n---- Auto-generated RR_std config entry ----\n")
-    cat("Review and add the following to Data/RR_std_config.json:\n\n")
-    cat(config_entry, "\n\n")
-    cat(str_glue("Detected {nrow(ep_ages)} endpoints: ",
-                 str_c(ep_ages$endpoint, collapse = ", "), "\n"))
-    cat(str_glue("Total age-group columns parsed: {sum(lengths(ep_ages$ages))}\n\n"))
+    log_msg(INFO, "\n---- Auto-generated RR_std config entry ----\n",
+            "Review and add the following to Data/RR_std_config.json:\n\n",
+            config_entry, "\n")
+    log_msg(INFO, "Detected {nrow(ep_ages)} endpoints: ",
+            str_c(ep_ages$endpoint, collapse = ", "))
+    log_msg(INFO, "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}")
 
     assign(".CR_Config", list(
       endpoints = lapply(seq_len(nrow(ep_ages)), function(i) {

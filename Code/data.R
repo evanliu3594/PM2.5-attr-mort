@@ -89,9 +89,7 @@ normalize_coords <- function(df) {
 
   if (lon_col != "x" || lat_col != "y") {
     df <- df %>% rename(x = !!lon_col, y = !!lat_col)
-    cat(str_glue(
-      "  Coordinates normalized: \"{lon_col}\" -> \"x\", \"{lat_col}\" -> \"y\"\n"
-    ))
+    log_msg(INFO, "Coordinates normalized: \"{lon_col}\" -> \"x\", \"{lat_col}\" -> \"y\"")
   }
 
   return(df)
@@ -218,12 +216,8 @@ read_files <- function(
   assign('Conc_cf', envir = globalenv(), conc_cf_df)
 
   if (is.null(conc_cf_df)) {
-    warning(
-      "Conc_cf file \"",
-      Conc_cf,
-      "\" not found — Conc_cf set to NULL. ",
-      "Counterfactual scenarios will fall back to real concentrations."
-    )
+    log_msg(WARN, "Conc_cf file \"{Conc_cf}\" not found — set to NULL. ",
+            "Counterfactual scenarios will fall back to real concentrations.")
   }
 
   mort_rate_raw <- fuse_read(MortRate)
@@ -267,7 +261,7 @@ read_files <- function(
   # ---- Resolve RR table path ----
   if (!is.null(RR_table_path)) {
     CR_file <- RR_table_path
-    cat(str_glue("  Using custom RR lookup table: {CR_file}\n"))
+    log_msg(INFO, "Using custom RR lookup table: {CR_file}")
   } else {
     cfg_path <- './Data/RR_std_config.json'
     if (!file.exists(cfg_path))
@@ -317,15 +311,10 @@ read_files <- function(
   expected_sheets <- c("MEAN", "LOW", "UP")
   missing_sheets <- setdiff(expected_sheets, names(RR_table))
   if (length(missing_sheets) > 0) {
-    warning(
-      "RR lookup table is missing expected sheet(s): ",
-      paste(missing_sheets, collapse = ", "),
-      ". ",
-      "Available: ",
-      paste(names(RR_table), collapse = ", "),
-      ". ",
-      "Uncertainty calculation will fail if these are needed."
-    )
+    log_msg(WARN, "RR lookup table is missing expected sheet(s): ",
+            paste(missing_sheets, collapse = ", "),
+            ". Available: ", paste(names(RR_table), collapse = ", "),
+            ". Uncertainty calculation will fail if these are needed.")
   }
 
   # ---- Guard: coordinate consistency summary ----
@@ -341,11 +330,9 @@ read_files <- function(
     inner_join(pop_df %>% select(x, y), by = c("x", "y")) %>%
     nrow
 
-  cat(str_glue(
-    "Data loaded: {n_grid} grids, {n_conc} concentration records, {n_pop} population records.\n",
-    "  Grids × Conc overlap: {overlap_gc}/{n_grid}  ({round(overlap_gc/min(n_grid,n_conc)*100)}% of smaller)\n",
-    "  Grids × Pop  overlap: {overlap_gp}/{n_grid}  ({round(overlap_gp/min(n_grid,n_pop)*100)}% of smaller)\n"
-  ))
+  log_msg(INFO, "Data loaded: {n_grid} grids, {n_conc} concentration records, {n_pop} population records.")
+  log_msg(INFO, "  Grids × Conc overlap: {overlap_gc}/{n_grid} ({round(overlap_gc/min(n_grid,n_conc)*100)}% of smaller)")
+  log_msg(INFO, "  Grids × Pop  overlap: {overlap_gp}/{n_grid} ({round(overlap_gp/min(n_grid,n_pop)*100)}% of smaller)")
 
   # Warn only if overlap is low from the perspective of the SMALLER dataset —
   # a grid file covering a larger region than Conc/Pop is normal (extra grids
@@ -354,17 +341,11 @@ read_files <- function(
   pop_overlap_pct <- overlap_gp / min(n_grid, n_pop)
 
   if (conc_overlap_pct < 0.8 || pop_overlap_pct < 0.8) {
-    warning(
-      "Low coordinate overlap between Grid_info and Conc/Pop data ",
-      "(Conc: ",
-      round(conc_overlap_pct * 100),
-      "%, Pop: ",
-      round(pop_overlap_pct * 100),
-      "% of smaller). ",
-      "Check that all files use the same (x, y) precision (dgt_grid = ",
-      dgt_grid,
-      ") and cover the same geographic domain."
-    )
+    log_msg(WARN, "Low coordinate overlap between Grid_info and Conc/Pop data ",
+            "(Conc: {round(conc_overlap_pct * 100)}%, ",
+            "Pop: {round(pop_overlap_pct * 100)}% of smaller). ",
+            "Check that all files use the same (x, y) precision (dgt_grid = {dgt_grid}) ",
+            "and cover the same geographic domain.")
   }
 }
 
@@ -484,15 +465,13 @@ RR_std <- function(RR_index = "MEAN") {
   # ---- Guard: no remaining NA in RR after fill ----
   na_rr <- RR_reshape %>% filter(is.na(RR))
   if (nrow(na_rr) > 0) {
-    warning(
-      nrow(na_rr),
-      " NA values remain in RR_reshape after fill. ",
-      "Common causes: (1) RR lookup table is missing endpoint/agegroup combinations ",
-      "at certain concentrations; (2) the 'ALL' fill row is missing for some endpoints. ",
-      "These rows will be dropped downstream. ",
-      "First few: concentration=",
-      paste(head(unique(na_rr$concentration), 3), collapse = ", ")
-    )
+    log_msg(WARN, nrow(na_rr),
+            " NA values remain in RR_reshape after fill. ",
+            "Common causes: (1) RR lookup table is missing endpoint/agegroup combinations ",
+            "at certain concentrations; (2) the 'ALL' fill row is missing for some endpoints. ",
+            "These rows will be dropped downstream. ",
+            "First few: concentration=",
+            paste(head(unique(na_rr$concentration), 3), collapse = ", "))
   }
 
   return(RR_reshape)

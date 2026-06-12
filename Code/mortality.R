@@ -117,10 +117,9 @@ Mortality <- function(
     if (n_lo + n_hi > 0) {
       conc_vec <- pmax(conc_vec, rr_range[1])
       conc_vec <- pmin(conc_vec, rr_range[2])
-      warning(
+      log_msg(WARN,
         n_lo + n_hi,
-        " grids in ",
-        label,
+        " grids in ", label,
         " have concentration outside RR lookup range [",
         rr_range[1],
         ", ",
@@ -162,7 +161,7 @@ Mortality <- function(
 
   orphan_grids <- grid_xy %>% anti_join(conc_xy, by = c("x", "y"))
   if (nrow(orphan_grids) > 0) {
-    warning(
+    log_msg(WARN,
       nrow(orphan_grids),
       " grid(s) in Grid_info have no matching concentration in Conc_r. ",
       "They will be dropped by na.omit."
@@ -171,7 +170,7 @@ Mortality <- function(
 
   orphan_pop <- grid_xy %>% anti_join(pop_xy, by = c("x", "y"))
   if (nrow(orphan_pop) > 0) {
-    warning(
+    log_msg(WARN,
       nrow(orphan_pop),
       " grid(s) in Grid_info have no matching population in pop. ",
       "They will be dropped by na.omit."
@@ -201,7 +200,7 @@ Mortality <- function(
   }
 
   if (n_after < n_before * 0.5) {
-    warning(
+    log_msg(WARN,
       "PWRR step: ",
       n_before - n_after,
       " of ",
@@ -355,7 +354,7 @@ detect_domain <- function() {
 
   n_mort <- length(unique(MortRate[[best_mort]]))
   if (best_hit < n_mort * 0.8) {
-    warning(
+    log_msg(WARN,
       "Only ",
       best_hit,
       "/",
@@ -369,10 +368,9 @@ detect_domain <- function() {
     )
   }
 
-  cat(str_glue(
-    "  PWRR domain: Grid_info$\"{best_geo}\" ← MortRate$\"{best_mort}\" ",
-    "({best_hit} domains matched)\n"
-  ))
+  log_msg(INFO,
+    "  PWRR domain: Grid_info$\"{best_geo}\" <- MortRate$\"{best_mort}\" ",
+    "({best_hit} domains matched)")
   best_geo
 }
 
