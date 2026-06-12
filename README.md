@@ -32,7 +32,27 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
 
 Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 
-3. In `HealthBurdenCalc.R`, choose the C-R model with `set_Model()` and adjust file paths in `read_files()`.
+3. Choose the C-R model with `set_Model()` and adjust file paths in `read_files()`:
+
+    ```r
+    # Built-in models — lookup path and endpoint/agegroup config read from RR_std_config.json
+    set_Model('NCD+LRI')
+    set_Model('IER')
+    set_Model('5COD')
+    set_Model('MRBRT')
+    set_Model('O3')
+    set_Model('NO2')
+
+    # Custom RR lookup table — auto-generates endpoint/agegroup config from the xlsx
+    set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")
+    # → prints a JSON snippet; review and add it to Data/RR_std_config.json
+    # → if only {endpoint}_ALL columns exist, auto-generates default ages 0–95
+
+    # Then load data
+    read_files(Grids = "...", Pop = "...", Conc_real = "...", ...)
+    ```
+
+    All model configuration is driven by `Data/RR_std_config.json` — labels, RR lookup paths, endpoint lists, and age groups. Adding a new built-in model only requires editing this file.
 
 4. Run line by line to compute grid-level results and aggregate.
 
