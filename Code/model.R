@@ -122,10 +122,5 @@ set_Model <- function(Model, path = NULL) {
       log_msg(INFO, 'Created {cfg_path} with "{Model}" entry.')
     }
 
-    assign(".CR_Config", list(
-      endpoints = lapply(seq_len(nrow(ep_ages)), function(i) {
-        list(name = ep_ages$endpoint[i], ages = ep_ages$ages[[i]])
-      })
-    ), envir = globalenv())
   }
 }
