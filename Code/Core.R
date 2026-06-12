@@ -931,6 +931,13 @@ Mortality <- function(
       select(x, y, endpoint, agegroup, Mort) %>%
       pivot_wider(names_from = c('endpoint', 'agegroup'),
                   names_sep = '_', values_from = 'Mort')
+
+    # Add _UP or _LOW suffix for non-MEAN branches (consistency with RANGE output)
+    if (CI %in% c("UP", "LOW")) {
+      suffix <- str_c("_", CI)
+      result <- result %>%
+        rename_with(~ str_c(.x, suffix), matches('_[0-9]+$'))
+    }
   }
 
   # ---- Guard: result not empty ----
