@@ -932,33 +932,43 @@ Mortality <- function(
 # Auto-detect the PWRR domain by matching MortRate domain values against
 # Grid_info columns. Returns the Grid_info column with the best overlap.
 detect_domain <- function() {
-  mort_domains <- unique(MortRate$domain)
+  # Try each MortRate column against each Grid_info non-coordinate column.
+  # Pick the pair with the most overlapping unique values.
   geo_candidates <- setdiff(names(Grid_info), c("x", "y"))
+  mort_candidates <- setdiff(names(MortRate), c("endpoint", "agegroup"))
 
-  best_col  <- NULL
+  best_geo  <- NULL
+  best_mort <- NULL
   best_hit  <- 0
 
-  for (col in geo_candidates) {
-    geo_vals <- unique(Grid_info[[col]])
-    hits <- length(intersect(mort_domains, geo_vals))
-    if (hits > best_hit) {
-      best_hit <- hits
-      best_col <- col
+  for (gcol in geo_candidates) {
+    geo_vals <- unique(Grid_info[[gcol]])
+    for (mcol in mort_candidates) {
+      mort_vals <- unique(MortRate[[mcol]])
+      hits <- length(intersect(mort_vals, geo_vals))
+      if (hits > best_hit) {
+        best_hit  <- hits
+        best_geo  <- gcol
+        best_mort <- mcol
+      }
     }
   }
 
-  if (is.null(best_col) || best_hit == 0)
-    stop("Cannot auto-detect PWRR domain. No Grid_info column values match ",
-         "MortRate$domain values. Specify domain explicitly (e.g. domain = \"Country\").")
+  if (is.null(best_geo) || best_hit == 0)
+    stop("Cannot auto-detect PWRR domain. No column pair between MortRate (",
+         str_c(mort_candidates, collapse = ", "),
+         ") and Grid_info (", str_c(geo_candidates, collapse = ", "),
+         ") shares matching values. Specify domain explicitly.")
 
-  if (best_hit < length(mort_domains) * 0.8)
-    warning("Only ", best_hit, "/", length(mort_domains),
-            " MortRate domains match Grid_info$\"", best_col, "\" column. ",
-            "If data is at a finer resolution, specify domain explicitly.")
+  n_mort <- length(unique(MortRate[[best_mort]]))
+  if (best_hit < n_mort * 0.8)
+    warning("Only ", best_hit, "/", n_mort,
+            " MortRate$\"", best_mort, "\" values match Grid_info$\"", best_geo, "\". ",
+            "Specify domain explicitly if data is at a finer resolution.")
 
-  cat(str_glue("  PWRR domain auto-detected: \"{best_col}\" ",
+  cat(str_glue("  PWRR domain: Grid_info$\"{best_geo}\" ← MortRate$\"{best_mort}\" ",
                "({best_hit} domains matched)\n"))
-  best_col
+  best_geo
 }
 
 Mortality_at <- function(at, CI = "MEAN", domain = NULL) {
