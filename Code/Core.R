@@ -1495,8 +1495,8 @@ aggregate_mort <- function(x,
   write_result <- function(df, scen, level_name, br_name) {
     out_dir <- if (isTRUE(write)) "./Result" else write
     outpath <- file.path(out_dir,
-      str_glue("{tell_Model()}_{level_name}_{br_name}_{scen}_\
-                Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+      str_glue("{tell_Model()}_{level_name}_{br_name}_{scen}_",
+               "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
     df %>% write_xlsx(outpath)
     cat("Written:", outpath, "\n")
