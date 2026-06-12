@@ -377,7 +377,7 @@ aggregate_mort <- function(
   # ---- Internal: aggregate one data frame ----
   do_aggregate <- function(df, group_vars) {
     if (length(group_vars) == 0) {
-      # Grid-level: add Total columns per branch
+      # Grid-level: add Total columns, drop per-endpoint-age columns
       if (length(branches) > 0) {
         for (br in branches) {
           br_cols <- str_subset(names(df), str_c("_", br, "$"))
@@ -387,7 +387,8 @@ aggregate_mort <- function(
               !!total_nm := rowSums(select(., any_of(br_cols)), na.rm = TRUE)
             )
         }
-        df %>% relocate(starts_with("Total_"), .after = y)
+        df %>%
+          select(x, y, starts_with("Total_"))
       } else {
         df %>%
           mutate(
@@ -436,7 +437,8 @@ aggregate_mort <- function(
       # Compute per scenario, then combine: rename value cols with scenario prefix, join
       per_scen <- x %>% map(~ do_aggregate(.x, gv))
 
-      id_cols <- setdiff(names(per_scen[[1]]), c("MEAN", "UP", "LOW", "value"))
+      id_cols <- str_subset(names(per_scen[[1]]), '_(MEAN|UP|LOW)$', negate = TRUE)
+      if (length(id_cols) == 0) id_cols <- names(per_scen[[1]])  # fallback: keep all
 
       combined <- per_scen %>%
         imap(function(df, scen) {
