@@ -18,8 +18,19 @@
     ]
   },
   "IER": {
-    "label": "IER",
+    "label": "IER2017",
     "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx",
+    "endpoints": [
+      { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "ihd",    "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lc",     "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "stroke", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lri",    "ages": [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
+    ]
+  },
+  "IER2010": {
+    "label": "IER2010",
+    "lookup": "./Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
       { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
       { "name": "ihd",    "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
@@ -28,21 +39,38 @@
       { "name": "lri",    "ages": [0] }
     ]
   },
-  "IER2010": {
-    "label": "IER2010",
-    "lookup": "./Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx"
-  },
   "IER2013": {
     "label": "IER2013",
-    "lookup": "./Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx"
+    "lookup": "./Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx",
+    "endpoints": [
+      { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "ihd",    "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lc",     "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "stroke", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lri",    "ages": [0] }
+    ]
   },
   "IER2015": {
     "label": "IER2015",
-    "lookup": "./Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx"
+    "lookup": "./Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx",
+    "endpoints": [
+      { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "ihd",    "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lc",     "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "stroke", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lri",    "ages": [0] }
+    ]
   },
   "IER2017": {
     "label": "IER2017",
-    "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx"
+    "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx",
+    "endpoints": [
+      { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "ihd",    "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lc",     "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "stroke", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
+      { "name": "lri",    "ages": [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
+    ]
   },
   "MRBRT": {
     "label": "PM2.5_MRBRT",

@@ -378,13 +378,13 @@ read_files <- function(
 #' @examples
 RR_std <- function(RR_index = "MEAN") {
   # ---- Guard: CR model must be set ----
-  if (!exists('.CR_Base', envir = globalenv())) {
+  if (!exists('.CR_Model', envir = globalenv())) {
     stop("C-R model not set. Call set_Model() before using RR_std().")
   }
 
   CR <- tryCatch(
-    get(".CR_Base", envir = globalenv()),
-    error = function(e) stop("Cannot access .CR_Base from global environment.")
+    get(".CR_Model", envir = globalenv()),
+    error = function(e) stop("Cannot access .CR_Model from global environment.")
   )
 
   # ---- Guard: RR_table is loaded ----
@@ -445,9 +445,6 @@ RR_std <- function(RR_index = "MEAN") {
     cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
 
     cfg <- cfg_all[[CR]]
-    if (is.null(cfg) && str_detect(CR, '^IER')) {
-      cfg <- cfg_all[["IER"]]
-    }
     if (is.null(cfg)) {
       stop("No RR_std configuration for model \"", CR,
            "\". Add it to ", cfg_path, ". ",
