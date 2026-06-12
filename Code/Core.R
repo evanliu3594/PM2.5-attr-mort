@@ -765,8 +765,7 @@ Mortality <- function(
   if (is.null(Conc_c)) Conc_c <- Conc_r
 
   if (is.null(domain))
-    stop("No grouping domain specified — cannot compute PWRR. ",
-         "Pass domain = \"Country\" or the column name in Grid_info that defines your aggregation units.")
+    domain <- detect_domain()
 
   # ---- Guard: domain column exists ----
   if (!all(domain %in% names(Grids)))
@@ -930,7 +929,40 @@ Mortality <- function(
 #' @export
 #'
 #' @examples
-Mortality_at <- function(at, CI = "MEAN", domain) {
+# Auto-detect the PWRR domain by matching MortRate domain values against
+# Grid_info columns. Returns the Grid_info column with the best overlap.
+detect_domain <- function() {
+  mort_domains <- unique(MortRate$domain)
+  geo_candidates <- setdiff(names(Grid_info), c("x", "y"))
+
+  best_col  <- NULL
+  best_hit  <- 0
+
+  for (col in geo_candidates) {
+    geo_vals <- unique(Grid_info[[col]])
+    hits <- length(intersect(mort_domains, geo_vals))
+    if (hits > best_hit) {
+      best_hit <- hits
+      best_col <- col
+    }
+  }
+
+  if (is.null(best_col) || best_hit == 0)
+    stop("Cannot auto-detect PWRR domain. No Grid_info column values match ",
+         "MortRate$domain values. Specify domain explicitly (e.g. domain = \"Country\").")
+
+  if (best_hit < length(mort_domains) * 0.8)
+    warning("Only ", best_hit, "/", length(mort_domains),
+            " MortRate domains match Grid_info$\"", best_col, "\" column. ",
+            "If data is at a finer resolution, specify domain explicitly.")
+
+  cat(str_glue("  PWRR domain auto-detected: \"{best_col}\" ",
+               "({best_hit} domains matched)\n"))
+  best_col
+}
+
+Mortality_at <- function(at, CI = "MEAN", domain = NULL) {
+  if (is.null(domain)) domain <- detect_domain()
   Mortality(
     Grids = Grid_info,
     Conc_r = getConc_real(at),
@@ -1161,7 +1193,7 @@ Mort_Aggregate <- function(
   # ---- Auto-detect: character vector = scenario names, compute internally ----
   if (is.character(full_result)) {
     scenarios <- full_result
-    pwr_domain <- if (domain == 'Grid') "Country" else domain
+    pwr_domain <- if (domain == 'Grid') detect_domain() else domain
     cat("Computing grid-level mortality for", length(scenarios), "scenarios...\n")
     full_result <- scenarios %>% set_names %>% map(
       ~ Mortality_at(at = .x, CI = "MEAN", domain = pwr_domain)
