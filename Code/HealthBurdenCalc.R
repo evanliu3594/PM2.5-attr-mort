@@ -53,21 +53,21 @@ grid_ci <- scenarios %>%
   set_names(scenarios)
 
 # ---- Aggregation with RR-substitution CI ----
-# Choose which geo levels and breakdowns to compute.
-# Set write = TRUE to export each combination as an Excel file.
+# at  = "grid" | "geo" | "Country" | c("Country","Province")
+# by  = NULL | "all" | "endpoint" | "agegroup"
+# write = FALSE | TRUE (-> ./Result/) | "./my/path"
 
-all_aggr <- summarise_ci(
+all_aggr <- aggregate_ci(
   grid_ci,
-  geo_levels = c("Country", "Province"),              # also "Region" if available
-  breakdown  = c("Total", "endpoint", "agegroup"),
-  write      = FALSE
+  at    = c("Country", "Province"),
+  by    = "all",
+  write = FALSE
 )
 
 # Access results:
-#   all_aggr$Country$Total$base2015        — national totals
-#   all_aggr$Country$by_endpoint$base2015  — by cause of death
-#   all_aggr$Country$by_agegroup$base2015  — by age group
-#   all_aggr$Province$Total$base2015       — provincial totals
+#   all_aggr$Total$base2015         — national totals
+#   all_aggr$by_endpoint$base2015   — by cause of death
+#   all_aggr$by_agegroup$base2015   — by age group
 
 # ---- Convenience: Mort_Aggregate with error-propagation CI ----
 # nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
