@@ -268,29 +268,24 @@ read_files <- function(
   if (!is.null(RR_table_path)) {
     CR_file <- RR_table_path
     cat(str_glue("  Using custom RR lookup table: {CR_file}\n"))
-  } else if (.CR_Model == 'MRBRT') {
-    './Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx'
-  } else if (.CR_Model %in% c('NCD+LRI', '5COD')) {
-    './Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx'
-  } else if (.CR_Model %in% c('IER', 'IER2017')) {
-    './Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx'
-  } else if (.CR_Model == 'IER2015') {
-    './Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx'
-  } else if (.CR_Model == 'IER2013') {
-    './Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx'
-  } else if (.CR_Model == 'IER2010') {
-    './Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx'
-  } else if (.CR_Model == "O3") {
-    "./Data/RR_index/O3_CR_Lookup_Table.xlsx"
-  } else if (.CR_Model == "NO2") {
-    "./Data/RR_index/NO2_CR_Lookup_Table.xlsx"
   } else {
-    stop(
-      "Unknown C-R model \"",
-      .CR_Model,
-      "\". ",
-      "Supported: IER, IER2010–IER2017, NCD+LRI, 5COD, MRBRT, O3, NO2."
-    )
+    cfg_path <- './Data/RR_std_config.json'
+    if (!file.exists(cfg_path))
+      stop("RR_std config file not found: ", cfg_path)
+
+    cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
+
+    # Try exact model name, then IER prefix
+    model_entry <- cfg_all[[.CR_Model]]
+    if (is.null(model_entry) && str_detect(.CR_Model, '^IER'))
+      model_entry <- cfg_all[["IER"]]
+
+    if (is.null(model_entry) || is.null(model_entry$lookup))
+      stop("No lookup table path configured for model \"", .CR_Model,
+           "\" in ", cfg_path, ". ",
+           "Available: ", paste(names(cfg_all), collapse = ", "))
+
+    CR_file <- model_entry$lookup
   }
 
   if (!file.exists(CR_file)) {
