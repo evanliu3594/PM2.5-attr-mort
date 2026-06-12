@@ -45,10 +45,23 @@ read_files(
   dgt_grid = 2
 )
 
-# Grid Full Result & Aggregation ----
-# Mort_Aggregate accepts scenario names directly and computes MEAN/UP/LOW internally.
-
 scenarios <- names(Conc_real)[c(-1:-2)]
+
+# ---- Grid-level with 95% CI (MEAN + UP + LOW in one pass) ----
+# CI = "RANGE" computes all three RR branches in a single join.
+# Output columns: copd_25_MEAN, copd_25_UP, copd_25_LOW, ...
+
+grid_ci <- map(scenarios, ~ Mortality_at(
+  at = .x, CI = "RANGE", domain = "Country"
+)) %>% set_names(scenarios)
+
+# ---- Grid-level without CI (single branch, fast) ----
+# CI = "MEAN" / "UP" / "LOW" computes one branch.
+grid_mean <- Mortality_at(at = scenarios[1], CI = "MEAN", domain = "Country")
+
+# ---- Grid Aggregation ----
+# Mort_Aggregate accepts either scenario names (auto-computes MEAN internally)
+# or a pre-computed list of data frames. It auto-detects CI branch suffixes.
 
 grid_aggr <- Mort_Aggregate(scenarios, domain = 'Grid', write = FALSE)
 
@@ -56,15 +69,13 @@ grid_aggr <- Mort_Aggregate(scenarios, domain = 'Grid', write = FALSE)
 
 # grid_age <- Mort_Aggregate(scenarios, domain = 'Grid', by = 'agegroup')
 
-# Province Aggregation ----
+# ---- Province Aggregation ----
 
 # prov_aggr <- Mort_Aggregate(scenarios, domain = 'Province')
 
-# prov_edpt <- Mort_Aggregate(scenarios, domain = 'Province', by = 'endpoint')
-
-# prov_age <- Mort_Aggregate(scenarios, domain = 'Province', by = 'agegroup')
-
-# Nation Aggregation ----
+# ---- Nation Aggregation ----
+# By default Mort_Aggregate uses error-propagation Uncertainty for CI.
+# Pass includeConc=TRUE, Conc_ERR=12 to add concentration uncertainty.
 
 nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
 
@@ -77,17 +88,7 @@ nation_edpt <- Mort_Aggregate(
   write = FALSE
 )
 
-nation_age_CR <- Mort_Aggregate(
-  scenarios,
-  domain = 'Country',
-  by = 'agegroup',
-  verbose = TRUE,
-  includeConc = T,
-  Conc_ERR = 18,
-  write = F
-)
-
-nation_age_CR_noConc <- Mort_Aggregate(
+nation_age <- Mort_Aggregate(
   scenarios,
   domain = 'Country',
   by = 'agegroup',
