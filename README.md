@@ -14,43 +14,47 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 
 # Usage
 
-1. Clone the repo and open it
+1. Clone the repo and open `PM25-attr-mort.Rproj` in RStudio.
 
 2. Replace the sample data in `./Data/` with your customized ones: 
 
-    - for estimations about China, you'll need to customize:
-        - the `GRID_information`, which stores the coordination and geophysical domain(e.g., countries, regions, provinces, cities, etc.) of each grid cell
-        - the `Grid_Pop`, which stores the population size (by column) of each grid cell
-        - the `Grid_*`, which stores the annual-average concentrations (by column) of each grid cell for pollution *.
+    - for China estimations, you'll need:
+        - `GRID_information` — coordinates and geographic domains (Country, Province, Region) of each grid cell
+        - `GridPop` — population size by grid cell
+        - `GridPM25` — annual-average PM<sub>2.5</sub> concentrations by grid cell
 
-    - for other regions, additional customize:
-        - the age structure data    
-        - the mortality rate data
-    - Note that all filenames shall be specified later in the `DataLoad` section in the `HealthBurdenCalc.R`.
+    - for other regions, additionally:
+        - age structure data    
+        - baseline mortality rate data
+    - Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 
-3. Open the `PM25-attr-mort.Rproj` file in Rstudio.
+3. In `HealthBurdenCalc.R`, choose the C-R model with `set_Model()` and adjust file paths in `read_files()`.
 
-4. In script `HealthBurdenCalc.R`, specify filenames in the `DataLoad` section if data is customized.
+4. Run line by line to compute grid-level results and aggregate.
 
-5. Run codes in `HealthBurdenCalc.R` by rows to calculate and summarise the result.
+# Release notes
 
-# Changelog
+## v5.0 (current)
+- RR-substitution CI: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass
+- Auto PWRR domain detection from mortality data and grid information
+- Modular code structure: model / data / mortality / uncertainty / aggregation
+- `aggregate_mort()` with `at`/`by`/`write` API for one-shot multi-level aggregation
+- Unified coordinate handling via `normalize_coords()` (x/lon/long/latitude variants)
+- Concentration clamping to CR table boundaries instead of dropping grids
+- `Mort_Aggregate()` accepts scenario names directly and auto-computes MEAN internally
 
-## 1.0-release 
-The Initial published version of the PM25-attr-mort with a series of refined and easy-to-use functions to assess PM<sub>2.5</sub> health burden using the IER model.
+## v4.0
+Extended to international / multi-region scale. Added O3 and NO<sub>2</sub> health burden
+calculation. Added MRBRT method CRF as used by GBD 2019.
 
-## 2.0-release
-PM<sub>2.5</sub>-Attr-Mort v2.0 incorporated both GEMM and IER model in calculating the PM<sub>2.5</sub> health burden, by refering to different concentration-responce lookup-table.
+## v3.0
+Refactored from matrix algebra to tidyverse join-based grammar, greatly improving
+extensibility for larger-scale models.
 
-## 3.0-release
-PM<sub>2.5</sub>-Attr-Mort v3.0 flushes the original linear algebra calculation with a more tidy-R grammar, which greatly improves the extensible of the scales of the model. 
+## v2.0
+Incorporated both GEMM and IER models for PM<sub>2.5</sub> health burden calculation,
+using different concentration-response lookup tables.
 
-## 4.0-release
-PM<sub>2.5</sub>-Attr-Mort v4.0 extends to international or other muiti-region scale calculation, and extends to O3 or NO<sub>2</sub> burden calculation, add MRBRT method CRF used by GBD2019.
-
-## 5.0-doing
-built-in population and mortality data, and warps to the pollution data grids flexibly, reduces data inputs.
-
-
-# Developer note
-I made the calculation process generalized to adopt to any attributable death estimations by applying the population table, incidence table, concentration table, and the concentration-correspondingly relative risk lookup table together.
+## v1.0
+Initial published version. IER-based PM<sub>2.5</sub> attributable mortality assessment
+with refined, easy-to-use functions.
