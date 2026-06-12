@@ -43,9 +43,9 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
     set_Model('O3')
     set_Model('NO2')
 
-    # Custom RR lookup table — auto-generates endpoint/agegroup config from the xlsx
+    # Custom RR lookup table — auto-generates endpoint/agegroup config and appends to JSON
     set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")
-    # → prints a JSON snippet; review and add it to Data/RR_std_config.json
+    # → previews config, auto-appends to Data/RR_std_config.json
     # → if only {endpoint}_ALL columns exist, auto-generates default ages 0–95
 
     # Then load data
@@ -59,13 +59,15 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 # Release notes
 
 ## v5.0 (current)
-- RR-substitution CI: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass
-- Auto PWRR domain detection from mortality data and grid information
-- Modular code structure: model / data / mortality / uncertainty / aggregation
-- `aggregate_mort()` with `at`/`by`/`write` API for one-shot multi-level aggregation
-- Unified coordinate handling via `normalize_coords()` (x/lon/long/latitude variants)
-- Concentration clamping to CR table boundaries instead of dropping grids
-- `Mort_Aggregate()` accepts scenario names directly and auto-computes MEAN internally
+- **RR-substitution CI**: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass; `CI = "MEAN"/"UP"/"LOW"` for single branches, all with column suffixes
+- **JSON-driven CR configuration**: `Data/RR_std_config.json` defines endpoints, age groups, lookup paths, and output labels per model; `RR_std()` auto-reads it
+- **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table and appends to the JSON file; `read_files(RR_table_path = "...")` for custom tables
+- **Auto PWRR domain detection**: `detect_domain()` matches mortality data domains against Grid_info columns
+- **`aggregate_mort()`**: one-shot multi-level aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/all/endpoint/agegroup); writes single xlsx with all scenarios as columns
+- **Modular code structure**: model / data / mortality / uncertainty / aggregation
+- **Unified coordinate handling**: `normalize_coords()` accepts x/lon/long/longitude and y/lat/latitude variants
+- **Concentration clamping**: values beyond CR lookup range are capped to nearest boundary instead of dropped
+- **`cli`-based logging**: `log_msg(INFO/WARN/ERROR, ...)` for coloured terminal output
 
 ## v4.0
 Extended to international / multi-region scale. Added O3 and NO<sub>2</sub> health burden
