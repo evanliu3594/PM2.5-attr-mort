@@ -441,10 +441,6 @@ aggregate_mort <- function(
       # Compute per scenario, then combine: rename value cols with scenario prefix, join
       per_scen <- x %>% map(~ do_aggregate(.x, gv))
 
-      # DEBUG
-      cat("  [DEBUG] per_scen names:", paste(names(per_scen), collapse = ", "), "\n")
-      cat("  [DEBUG] per_scen[[1]] cols:", paste(names(per_scen[[1]]), collapse = ", "), "\n")
-
       id_cols <- str_subset(names(per_scen[[1]]), '(MEAN|UP|LOW)$', negate = TRUE)
       if (length(id_cols) == 0) id_cols <- names(per_scen[[1]])  # fallback: keep all
 
@@ -457,9 +453,6 @@ aggregate_mort <- function(
           )
         }) %>%
         reduce(left_join, by = id_cols)
-
-      cat("  [DEBUG] combined cols:", paste(names(combined), collapse = ", "), "\n")
-      cat("  [DEBUG] combined rows:", nrow(combined), "\n")
 
       sheet_name <- str_c(lv_name, "_", br_key)
       result[[sheet_name]] <- combined
