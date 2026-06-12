@@ -1434,7 +1434,7 @@ aggregate_mort <- function(x,
 
   # ---- Resolve 'at' — each column is a separate aggregation level ----
   if (identical(at, "geo")) {
-    at_levels <- as.list(geo_available)
+    at_levels <- as.list(c("x", "y", geo_available))
   } else if (identical(at, "grid")) {
     at_levels <- list(character(0))
   } else {
