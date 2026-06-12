@@ -338,7 +338,7 @@ aggregate_mort <- function(
 
   # ---- Resolve 'at' — each column is a separate aggregation level ----
   if (identical(at, "geo")) {
-    at_levels <- as.list(names(Grid_info))
+    at_levels <- c(list(Grid = character(0)), as.list(names(Grid_info)))
   } else if (identical(at, "grid")) {
     at_levels <- list(character(0))
   } else {
