@@ -8,12 +8,16 @@ library(readxl)
 library(jsonlite)
 
 log_msg <- function(level, ...) {
-  level <- match.arg(as.character(substitute(level)), c("INFO", "WARN", "ERROR"))
+  level <- match.arg(
+    as.character(substitute(level)),
+    c("INFO", "WARN", "ERROR")
+  )
   msg <- str_glue(..., .envir = parent.frame())
-  switch(level,
-    INFO  = cli::cli_alert_info(msg),
-    WARN  = cli::cli_text("{.strong .blue {msg}}"),
-    ERROR = cli::cli_alert_danger(msg)
+  switch(
+    level,
+    INFO = cli::cli_alert_info(msg),
+    WARN = cli::cli_text("{.strong .blue {msg}}"),
+    ERROR = cli::cli_text("{.strong .red {msg}}")
   )
 }
 
@@ -51,8 +55,9 @@ set_Model <- function(Model, path = NULL) {
 
   # ---- Auto-generate standardisation config from custom lookup table ----
   if (!is.null(path)) {
-    if (!file.exists(path))
+    if (!file.exists(path)) {
       stop("Custom RR lookup table not found: ", path)
+    }
 
     raw <- read_xlsx(path, sheet = "MEAN")
     mort_cols <- str_subset(names(raw), '_[0-9]+$')
@@ -67,37 +72,57 @@ set_Model <- function(Model, path = NULL) {
         summarise(ages = list(sort(unique(age))), .groups = "drop")
     } else {
       all_cols <- str_subset(names(raw), '_ALL$')
-      if (length(all_cols) == 0)
-        stop("No {endpoint}_{age} or {endpoint}_ALL columns found in ", path,
-             ". Expected columns like copd_25 or copd_ALL.")
+      if (length(all_cols) == 0) {
+        stop(
+          "No {endpoint}_{age} or {endpoint}_ALL columns found in ",
+          path,
+          ". Expected columns like copd_25 or copd_ALL."
+        )
+      }
       default_ages <- seq(0, 95, 5)
       ep_names <- str_to_lower(str_remove(all_cols, '_ALL$'))
       ep_ages <- tibble(
         endpoint = ep_names,
         ages = rep(list(default_ages), length(ep_names))
       )
-      log_msg(INFO, "Only _ALL columns found; auto-generated ages ",
-              "{min(default_ages)}-{max(default_ages)} ",
-              "for {length(ep_names)} endpoint(s).")
+      log_msg(
+        INFO,
+        "Only _ALL columns found; auto-generated ages ",
+        "{min(default_ages)}-{max(default_ages)} ",
+        "for {length(ep_names)} endpoint(s)."
+      )
     }
 
-    ep_entries <- ep_ages %>% rowwise() %>%
+    ep_entries <- ep_ages %>%
+      rowwise() %>%
       summarise(
-        json = str_glue('      {{ "name": "{endpoint}", "ages": [{str_c(ages, collapse=", ")}] }}'),
+        json = str_glue(
+          '      {{ "name": "{endpoint}", "ages": [{str_c(ages, collapse=", ")}] }}'
+        ),
         .groups = "drop"
-      ) %>% pull(json)
+      ) %>%
+      pull(json)
 
     config_entry <- str_c(
-      '  "', Model, '": {\n',
+      '  "',
+      Model,
+      '": {\n',
       '    "endpoints": [\n',
-      str_c(ep_entries, collapse = ",\n"), '\n',
+      str_c(ep_entries, collapse = ",\n"),
+      '\n',
       '    ]\n',
       '  }'
     )
 
-    log_msg(INFO, "Detected {nrow(ep_ages)} endpoints: ",
-            str_c(ep_ages$endpoint, collapse = ", "))
-    log_msg(INFO, "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}")
+    log_msg(
+      INFO,
+      "Detected {nrow(ep_ages)} endpoints: ",
+      str_c(ep_ages$endpoint, collapse = ", ")
+    )
+    log_msg(
+      INFO,
+      "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}"
+    )
 
     # ---- Preview & auto-append to RR_std_config.json ----
     cat("\n---- Auto-generated RR_std config entry ----\n")
@@ -107,11 +132,16 @@ set_Model <- function(Model, path = NULL) {
     if (file.exists(cfg_path)) {
       cfg_lines <- readLines(cfg_path)
       if (any(str_detect(cfg_lines, str_glue('^  "{Model}":')))) {
-        log_msg(WARN, 'Model "{Model}" already exists in RR_std_config.json — skipping append.')
+        log_msg(
+          WARN,
+          'Model "{Model}" already exists in RR_std_config.json — skipping append.'
+        )
       } else {
         # Insert before the closing } of the JSON root object
         close_idx <- tail(which(str_detect(str_trim(cfg_lines), '^\\}$')), 1)
-        if (length(close_idx) == 0) close_idx <- length(cfg_lines)
+        if (length(close_idx) == 0) {
+          close_idx <- length(cfg_lines)
+        }
         new_lines <- c(cfg_lines[1:(close_idx - 1)], ",", config_entry, "}")
         writeLines(new_lines, cfg_path)
         log_msg(INFO, 'Appended "{Model}" to {cfg_path}.')
@@ -121,6 +151,5 @@ set_Model <- function(Model, path = NULL) {
       writeLines(str_c('{\n', config_entry, '\n}\n'), cfg_path)
       log_msg(INFO, 'Created {cfg_path} with "{Model}" entry.')
     }
-
   }
 }
