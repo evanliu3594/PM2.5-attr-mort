@@ -803,19 +803,32 @@ Mortality <- function(
     rr_conc_range <- range(as.numeric(RR_tbl$concentration), na.rm = TRUE)
   }
 
-  # ---- Guard: concentration range vs RR lookup ----
+  # ---- Clamp concentrations to RR lookup table range ----
   conc_range_r <- range(as.numeric(Conc_r$concentration), na.rm = TRUE)
   conc_range_c <- range(as.numeric(Conc_c$concentration), na.rm = TRUE)
 
-  if (conc_range_r[1] < rr_conc_range[1] || conc_range_r[2] > rr_conc_range[2])
-    warning("Conc_r contains concentrations [", conc_range_r[1], ", ", conc_range_r[2],
-            "] outside RR lookup range [", rr_conc_range[1], ", ", rr_conc_range[2],
-            "]. These grids will get NA RR and be dropped by na.omit.")
+  clamp_conc <- function(conc_vec, rr_range, label) {
+    n_lo <- sum(conc_vec < rr_range[1], na.rm = TRUE)
+    n_hi <- sum(conc_vec > rr_range[2], na.rm = TRUE)
+    if (n_lo + n_hi > 0) {
+      conc_vec <- pmax(conc_vec, rr_range[1])
+      conc_vec <- pmin(conc_vec, rr_range[2])
+      warning(n_lo + n_hi, " grids in ", label,
+              " have concentration outside RR lookup range [",
+              rr_range[1], ", ", rr_range[2], "]. ",
+              "Clamped to nearest boundary (", n_lo, " low, ", n_hi, " high).")
+    }
+    conc_vec
+  }
 
-  if (conc_range_c[1] < rr_conc_range[1] || conc_range_c[2] > rr_conc_range[2])
-    warning("Conc_c contains concentrations [", conc_range_c[1], ", ", conc_range_c[2],
-            "] outside RR lookup range [", rr_conc_range[1], ", ", rr_conc_range[2],
-            "]. These grids will get NA RR and be dropped by na.omit.")
+  Conc_r <- Conc_r %>% mutate(
+    concentration = clamp_conc(as.numeric(concentration), rr_conc_range, "Conc_r") %>%
+      matchable(1)
+  )
+  Conc_c <- Conc_c %>% mutate(
+    concentration = clamp_conc(as.numeric(concentration), rr_conc_range, "Conc_c") %>%
+      matchable(1)
+  )
 
   # ---- Guard: coordinate overlap ----
   grid_xy <- Grids %>% select(x, y) %>% distinct()
