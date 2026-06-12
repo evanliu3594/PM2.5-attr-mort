@@ -456,7 +456,7 @@ RR_std <- function(RR_index = "MEAN") {
   conc_vals <- RR_table[[RR_index]] %>% pull(concentration)
 
   ep_grids <- lapply(cfg$endpoints, function(ep) {
-    ages <- c('ALL', matchable(ep$ages, 0))
+    ages <- c('ALL', matchable(unlist(ep$ages), 0))
     expand_grid(
       concentration = conc_vals,
       endpoint = ep$name,
