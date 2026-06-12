@@ -1467,27 +1467,46 @@ aggregate_mort <- function(x,
     gv_geo <- at_levels[[lv_name]]
     lv_result <- list()
 
-    # Total (no by-dimension breakdown)
-    key <- "Total"
-    lv_result[[key]] <- x %>% map(~ do_aggregate(.x, gv_geo))
+    for (br_key in c("Total", str_c("by_", by))) {
+      if (br_key == "Total") {
+        gv <- gv_geo
+      } else {
+        gv <- c(gv_geo, str_remove(br_key, "^by_"))
+      }
 
-    # By-dimension breakdowns
-    for (dim in by) {
-      key <- str_c("by_", dim)
-      lv_result[[key]] <- x %>% map(~ do_aggregate(.x, c(gv_geo, dim)))
+      # Compute per scenario
+      per_scen <- x %>% map(~ do_aggregate(.x, gv))
+
+      # ---- Combine scenarios into single wide table ----
+      # Columns: geo_cols, base2015_MEAN, base2015_UP, base2015_LOW, ...
+      branch_cols <- intersect(c("MEAN", "UP", "LOW"), names(per_scen[[1]]))
+      if (length(branch_cols) == 0) branch_cols <- "value"  # legacy unsuffixed
+
+      id_cols <- setdiff(names(per_scen[[1]]), branch_cols)
+
+      combined <- per_scen %>%
+        imap(function(df, scen) {
+          df %>%
+            pivot_longer(all_of(branch_cols),
+                         names_to = ".branch", values_to = ".value") %>%
+            mutate(.col = str_c(scen, "_", .branch)) %>%
+            select(-.branch)
+        }) %>%
+        bind_rows() %>%
+        pivot_wider(names_from = ".col", values_from = ".value")
+
+      lv_result[[br_key]] <- combined
     }
 
-    # ---- Write: one xlsx per (level, breakdown), scenarios as sheets ----
+    # ---- Write: one xlsx per geo level, one sheet, all scenarios as columns ----
     if (!isFALSE(write)) {
       out_dir <- if (isTRUE(write)) "./Result" else write
       dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-      for (br_name in names(lv_result)) {
-        outpath <- file.path(out_dir,
-          str_glue("{tell_Model()}_{lv_name}_{br_name}_",
-                   "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
-        lv_result[[br_name]] %>% write_xlsx(outpath)
-        cat("Written:", outpath, "\n")
-      }
+      outpath <- file.path(out_dir,
+        str_glue("{tell_Model()}_{lv_name}_",
+                 "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+      lv_result %>% write_xlsx(outpath)
+      cat("Written:", outpath, "\n")
     }
 
     result[[lv_name]] <- lv_result
