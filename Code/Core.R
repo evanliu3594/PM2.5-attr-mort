@@ -867,79 +867,49 @@ Mortality <- function(
                collapse = ", "))
 
   # ---- Main mortality calculation ----
+  # RR table to use: combined (RANGE) or single branch
+  rr_table <- if (CI == "RANGE") RR_all else RR_tbl
+
+  mort_data <- list(
+    Grids, Conc_c, pop, rr_table,
+    mRate %>% rename({{ domain }} := domain),
+    ag %>% rename({{ domain }} := domain),
+    PWRR
+  ) %>% reduce(left_join) %>% na.omit
+
+  if (nrow(mort_data) == 0)
+    stop("Mortality step: all rows dropped by na.omit. ",
+         "Check age groups, endpoint names, and domain values in input data.")
+
   if (CI == "RANGE") {
-
-    mort_data <- list(
-      Grids, Conc_c, pop, RR_all,
-      mRate %>% rename({{ domain }} := domain),
-      ag %>% rename({{ domain }} := domain),
-      PWRR
-    ) %>% reduce(left_join) %>% na.omit
-
-    if (nrow(mort_data) == 0)
-      stop("Mortality step (RANGE): all rows dropped by na.omit. ",
-           "Check age groups, endpoint names, and domain values in input data.")
-
-    # Compute three branches, then pivot each separately
+    # Pivot each branch separately, then join on x, y
     mort_long <- mort_data %>%
       mutate(
         Mort     = Pop * AgeStruc * MortRate * (RR     - 1) / PWRR / 1e5,
         Mort_UP  = Pop * AgeStruc * MortRate * (RR_UP  - 1) / PWRR / 1e5,
-        Mort_LOW = Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR / 1e5,
+        Mort_LOW = Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR / 1e5
       ) %>%
       select(x, y, endpoint, agegroup, Mort, Mort_UP, Mort_LOW)
 
-    # Pivot MEAN (no suffix)
-    mean_wide <- mort_long %>%
-      select(x, y, endpoint, agegroup, Mort) %>%
-      pivot_wider(names_from = c('endpoint', 'agegroup'),
-                  names_sep = '_', values_from = 'Mort')
+    pivot_branch <- function(data, value_col, suffix) {
+      data %>%
+        select(x, y, endpoint, agegroup, {{ value_col }}) %>%
+        pivot_wider(names_from = c('endpoint', 'agegroup'),
+                    names_sep = '_', values_from = {{ value_col }}) %>%
+        rename_with(~ str_c(.x, suffix), matches('_[0-9]+$'))
+    }
 
-    # Add _MEAN suffix to MEAN columns
-    mean_wide <- mean_wide %>%
-      rename_with(~ str_c(.x, "_MEAN"), matches('_[0-9]+$'))
-
-    # Pivot UP (with _UP suffix)
-    up_wide <- mort_long %>%
-      select(x, y, endpoint, agegroup, Mort_UP) %>%
-      pivot_wider(names_from = c('endpoint', 'agegroup'),
-                  names_sep = '_', values_from = 'Mort_UP') %>%
-      rename_with(~ str_c(.x, "_UP"), matches('_[0-9]+$'))
-
-    # Pivot LOW (with _LOW suffix)
-    low_wide <- mort_long %>%
-      select(x, y, endpoint, agegroup, Mort_LOW) %>%
-      pivot_wider(names_from = c('endpoint', 'agegroup'),
-                  names_sep = '_', values_from = 'Mort_LOW') %>%
-      rename_with(~ str_c(.x, "_LOW"), matches('_[0-9]+$'))
-
-    result <- mean_wide %>%
-      left_join(up_wide, by = c("x", "y")) %>%
-      left_join(low_wide, by = c("x", "y"))
+    result <- pivot_branch(mort_long, Mort,    "_MEAN") %>%
+      left_join(pivot_branch(mort_long, Mort_UP,  "_UP"),  by = c("x", "y")) %>%
+      left_join(pivot_branch(mort_long, Mort_LOW, "_LOW"), by = c("x", "y"))
 
   } else {
-    # ---- Single RR branch (existing logic) ----
-    mort_data <- list(
-      Grids, Conc_c, pop, RR_tbl,
-      mRate %>% rename({{ domain }} := domain),
-      ag %>% rename({{ domain }} := domain),
-      PWRR
-    ) %>% reduce(left_join) %>% na.omit
-
-    if (nrow(mort_data) == 0)
-      stop("Mortality step: all rows dropped by na.omit. ",
-           "Check age groups, endpoint names, and domain values in input data.")
-
     result <- mort_data %>%
       mutate(Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5) %>%
       select(x, y, endpoint, agegroup, Mort) %>%
       pivot_wider(names_from = c('endpoint', 'agegroup'),
-                  names_sep = '_', values_from = 'Mort')
-
-    # All branches get suffix: copd_25_MEAN, copd_25_UP, copd_25_LOW
-    suffix <- str_c("_", CI)
-    result <- result %>%
-      rename_with(~ str_c(.x, suffix), matches('_[0-9]+$'))
+                  names_sep = '_', values_from = 'Mort') %>%
+      rename_with(~ str_c(.x, "_", CI), matches('_[0-9]+$'))
   }
 
   # ---- Guard: result not empty ----
