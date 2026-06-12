@@ -258,9 +258,9 @@ Mort_Aggregate <- function(
       str_replace(by, "^.{1}", toupper)
     }
     outpath <- str_glue(
-      "./Result/{tell_Model()}_{domain}_by{by_label}_\
-       {head(scenarios, 1)}-{tail(scenarios, 1)}_\
-       Build{format(Sys.Date(), '%y%m%d')}.xlsx"
+      "./Result/{tell_Model()}_{domain}_by{by_label}_",
+      "{head(scenarios, 1)}-{tail(scenarios, 1)}_",
+      "Build{format(Sys.Date(), '%y%m%d')}.xlsx"
     )
     dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
     aggr_result %>% write_xlsx(outpath)
@@ -411,16 +411,12 @@ aggregate_mort <- function(
           values_fill = 0
         )
     } else {
-      # Legacy unsuffixed: pivot with endpoint/agegroup only
+      # Legacy unsuffixed: aggregate Total by group_vars
       df %>%
-        pivot_longer(
-          cols = any_of(mort_cols),
-          names_to = c("endpoint", "agegroup"),
-          names_sep = "_"
-        ) %>%
+        mutate(Total = rowSums(select(., any_of(mort_cols)), na.rm = TRUE)) %>%
+        select(all_of(c(group_vars, "Total"))) %>%
         group_by(pick(all_of(group_vars))) %>%
-        summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-        pivot_wider(names_from = "value", values_fill = 0) # won't reach here normally
+        summarise(Total = sum(Total, na.rm = TRUE), .groups = "drop")
     }
   }
 

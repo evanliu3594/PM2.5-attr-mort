@@ -193,9 +193,3 @@ Uncertainty <- function(
   ) %>%
     return()
 }
-
-# Internal helper: aggregate grid-level Mortality results to domain level.
-# Used by Mort_Aggregate for the heavy lifting, and reused for RR branch runs.
-# ---- Aggregation helper ----
-# Aggregate grid-level Mortality results to domain level, with optional
-# error-propagation uncertainty (Uncertainty).

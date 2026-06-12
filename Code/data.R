@@ -672,38 +672,3 @@ getAgeGroup <- function(at) {
     })
 }
 
-#' Calculate gridded PM2.5 attributed mortality
-#'
-#' **PAF methodology — PWRR normalization:**
-#'
-#' Baseline mortality rates (`mRate`) are domain-level survey data (e.g., national or
-#' provincial statistics), not grid-specific rates. Under the relative-risk principle:
-#'
-#'   I_g / I_domain = RR(C_g) / PWRR_domain
-#'
-#' where `I_g` is the mortality rate at grid concentration C_g, and `I_domain` is the
-#' observed domain-average rate. This gives a uniform zero-PM2.5 baseline within each domain:
-#'
-#'   I_0 = I_domain / PWRR_domain    (same for all grids in the domain)
-#'
-#' Attributable mortality for grid g vs. zero-PM2.5 (TMREL):
-#'
-#'   ΔMort_g = Pop_g × AgeStruc × (I_g − I_0)
-#'           = Pop_g × AgeStruc × MortRate_domain × (RR(C_g) − 1) / PWRR_domain
-#'
-#' Compared to the standard grid-level PAF `(RR_g−1)/RR_g`, which implies I_0 = MortRate/RR_g
-#' (varying per grid), the PWRR approach gives a physically consistent I_0 within each domain.
-#'
-#' @param Grids a vector of grid coords
-#' @param Conc_r a 3-column `data.frame` stores real PM2.5 concentration of each grid, used for PWRR calculation
-#' @param Conc_c a 3-column `data.frame` stores counterfactual PM2.5 concentration of each grid, used for the RR numerator. Defaults to Conc_r
-#' @param ag proportions of 20 age-groups inside the population structure
-#' @param mRate the domain-level baseline mortality rates per endpoint and age group
-#' @param pop a 3-column dataframe stores population volume of each grid
-#' @param CI RR branch: "MEAN" (default), "UP", "LOW", or "RANGE"
-#' @param domain the spatial aggregation level (e.g., "Country", "Province") for PWRR computation
-#'
-#' @return When CI is "MEAN"/"UP"/"LOW", a wide table of death estimates per endpoint-agegroup per grid.
-#'   When CI is "RANGE", the table also includes _UP and _LOW suffixed columns for the 95% CI bounds.
-#'
-#' @examples
