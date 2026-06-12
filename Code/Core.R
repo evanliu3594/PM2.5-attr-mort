@@ -1460,29 +1460,23 @@ aggregate_mort <- function(x,
     }
   }
 
-  # ---- Build result — iterate geo levels × breakdowns ----
+  # ---- Build result: all geo levels × breakdowns → single named list ----
   result <- list()
 
   for (lv_name in names(at_levels)) {
     gv_geo <- at_levels[[lv_name]]
-    lv_result <- list()
 
     for (br_key in c("Total", str_c("by_", by))) {
-      if (br_key == "Total") {
-        gv <- gv_geo
-      } else {
-        gv <- c(gv_geo, str_remove(br_key, "^by_"))
-      }
+      gv <- if (br_key == "Total") gv_geo
+            else c(gv_geo, str_remove(br_key, "^by_"))
 
       # Compute per scenario
       per_scen <- x %>% map(~ do_aggregate(.x, gv))
 
-      # ---- Combine scenarios into single wide table ----
+      # Combine scenarios into single wide table
       # Columns: geo_cols, base2015_MEAN, base2015_UP, base2015_LOW, ...
       branch_cols <- intersect(c("MEAN", "UP", "LOW"), names(per_scen[[1]]))
-      if (length(branch_cols) == 0) branch_cols <- "value"  # legacy unsuffixed
-
-      id_cols <- setdiff(names(per_scen[[1]]), branch_cols)
+      if (length(branch_cols) == 0) branch_cols <- "value"
 
       combined <- per_scen %>%
         imap(function(df, scen) {
@@ -1495,21 +1489,19 @@ aggregate_mort <- function(x,
         bind_rows() %>%
         pivot_wider(names_from = ".col", values_from = ".value")
 
-      lv_result[[br_key]] <- combined
+      sheet_name <- str_c(lv_name, "_", br_key)
+      result[[sheet_name]] <- combined
     }
+  }
 
-    # ---- Write: one xlsx per geo level, one sheet, all scenarios as columns ----
-    if (!isFALSE(write)) {
-      out_dir <- if (isTRUE(write)) "./Result" else write
-      dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-      outpath <- file.path(out_dir,
-        str_glue("{tell_Model()}_{lv_name}_",
-                 "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
-      lv_result %>% write_xlsx(outpath)
-      cat("Written:", outpath, "\n")
-    }
-
-    result[[lv_name]] <- lv_result
+  # ---- Write: one xlsx, one sheet per (geo level × breakdown) ----
+  if (!isFALSE(write)) {
+    out_dir <- if (isTRUE(write)) "./Result" else write
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+    outpath <- file.path(out_dir,
+      str_glue("{tell_Model()}_Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+    result %>% write_xlsx(outpath)
+    cat("Written:", outpath, "\n")
   }
 
   return(result)
