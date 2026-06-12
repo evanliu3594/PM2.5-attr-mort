@@ -361,7 +361,7 @@ aggregate_mort <- function(
   }
 
   # ---- Resolve 'by' ----
-  if (is.null(by) || str_to_lower(by) == "total") {
+  if (is.null(by) || any(str_to_lower(by) == "total")) {
     by <- character(0)
   } else if (identical(by, "all")) {
     by <- c("endpoint", "agegroup")
