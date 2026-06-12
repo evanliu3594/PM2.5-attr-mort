@@ -14,17 +14,24 @@
 #       -- An Integrated Calculate Program for PM2.5 Health Burden Assessment --       #
 #                                                                                      #
 #  Created By Yifan LIU on 20210505                                                    #
-#       *Add GEMM model support                                                        #
-#       *Add better uncertainty assessments and improved the result return             #
 #       update 210525: replace matrix calculation by tidy-R Grammar                    #
 #       update 220602: simplify code                                                   #
-#       update 260610: compact to core_260610                                          #
+#       *Add GEMM model support                                                        #
+#       *Add better uncertainty assessments and improved the result return             #
+#       update 260610: compat to core_260610                                           #
 #                                                                                      #
 #======================================================================================#
 
 # Core functions load ----
 
-source('./Code/Core.R', encoding = 'UTF8')
+library(tidyverse)
+library(writexl)
+library(readxl)
+source('./Code/model.R',        encoding = 'UTF8')
+source('./Code/data.R',         encoding = 'UTF8')
+source('./Code/mortality.R',    encoding = 'UTF8')
+source('./Code/uncertainty.R',  encoding = 'UTF8')
+source('./Code/aggregation.R',  encoding = 'UTF8')
 
 # C-R Model setting ----
 # this section used to choose C-R Model for Health Impact Calculation.

@@ -5,7 +5,14 @@
 
 # Core Module Load ----
 
-source('./Code/Core.R',encoding = 'UTF8')
+library(tidyverse)
+library(writexl)
+library(readxl)
+source('./Code/model.R',        encoding = 'UTF8')
+source('./Code/data.R',         encoding = 'UTF8')
+source('./Code/mortality.R',    encoding = 'UTF8')
+source('./Code/uncertainty.R',  encoding = 'UTF8')
+source('./Code/aggregation.R',  encoding = 'UTF8')
 
 # C-R function setting ----
 # this section used to choose C-R function for Health Impact Calculation.
