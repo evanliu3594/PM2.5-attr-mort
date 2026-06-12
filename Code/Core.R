@@ -1415,14 +1415,14 @@ aggregate_mort <- function(x,
     else sapply(at_levels, function(a) if (length(a)) a else "Grid")
 
   # ---- Resolve 'by' ----
-  if (is.null(by)) {
+  if (is.null(by) || str_to_lower(by) == "total") {
     by <- character(0)
   } else if (identical(by, "all")) {
     by <- c("endpoint", "agegroup")
   }
   if (length(by) > 0) {
     by <- match.arg(by, several.ok = TRUE,
-      choices = c("endpoint", "agegroup"))
+      choices = c("endpoint", "agegroup", "total"))
   }
 
   # ---- Internal: aggregate one data frame ----

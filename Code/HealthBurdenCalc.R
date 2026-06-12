@@ -55,7 +55,7 @@ grid_ci <- set_names(scenarios) %>%
 # Uncomment the level(s) and breakdown(s) you need.
 # at  = "grid" | "geo" | "x" | "y" | "Country" | "Province" | "Region"
 #       or any column in Grid_info
-# by  = NULL (Total only) | "all" | "endpoint" | "agegroup"
+# by  = NULL | "total" (Total only) | "all" | "endpoint" | "agegroup"
 # write = FALSE | TRUE (-> ./Result/) | "./my/path"
 
 ## Grid-level ----
@@ -66,19 +66,19 @@ grid_ci <- set_names(scenarios) %>%
 # aggregate_mort(grid_ci, at = "y", write = FALSE)   # sum along longitude bands -> by latitude
 
 ## National ----
-aggregate_mort(grid_ci, at = "Country", by = NULL, write = TRUE) # Total
-# aggregate_mort(grid_ci, at = "Country", by = "endpoint", write = TRUE)   # x endpoint
-# aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = TRUE)   # x agegroup
-# aggregate_mort(grid_ci, at = "Country", by = "all",      write = TRUE)   # all above
+# aggregate_mort(grid_ci, at = "Country", by = NULL, write = FALSE) # Total
+# aggregate_mort(grid_ci, at = "Country", by = "endpoint", write = FALSE) # x endpoint
+# aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = FALSE) # x agegroup
+# aggregate_mort(grid_ci, at = "Country", by = "all", write = FALSE) # all above
 
 ## Provincial ----
-# aggregate_mort(grid_ci, at = "Province", by = "all",      write = TRUE)
-# aggregate_mort(grid_ci, at = "Province", by = "endpoint", write = TRUE)   # x endpoint
-# aggregate_mort(grid_ci, at = "Province", by = "agegroup", write = TRUE)   # x agegroup
-# aggregate_mort(grid_ci, at = "Province", by = "all",      write = TRUE)   # all above
+# aggregate_mort(grid_ci, at = "Province", by = "all",      write = FALSE)
+# aggregate_mort(grid_ci, at = "Province", by = "endpoint", write = FALSE)   # x endpoint
+# aggregate_mort(grid_ci, at = "Province", by = "agegroup", write = FALSE)   # x agegroup
+# aggregate_mort(grid_ci, at = "Province", by = "all",      write = FALSE)   # all above
 
 ## Regional ----
-# aggregate_mort(grid_ci, at = "Region", by = "all", write = TRUE)
+# aggregate_mort(grid_ci, at = "Region", by = "all", write = FALSE)
 
-##  All geo levels at once ----
-aggregate_mort(grid_ci, at = "geo", by = "all", write = TRUE)
+##  All geo levels and all group field at once ----
+aggregate_mort(grid_ci, at = "geo", by = NULL, write = FALSE)
