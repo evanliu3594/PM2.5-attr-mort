@@ -48,34 +48,28 @@ read_files(
 scenarios <- names(Conc_real)[c(-1:-2)]
 
 # ---- Grid-level with 95% CI (MEAN + UP + LOW in one pass) ----
-# CI = "RANGE" computes all three RR branches in a single join.
-# Output columns: copd_25_MEAN, copd_25_UP, copd_25_LOW, ...
+grid_ci <- scenarios %>%
+  map(~ Mortality_at(at = .x, CI = "RANGE", domain = "Country")) %>%
+  set_names(scenarios)
 
-grid_ci <- map(
-  scenarios,
-  ~ Mortality_at(at = .x, CI = "RANGE", domain = "Country")
-) %>% set_names(scenarios)
+# ---- Aggregation with RR-substitution CI ----
+# Choose which geo levels and breakdowns to compute.
+# Set write = TRUE to export each combination as an Excel file.
 
-# ---- One-shot aggregation across all geographic levels ----
-# summarise_ci() auto-detects CI branch columns and aggregates to
-# Country/Province/Region by Total, by endpoint, and by agegroup.
-
-all_aggr <- summarise_ci(grid_ci)
+all_aggr <- summarise_ci(
+  grid_ci,
+  geo_levels = c("Country", "Province"),              # also "Region" if available
+  breakdown  = c("Total", "endpoint", "agegroup"),
+  write      = FALSE
+)
 
 # Access results:
-#   all_aggr$Country$Total$base2015        — national total with CI
+#   all_aggr$Country$Total$base2015        — national totals
 #   all_aggr$Country$by_endpoint$base2015  — by cause of death
 #   all_aggr$Country$by_agegroup$base2015  — by age group
-#   all_aggr$Province$Total$base2015       — provincial total
+#   all_aggr$Province$Total$base2015       — provincial totals
 
 # ---- Convenience: Mort_Aggregate with error-propagation CI ----
-nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
-
-nation_edpt <- Mort_Aggregate(
-  scenarios,
-  domain = 'Country',
-  by = 'endpoint',
-  includeConc = TRUE,
-  Conc_ERR = 10,
-  write = FALSE
-)
+# nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
+# nation_edpt <- Mort_Aggregate(scenarios, domain = 'Country', by = 'endpoint',
+#                               includeConc = TRUE, Conc_ERR = 10, write = FALSE)

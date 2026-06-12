@@ -1370,52 +1370,60 @@ Mort_Aggregate <- function(
 }
 
 # ---- RR-substitution CI aggregation ----
-# Takes Mortality(CI="RANGE") output (single df or named list) and
-# automatically aggregates to all geographic levels in Grid_info plus
-# by-endpoint and by-agegroup breakdowns, computing Total_MEAN/UP/LOW
-# per level.
+# Takes Mortality(CI="RANGE") output and aggregates to user-specified
+# geographic levels with optional endpoint/agegroup breakdowns.
+# Can write results to Excel directly.
 
-#' Aggregate RANGE mortality results across all geographic and health dimensions
+#' Aggregate RANGE mortality results
 #'
-#' @param x A data frame from Mortality(CI="RANGE") or a named list of them (one per scenario).
-#' @param geo_levels Geographic domain columns to aggregate to. Default: all non-x/y
-#'   columns in Grid_info (e.g. Country, Province, Region).
-#' @param by_endpoint Also aggregate by endpoint (cause of death). Default TRUE.
-#' @param by_agegroup Also aggregate by age group. Default TRUE.
+#' @param x A data frame from Mortality(CI="RANGE"), or a named list (one per scenario).
+#' @param geo_levels Geographic domain columns to aggregate to. Use NULL for all
+#'   non-x/y columns in Grid_info. Examples: "Country", c("Country", "Province").
+#' @param breakdown Which dimension breakdowns to compute. Choose from
+#'   "Total" (no breakdown), "endpoint", "agegroup". Default: all three.
+#' @param write If TRUE, write each aggregation result to an Excel file under ./Result/.
 #'
 #' @return A nested list: result[[geo_level]][[breakdown]][[scenario]].
-#'   Each is a data frame with MEAN/UP/LOW value columns.
+#'   Each leaf is a data frame with MEAN, UP, LOW value columns.
 #'
 #' @export
 #'
 #' @examples
 #' grid_ci <- Mortality_at(at = "base2015", CI = "RANGE", domain = "Country")
-#' all_aggr <- summarise_ci(grid_ci)
-#' # all_aggr$Country$Total$base2015    — national totals with CI
-#' # all_aggr$Country$by_endpoint$base2015 — by cause of death
-summarise_ci <- function(x, geo_levels = NULL, by_endpoint = TRUE, by_agegroup = TRUE) {
-
+#' # National totals + by-endpoint + by-agegroup
+#' all <- summarise_ci(grid_ci, geo_levels = "Country",
+#'                     breakdown = c("Total", "endpoint", "agegroup"))
+summarise_ci <- function(x,
+  geo_levels = c("Country"),
+  breakdown  = c("Total", "endpoint", "agegroup"),
+  write      = FALSE
+) {
   # Normalise to named list of data frames
-  if (is.data.frame(x)) {
-    x <- list(scenario = x)
-  }
+  if (is.data.frame(x)) x <- list(scenario = x)
   scenarios <- names(x)
   if (is.null(scenarios)) scenarios <- seq_along(x)
 
-  # Geo columns from Grid_info
-  if (is.null(geo_levels)) {
+  # Geo columns
+  if (is.null(geo_levels))
     geo_levels <- setdiff(names(Grid_info), c("x", "y"))
-  }
   geo_levels <- intersect(geo_levels, names(Grid_info))
+  if (length(geo_levels) == 0)
+    stop("No valid geo_levels found in Grid_info. Available: ",
+         paste(setdiff(names(Grid_info), c("x", "y")), collapse = ", "))
 
-  # Attach geo info to each scenario
+  breakdown <- match.arg(breakdown, several.ok = TRUE,
+    choices = c("Total", "endpoint", "agegroup"))
+
+  # Attach geo info once
   x <- x %>% map(~ left_join(.x, Grid_info, by = c("x", "y")))
 
-  # CI column helpers
+  # CI branch columns: e.g. copd_25_MEAN, copd_25_UP, copd_25_LOW
   ci_cols <- names(x[[1]]) %>% str_subset('_[0-9]+_(MEAN|UP|LOW)$')
-  branches <- c("MEAN", "UP", "LOW")
+  if (length(ci_cols) == 0)
+    stop("No CI branch columns found (expected pattern _XX_MEAN/_UP/_LOW). ",
+         "Use Mortality(CI='RANGE') to generate input.")
 
-  # ---- Internal: pivot long, aggregate, add CI ----
+  # ---- Internal: pivot long, aggregate by group_vars + branch ----
   aggregate_ci <- function(df, group_vars) {
     df %>%
       pivot_longer(
@@ -1428,55 +1436,46 @@ summarise_ci <- function(x, geo_levels = NULL, by_endpoint = TRUE, by_agegroup =
       pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
   }
 
-  # ---- Build all aggregation levels ----
+  # ---- Build aggregations ----
   result <- list()
 
   for (geo in geo_levels) {
     geo_result <- list()
 
-    # Total (no endpoint/agegroup breakdown)
-    geo_result[["Total"]] <- x %>% map(function(df) {
-      df %>%
-        group_by(pick(all_of(geo))) %>%
-        summarise(across(any_of(ci_cols), sum, na.rm = TRUE), .groups = "drop") %>%
-        pivot_longer(
-          cols = any_of(ci_cols),
-          names_to = c("endpoint", "agegroup", "branch"),
-          names_sep = "_"
-        ) %>%
-        group_by(pick(all_of(geo)), branch) %>%
-        summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-        pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
-    })
+    for (br in breakdown) {
+      if (br == "Total") {
+        geo_result[["Total"]] <- x %>% map(function(df) {
+          df %>%
+            group_by(pick(all_of(geo))) %>%
+            summarise(across(any_of(ci_cols), sum, na.rm = TRUE), .groups = "drop") %>%
+            pivot_longer(cols = any_of(ci_cols),
+                         names_to = c("endpoint", "agegroup", "branch"),
+                         names_sep = "_") %>%
+            group_by(pick(all_of(geo)), branch) %>%
+            summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
+            pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
+        })
+      } else if (br == "endpoint") {
+        geo_result[["by_endpoint"]] <- x %>%
+          map(~ aggregate_ci(.x, c(geo, "endpoint")))
+      } else if (br == "agegroup") {
+        geo_result[["by_agegroup"]] <- x %>%
+          map(~ aggregate_ci(.x, c(geo, "agegroup")))
+      }
 
-    # By endpoint
-    if (by_endpoint) {
-      geo_result[["by_endpoint"]] <- x %>% map(function(df) {
-        df %>%
-          pivot_longer(
-            cols = any_of(ci_cols),
-            names_to = c("endpoint", "agegroup", "branch"),
-            names_sep = "_"
-          ) %>%
-          group_by(pick(all_of(c(geo, "endpoint", "branch")))) %>%
-          summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-          pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
-      })
-    }
-
-    # By agegroup
-    if (by_agegroup) {
-      geo_result[["by_agegroup"]] <- x %>% map(function(df) {
-        df %>%
-          pivot_longer(
-            cols = any_of(ci_cols),
-            names_to = c("endpoint", "agegroup", "branch"),
-            names_sep = "_"
-          ) %>%
-          group_by(pick(all_of(c(geo, "agegroup", "branch")))) %>%
-          summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-          pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
-      })
+      # Optional write
+      if (write) {
+        for (scen in scenarios) {
+          key <- if (br == "Total") "Total" else str_c("by_", br)
+          outpath <- str_glue(
+            "./Result/{tell_Model()}_{geo}_by{key}_{scen}_\
+             Build{format(Sys.Date(), '%y%m%d')}.xlsx"
+          )
+          dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
+          geo_result[[key]][[scen]] %>% write_xlsx(outpath)
+          cat("Written:", outpath, "\n")
+        }
+      }
     }
 
     result[[geo]] <- geo_result
