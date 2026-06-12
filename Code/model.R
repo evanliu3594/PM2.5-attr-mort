@@ -5,6 +5,7 @@
 library(tidyverse)
 library(writexl)
 library(readxl)
+library(jsonlite)
 
 #' detect CRF model name and generate a name for file output
 #'

@@ -1,5 +1,4 @@
 # Data loading & RR lookup module
-library(jsonlite)
 #   - matchable(), normalize_coords()  — coordinate & numeric normalisation
 #   - read_files()                     — load all input data to global env
 #   - RR_std()                         — reshape CR lookup table
