@@ -47,36 +47,38 @@ read_files(
 
 scenarios <- names(Conc_real)[c(-1:-2)]
 
-# ---- Grid-level with 95% CI (MEAN + UP + LOW in one pass) ----
-grid_ci <- scenarios %>%
-  set_names() %>%
+# Grid-level calculation with 95% CI (MEAN + UP + LOW in one pass) ----
+grid_ci <- set_names(scenarios) %>%
   map(~ Mortality_at(at = .x, CI = "RANGE", domain = "Country"))
 
-# ---- Aggregation ----
+# Aggregation ----
 # Uncomment the level(s) and breakdown(s) you need.
-# at  = "grid" | "geo" | "Country" | "Province" | "Region"
-# by  = NULL (Total) | "all" | "endpoint" | "agegroup"
+# at  = "grid" | "geo" | "x" | "y" | "Country" | "Province" | "Region"
+#       or any column in Grid_info
+# by  = NULL (Total only) | "all" | "endpoint" | "agegroup"
 # write = FALSE | TRUE (-> ./Result/) | "./my/path"
 
-# ---- Grid-level ----
+## Grid-level ----
 # aggregate_mort(grid_ci, at = "grid", write = FALSE)
 
-# ---- National ----
-# aggregate_mort(grid_ci, at = "Country", by = NULL,      write = FALSE)   # Total
-# aggregate_mort(grid_ci, at = "Country", by = "endpoint", write = FALSE)   # x endpoint
-# aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = FALSE)   # x agegroup
-# aggregate_mort(grid_ci, at = "Country", by = "all",      write = FALSE)   # all above
+## Zonal / Meridional ----
+# aggregate_mort(grid_ci, at = "x", write = FALSE)   # sum along latitude bands -> by longitude
+# aggregate_mort(grid_ci, at = "y", write = FALSE)   # sum along longitude bands -> by latitude
 
-# ---- Provincial ----
-# aggregate_mort(grid_ci, at = "Province", by = "all", write = FALSE)
+## National ----
+aggregate_mort(grid_ci, at = "Country", by = NULL, write = TRUE) # Total
+# aggregate_mort(grid_ci, at = "Country", by = "endpoint", write = TRUE)   # x endpoint
+# aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = TRUE)   # x agegroup
+# aggregate_mort(grid_ci, at = "Country", by = "all",      write = TRUE)   # all above
 
-# ---- Regional ----
-# aggregate_mort(grid_ci, at = "Region", by = "all", write = FALSE)
+## Provincial ----
+# aggregate_mort(grid_ci, at = "Province", by = "all",      write = TRUE)
+# aggregate_mort(grid_ci, at = "Province", by = "endpoint", write = TRUE)   # x endpoint
+# aggregate_mort(grid_ci, at = "Province", by = "agegroup", write = TRUE)   # x agegroup
+# aggregate_mort(grid_ci, at = "Province", by = "all",      write = TRUE)   # all above
 
-# ---- All geo levels at once ----
-# aggregate_mort(grid_ci, at = "geo", by = "all", write = FALSE)
+## Regional ----
+# aggregate_mort(grid_ci, at = "Region", by = "all", write = TRUE)
 
-# ---- Convenience: Mort_Aggregate with error-propagation CI ----
-# nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
-# nation_edpt <- Mort_Aggregate(scenarios, domain = 'Country', by = 'endpoint',
-#                               includeConc = TRUE, Conc_ERR = 10, write = FALSE)
+##  All geo levels at once ----
+aggregate_mort(grid_ci, at = "geo", by = "all", write = TRUE)
