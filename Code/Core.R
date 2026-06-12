@@ -1193,10 +1193,9 @@ Mort_Aggregate <- function(
   # ---- Auto-detect: character vector = scenario names, compute internally ----
   if (is.character(full_result)) {
     scenarios <- full_result
-    pwr_domain <- if (domain == 'Grid') detect_domain() else domain
     cat("Computing grid-level mortality for", length(scenarios), "scenarios...\n")
     full_result <- scenarios %>% set_names %>% map(
-      ~ Mortality_at(at = .x, CI = "MEAN", domain = pwr_domain)
+      ~ Mortality_at(at = .x, CI = "MEAN")
     )
   } else if (is.list(full_result)) {
     scenarios <- names(full_result)
