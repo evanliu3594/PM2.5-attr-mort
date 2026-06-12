@@ -51,9 +51,15 @@ scenarios <- names(Conc_real)[c(-1:-2)]
 # CI = "RANGE" computes all three RR branches in a single join.
 # Output columns: copd_25_MEAN, copd_25_UP, copd_25_LOW, ...
 
-grid_ci <- map(scenarios, ~ Mortality_at(
-  at = .x, CI = "RANGE", domain = "Country"
-)) %>% set_names(scenarios)
+grid_ci <- map(
+  scenarios,
+  ~ Mortality_at(
+    at = .x,
+    CI = "RANGE",
+    domain = "Country"
+  )
+) %>%
+  set_names(scenarios)
 
 # ---- Grid-level without CI (single branch, fast) ----
 # CI = "MEAN" / "UP" / "LOW" computes one branch.
@@ -73,9 +79,24 @@ grid_aggr <- Mort_Aggregate(scenarios, domain = 'Grid', write = FALSE)
 
 # prov_aggr <- Mort_Aggregate(scenarios, domain = 'Province')
 
-# ---- Nation Aggregation ----
-# By default Mort_Aggregate uses error-propagation Uncertainty for CI.
-# Pass includeConc=TRUE, Conc_ERR=12 to add concentration uncertainty.
+# ---- Nation Aggregation from RANGE (direct summarise, no Mort_Aggregate needed) ----
+# grid_ci already has _MEAN / _UP / _LOW columns. A simple group_by + sum suffices.
+
+nation_from_ci <- grid_ci %>%
+  map(~ left_join(.x, Grid_info %>% select(x, y, Country))) %>%
+  map(~ group_by(.x, Country)) %>%
+  map(~ summarise(.x, across(matches('_[0-9]+_(MEAN|UP|LOW)$'), sum), .groups = "drop")) %>%
+  map(~ mutate(.x,
+    Total_MEAN = rowSums(select(., matches('_MEAN$')), na.rm = TRUE),
+    Total_UP   = rowSums(select(., matches('_UP$')),   na.rm = TRUE),
+    Total_LOW  = rowSums(select(., matches('_LOW$')),  na.rm = TRUE),
+    CI_UP  = Total_UP  - Total_MEAN,
+    CI_LOW = Total_MEAN - Total_LOW
+  ))
+
+# ---- Nation Aggregation (convenience wrapper with error-propagation CI) ----
+# Mort_Aggregate(auto-computes MEAN) is useful when you don't need RANGE and
+# want a quick aggregation. Pass includeConc=TRUE for concentration uncertainty.
 
 nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
 
@@ -85,12 +106,5 @@ nation_edpt <- Mort_Aggregate(
   by = 'endpoint',
   includeConc = TRUE,
   Conc_ERR = 10,
-  write = FALSE
-)
-
-nation_age <- Mort_Aggregate(
-  scenarios,
-  domain = 'Country',
-  by = 'agegroup',
   write = FALSE
 )
