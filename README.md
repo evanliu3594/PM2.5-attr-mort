@@ -16,17 +16,21 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 
 1. Clone the repo and open `PM25-attr-mort.Rproj` in RStudio.
 
-2. Replace the sample data in `./Data/` with your customized ones: 
+2. Replace the sample data in `./Data/` with your own. Each file must follow the column format below. Coordinate columns accept any case variant of `x`/`lon`/`long`/`longitude` and `y`/`lat`/`latitude`.
 
-    - for China estimations, you'll need:
-        - `GRID_information` — coordinates and geographic domains (Country, Province, Region) of each grid cell
-        - `GridPop` — population size by grid cell
-        - `GridPM25` — annual-average PM<sub>2.5</sub> concentrations by grid cell
+| File | Required columns | Content |
+|------|-----------------|---------|
+| **GRID_information** | `x`, `y`, plus geographic domain columns (e.g. `Country`, `Province`, `Region`) | Coordinate and hierarchical region assignment of each grid cell |
+| **GridPop** | `x`, `y`, plus year/scenario columns (e.g. `base2015`, `SSP1_2030`) | Grid-level population counts |
+| **GridPM25** | `x`, `y`, plus year/scenario columns | Grid-level annual-average PM<sub>2.5</sub> concentration (µg/m³) |
+| **GridPM25_cf** _(optional)_ | same as GridPM25 | Counterfactual PM<sub>2.5</sub> for policy scenario; if absent, falls back to GridPM25 |
+| **GBD_mortality** | `domain`, `endpoint`, `agegroup`, plus year/scenario columns | Baseline mortality rate (deaths per 100,000) by region, disease, and age group |
+| **GBD_agestructure** | `domain`, `agegroup`, plus year/scenario columns | Proportion of population in each age group by region |
+| **RR_index** | sheets `MEAN`, `LOW`, `UP`; columns `concentration` + `{endpoint}_{agegroup}` (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. See `Code/DataPrepare/Concentration_Response.R` to regenerate. |
 
-    - for other regions, additionally:
-        - age structure data    
-        - baseline mortality rate data
-    - Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
+All gridded files must share the same `(x, y)` precision (controlled by `dgt_grid` in `read_files()`). Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`.
+
+Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 
 3. In `HealthBurdenCalc.R`, choose the C-R model with `set_Model()` and adjust file paths in `read_files()`.
 
