@@ -1373,7 +1373,7 @@ Mort_Aggregate <- function(
 # Takes Mortality(CI="RANGE") output (single df or named list) and
 # automatically aggregates to all geographic levels in Grid_info plus
 # by-endpoint and by-agegroup breakdowns, computing Total_MEAN/UP/LOW
-# and CI_UP/CI_LOW at each level.
+# per level.
 
 #' Aggregate RANGE mortality results across all geographic and health dimensions
 #'
@@ -1384,7 +1384,7 @@ Mort_Aggregate <- function(
 #' @param by_agegroup Also aggregate by age group. Default TRUE.
 #'
 #' @return A nested list: result[[geo_level]][[breakdown]][[scenario]].
-#'   Each is a data frame with MEAN/UP/LOW columns and CI_UP/CI_LOW.
+#'   Each is a data frame with MEAN/UP/LOW value columns.
 #'
 #' @export
 #'
@@ -1425,11 +1425,7 @@ summarise_ci <- function(x, geo_levels = NULL, by_endpoint = TRUE, by_agegroup =
       ) %>%
       group_by(pick(all_of(c(group_vars, "branch")))) %>%
       summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-      pivot_wider(names_from = "branch", values_from = "value", values_fill = 0) %>%
-      mutate(
-        CI_UP  = UP  - MEAN,
-        CI_LOW = MEAN - LOW
-      )
+      pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
   }
 
   # ---- Build all aggregation levels ----
@@ -1450,11 +1446,7 @@ summarise_ci <- function(x, geo_levels = NULL, by_endpoint = TRUE, by_agegroup =
         ) %>%
         group_by(pick(all_of(geo)), branch) %>%
         summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-        pivot_wider(names_from = "branch", values_from = "value", values_fill = 0) %>%
-        mutate(
-          CI_UP  = UP  - MEAN,
-          CI_LOW = MEAN - LOW
-        )
+        pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
     })
 
     # By endpoint
@@ -1468,11 +1460,7 @@ summarise_ci <- function(x, geo_levels = NULL, by_endpoint = TRUE, by_agegroup =
           ) %>%
           group_by(pick(all_of(c(geo, "endpoint", "branch")))) %>%
           summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-          pivot_wider(names_from = "branch", values_from = "value", values_fill = 0) %>%
-          mutate(
-            CI_UP  = UP  - MEAN,
-            CI_LOW = MEAN - LOW
-          )
+          pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
       })
     }
 
@@ -1487,11 +1475,7 @@ summarise_ci <- function(x, geo_levels = NULL, by_endpoint = TRUE, by_agegroup =
           ) %>%
           group_by(pick(all_of(c(geo, "agegroup", "branch")))) %>%
           summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
-          pivot_wider(names_from = "branch", values_from = "value", values_fill = 0) %>%
-          mutate(
-            CI_UP  = UP  - MEAN,
-            CI_LOW = MEAN - LOW
-          )
+          pivot_wider(names_from = "branch", values_from = "value", values_fill = 0)
       })
     }
 
