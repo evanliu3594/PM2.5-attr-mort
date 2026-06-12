@@ -95,12 +95,29 @@ set_Model <- function(Model, path = NULL) {
       '  }'
     )
 
-    cat("\n---- Auto-generated RR_std config entry ----\n")
-    cat("Review and add the following to Data/RR_std_config.json:\n\n")
-    cat(config_entry, "\n\n")
     log_msg(INFO, "Detected {nrow(ep_ages)} endpoints: ",
             str_c(ep_ages$endpoint, collapse = ", "))
     log_msg(INFO, "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}")
+
+    # ---- Auto-append to RR_std_config.json ----
+    cfg_path <- './Data/RR_std_config.json'
+    if (file.exists(cfg_path)) {
+      cfg_lines <- readLines(cfg_path)
+      if (any(str_detect(cfg_lines, str_glue('^  "{Model}":')))) {
+        log_msg(WARN, 'Model "{Model}" already exists in RR_std_config.json — skipping append.')
+      } else {
+        # Insert before the closing } of the JSON root object
+        close_idx <- tail(which(str_detect(str_trim(cfg_lines), '^}$')), 1)
+        if (length(close_idx) == 0) close_idx <- length(cfg_lines)
+        new_lines <- c(cfg_lines[1:(close_idx - 1)], ",", config_entry, "}")
+        writeLines(new_lines, cfg_path)
+        log_msg(INFO, 'Appended "{Model}" to {cfg_path}.')
+      }
+    } else {
+      # Create new config file
+      writeLines(str_c('{\n', config_entry, '\n}\n'), cfg_path)
+      log_msg(INFO, 'Created {cfg_path} with "{Model}" entry.')
+    }
 
     assign(".CR_Config", list(
       endpoints = lapply(seq_len(nrow(ep_ages)), function(i) {
