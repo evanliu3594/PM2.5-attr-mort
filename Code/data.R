@@ -455,31 +455,23 @@ RR_std <- function(RR_index = "MEAN") {
          "Available: ", paste(names(cfg_all), collapse = ", "))
   }
 
-  # Build the standardised grid
-  ages_all <- c('ALL', seq(cfg$ages[1], cfg$ages[2], cfg$ages[3]) %>% matchable(0))
+  # Build the standardised grid: each endpoint defines its own age groups
   conc_vals <- RR_table[[RR_index]] %>% pull(concentration)
 
-  RR_reshape <- expand_grid(
-    concentration = conc_vals,
-    endpoint = cfg$endpoints,
-    agegroup = ages_all
-  ) %>%
+  ep_grids <- lapply(cfg$endpoints, function(ep) {
+    ages <- c('ALL', matchable(ep$ages, 0))
+    expand_grid(
+      concentration = conc_vals,
+      endpoint = ep$name,
+      agegroup = ages
+    )
+  })
+  RR_reshape <- bind_rows(ep_grids) %>%
     left_join(RR_tbl, by = c("concentration", "endpoint", "agegroup")) %>%
     group_by(concentration, endpoint) %>%
     fill(RR) %>%
     ungroup %>%
     filter(agegroup != 'ALL')
-
-  # Apply adult-only filter if configured
-  if (!is.null(cfg$adult_only) && !is.null(cfg$adult_age)) {
-    adult_eps <- cfg$adult_only
-    allage_eps <- setdiff(cfg$endpoints, adult_eps)
-    RR_reshape <- RR_reshape %>%
-      filter(
-        (endpoint %in% adult_eps & as.integer(agegroup) >= cfg$adult_age) |
-        endpoint %in% allage_eps
-      )
-  }
 
   # ---- Guard: RR_reshape has data after reshape ----
   if (nrow(RR_reshape) == 0) {
