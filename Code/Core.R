@@ -1470,24 +1470,14 @@ aggregate_mort <- function(x,
       gv <- if (br_key == "Total") gv_geo
             else c(gv_geo, str_remove(br_key, "^by_"))
 
-      # Compute per scenario
+      # Compute per scenario, then combine: rename value cols with scenario prefix, join
       per_scen <- x %>% map(~ do_aggregate(.x, gv))
 
-      # Combine scenarios into single wide table
-      # Columns: geo_cols, base2015_MEAN, base2015_UP, base2015_LOW, ...
-      branch_cols <- intersect(c("MEAN", "UP", "LOW"), names(per_scen[[1]]))
-      if (length(branch_cols) == 0) branch_cols <- "value"
+      id_cols <- setdiff(names(per_scen[[1]]), c("MEAN", "UP", "LOW", "value"))
 
       combined <- per_scen %>%
-        imap(function(df, scen) {
-          df %>%
-            pivot_longer(all_of(branch_cols),
-                         names_to = ".branch", values_to = ".value") %>%
-            mutate(.col = str_c(scen, "_", .branch)) %>%
-            select(-.branch)
-        }) %>%
-        bind_rows() %>%
-        pivot_wider(names_from = ".col", values_from = ".value")
+        imap(~ rename_with(.x, ~ str_c(.y, "_", .x), -all_of(id_cols))) %>%
+        reduce(left_join, by = id_cols)
 
       sheet_name <- str_c(lv_name, "_", br_key)
       result[[sheet_name]] <- combined
