@@ -95,9 +95,9 @@ set_Model <- function(Model, path = NULL) {
       '  }'
     )
 
-    log_msg(INFO, "\n---- Auto-generated RR_std config entry ----\n",
-            "Review and add the following to Data/RR_std_config.json:\n\n",
-            config_entry, "\n")
+    cat("\n---- Auto-generated RR_std config entry ----\n")
+    cat("Review and add the following to Data/RR_std_config.json:\n\n")
+    cat(config_entry, "\n\n")
     log_msg(INFO, "Detected {nrow(ep_ages)} endpoints: ",
             str_c(ep_ages$endpoint, collapse = ", "))
     log_msg(INFO, "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}")
