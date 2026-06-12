@@ -12,7 +12,7 @@ log_msg <- function(level, ...) {
   msg <- str_glue(..., .envir = parent.frame())
   switch(level,
     INFO  = cli::cli_alert_info(msg),
-    WARN  = cli::cli_alert_warning(msg),
+    WARN  = cli::cli_text("{.strong .blue {msg}}"),
     ERROR = cli::cli_alert_danger(msg)
   )
 }
