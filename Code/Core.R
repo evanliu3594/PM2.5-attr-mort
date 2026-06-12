@@ -895,6 +895,10 @@ Mortality <- function(
       pivot_wider(names_from = c('endpoint', 'agegroup'),
                   names_sep = '_', values_from = 'Mort')
 
+    # Add _MEAN suffix to MEAN columns
+    mean_wide <- mean_wide %>%
+      rename_with(~ str_c(.x, "_MEAN"), matches('_[0-9]+$'))
+
     # Pivot UP (with _UP suffix)
     up_wide <- mort_long %>%
       select(x, y, endpoint, agegroup, Mort_UP) %>%
@@ -932,12 +936,10 @@ Mortality <- function(
       pivot_wider(names_from = c('endpoint', 'agegroup'),
                   names_sep = '_', values_from = 'Mort')
 
-    # Add _UP or _LOW suffix for non-MEAN branches (consistency with RANGE output)
-    if (CI %in% c("UP", "LOW")) {
-      suffix <- str_c("_", CI)
-      result <- result %>%
-        rename_with(~ str_c(.x, suffix), matches('_[0-9]+$'))
-    }
+    # All branches get suffix: copd_25_MEAN, copd_25_UP, copd_25_LOW
+    suffix <- str_c("_", CI)
+    result <- result %>%
+      rename_with(~ str_c(.x, suffix), matches('_[0-9]+$'))
   }
 
   # ---- Guard: result not empty ----
@@ -1221,23 +1223,44 @@ Mort_Aggregate <- function(
          paste(setdiff(names(Grid_info), c("x", "y")), collapse = ", "))
 
   # ---- Determine which columns to aggregate ----
-  # Includes MEAN columns (e.g., copd_25) and RANGE _UP/_LOW suffixed columns
+  # Columns now have CI branch suffixes: copd_25_MEAN, copd_25_UP, copd_25_LOW
   sample_names <- names(full_result[[1]])
-  mort_cols   <- str_subset(sample_names, '_[1-9]?(0|5)$')
-  has_ci      <- any(str_detect(mort_cols, "_(UP|LOW)$"))
+  ci_suffixed  <- str_subset(sample_names, '_[0-9]+_(MEAN|UP|LOW)$')
+  # Backward compat: old-format columns without suffix (e.g. copd_25)
+  old_style    <- str_subset(sample_names, '_[1-9]?(0|5)$') %>%
+    str_subset('_(MEAN|UP|LOW)$', negate = TRUE)
+
+  if (length(ci_suffixed) > 0) {
+    mort_cols  <- ci_suffixed
+    ci_branches <- str_extract(mort_cols, '(MEAN|UP|LOW)$') %>% unique()
+  } else {
+    mort_cols  <- old_style
+    ci_branches <- character(0)
+  }
 
   # ---- Aggregate ----
   pre_aggr <- if (domain == 'Grid' & is.null(by)) {
     full_result
   } else if (domain == 'Grid' & !is.null(by)) {
-    full_result %>% map(
-      ~ .x %>%
-        pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
-                     names_to = c('endpoint', 'agegroup'), names_sep = '_') %>%
-        group_by(pick(all_of(c(domain, by)))) %>%
-        summarise(Mort = sum(Mort), .groups = "drop") %>%
-        pivot_wider(names_from = by, values_from = 'Mort')
-    )
+    full_result %>% map(function(df) {
+      if (length(ci_branches) > 0) {
+        df %>%
+          pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
+                       names_to = c('endpoint', 'agegroup', '.branch'),
+                       names_sep = '_') %>%
+          group_by(pick(all_of(c(domain, by, '.branch')))) %>%
+          summarise(Mort = sum(Mort), .groups = "drop") %>%
+          unite("key", any_of(c(by, '.branch')), sep = "_") %>%
+          pivot_wider(names_from = 'key', values_from = 'Mort')
+      } else {
+        df %>%
+          pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
+                       names_to = c('endpoint', 'agegroup'), names_sep = '_') %>%
+          group_by(pick(all_of(c(domain, by)))) %>%
+          summarise(Mort = sum(Mort), .groups = "drop") %>%
+          pivot_wider(names_from = by, values_from = 'Mort')
+      }
+    })
   } else if (domain != 'Grid' & is.null(by)) {
     full_result %>% map(
       ~ left_join(.x, Grid_info) %>%
@@ -1245,30 +1268,38 @@ Mort_Aggregate <- function(
         summarise(across(any_of(mort_cols), sum), .groups = "drop")
     )
   } else if (domain != 'Grid' & !is.null(by)) {
-    full_result %>% map(
-      ~ .x %>% left_join(Grid_info) %>%
-        pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
-                     names_to = c('endpoint', 'agegroup'), names_sep = '_') %>%
-        group_by(pick(all_of(c(domain, by)))) %>%
-        summarise(Mort = sum(Mort), .groups = "drop") %>%
-        pivot_wider(names_from = by, values_from = 'Mort')
-    )
+    full_result %>% map(function(df) {
+      if (length(ci_branches) > 0) {
+        df %>% left_join(Grid_info) %>%
+          pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
+                       names_to = c('endpoint', 'agegroup', '.branch'),
+                       names_sep = '_') %>%
+          group_by(pick(all_of(c(domain, by, '.branch')))) %>%
+          summarise(Mort = sum(Mort), .groups = "drop") %>%
+          unite("key", any_of(c(by, '.branch')), sep = "_") %>%
+          pivot_wider(names_from = 'key', values_from = 'Mort')
+      } else {
+        df %>% left_join(Grid_info) %>%
+          pivot_longer(cols = any_of(mort_cols), values_to = 'Mort',
+                       names_to = c('endpoint', 'agegroup'), names_sep = '_') %>%
+          group_by(pick(all_of(c(domain, by)))) %>%
+          summarise(Mort = sum(Mort), .groups = "drop") %>%
+          pivot_wider(names_from = by, values_from = 'Mort')
+      }
+    })
   }
 
-  # ---- Add Total column(s) ----
-  if (has_ci) {
+  # ---- Add Total column(s) per CI branch ----
+  if (length(ci_branches) > 0) {
     pre_aggr <- pre_aggr %>% map(function(df) {
-      mean_cols <- str_subset(names(df), '_[1-9]?(0|5)$') %>%
-        str_subset("_(UP|LOW)$", negate = TRUE)
-      up_cols   <- str_subset(names(df), '_UP$')
-      low_cols  <- str_subset(names(df), '_LOW$')
-      df %>%
-        mutate(
-          Total      = rowSums(select(., any_of(mean_cols)), na.rm = TRUE),
-          Total_UP   = rowSums(select(., any_of(up_cols)),   na.rm = TRUE),
-          Total_LOW  = rowSums(select(., any_of(low_cols)),  na.rm = TRUE),
-          .after = if (domain == 'Grid') x:y else all_of(domain)
-        )
+      df_out <- df
+      for (br in ci_branches) {
+        br_cols <- str_subset(names(df_out), str_c("_", br, "$"))
+        total_name <- str_c("Total_", br)
+        df_out <- df_out %>%
+          mutate(!!total_name := rowSums(select(., any_of(br_cols)), na.rm = TRUE))
+      }
+      df_out %>% relocate(starts_with("Total_"), .after = if (domain == 'Grid') y else all_of(domain))
     })
   } else {
     pre_aggr <- pre_aggr %>% map(
