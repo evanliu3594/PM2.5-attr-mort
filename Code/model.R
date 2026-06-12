@@ -16,8 +16,8 @@ log_msg <- function(level, ...) {
   switch(
     level,
     INFO = cli::cli_alert_info(msg),
-    WARN = cli::cli_text("{.strong .blue {msg}}"),
-    ERROR = cli::cli_text("{.strong .red {msg}}")
+    WARN = cli::cli_text(cli::style_bold(cli::col_blue(str_c("⚠ ", msg)))),
+    ERROR = cli::cli_text(cli::style_bold(cli::col_red(msg)))
   )
 }
 
