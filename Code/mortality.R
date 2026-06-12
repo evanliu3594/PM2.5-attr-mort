@@ -1,3 +1,11 @@
+# Mortality calculation module — PWRR-normalised grid-level attributable deaths
+#   - Mortality()      — core formula: Mort = Pop × AgeStruc × MortRate × (RR−1) / PWRR
+#   - Mortality_at()   — convenience wrapper for a given year/scenario
+#   - detect_domain()  — auto-detect PWRR domain from MortRate × Grid_info overlap
+#   Modified 260610-260613: CI=RANGE mode (single-pass MEAN+UP+LOW), _MEAN/_UP/_LOW
+#     column suffixes, RR→CI rename, concentration clamping, auto domain detection,
+#     unified mort_data construction with pivot_branch().
+
 Mortality <- function(
   Grids,
   Conc_r,

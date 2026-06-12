@@ -1,3 +1,13 @@
+# Aggregation & output module
+#   - Mort_Aggregate()  — aggregate grid results by geographic domain, with optional
+#                         error-propagation CI via Uncertainty()
+#   - aggregate_mort()  — RR-substitution CI aggregation: takes Mortality(CI=RANGE)
+#                         output, aggregates by at (geo level) and by (endpoint/agegroup),
+#                         writes single-xlsx output with all scenarios as columns
+#   Modified 260610-260613: single-sheet xlsx output, scenario-combining with
+#     imap+rename_with, at='geo'/'grid'/'x'/'y' support, by='total' alias,
+#     auto-detect CI branch suffixes, summarise_ci→aggregate_mort rename.
+
 Mort_Aggregate <- function(
   full_result,
   domain = 'Grid',

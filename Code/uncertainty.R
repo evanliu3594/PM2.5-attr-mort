@@ -1,3 +1,11 @@
+# Uncertainty propagation module — analytic error propagation
+#   - Uncertainty() — finite-difference sensitivity: σ_M² = Σ (∂M/∂x_i)² × σ_xi²
+#     Supports CR uncertainty (RR UP/LOW branches) and optional concentration
+#     uncertainty via domain-level PWE perturbation.
+#   Modified 260610-260613: fix double-counted sigma in CI formula, change
+#     Conc_RMSE from absolute to percentage-based, fix includeConc forwarding
+#     and concentration perturbation join logic.
+
 Uncertainty <- function(
   PWE,
   aggr_pop,

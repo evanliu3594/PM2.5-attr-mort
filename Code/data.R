@@ -1,3 +1,10 @@
+# Data loading & RR lookup module
+#   - matchable(), normalize_coords()  — coordinate & numeric normalisation
+#   - read_files()                     — load all input data to global env
+#   - RR_std()                         — reshape CR lookup table
+#   - getMortRate(), getConc_real(), getConc_cf(), getPop(), getAgeGroup() — accessors
+#   Modified 260610-260613: concentration clamping, auto-detect PWRR domain,
+#     coordinate overlap checks, GEMM lookup table update, fix scoping issues.
 
 #' format numbers to a string at a specified digit
 #'

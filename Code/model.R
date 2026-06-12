@@ -1,8 +1,6 @@
-# PM25 Health Impact Calc Core
-# By Yifan LIU 2021/05/15
-# Modify by Yifan LIU 2022/04/09
-# Modified By yifan liu on 23/12/19
-# Improved By Yifan LIU With Deepseek on 260610
+# C-R Model configuration module
+#   - tell_Model() — format the active C-R model name for output filenames
+#   - set_Model()  — set the global .CR_Model (IER, GEMM, MRBRT, O3, NO2)
 
 library(tidyverse)
 library(writexl)
