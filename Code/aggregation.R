@@ -361,9 +361,10 @@ aggregate_mort <- function(
   }
 
   # ---- Resolve 'by' ----
+  is_all <- identical(by, "all")  # remember before expansion
   if (is.null(by) || any(str_to_lower(by) == "total")) {
     by <- character(0)
-  } else if (identical(by, "all")) {
+  } else if (is_all) {
     by <- c("endpoint", "agegroup")
   }
   if (length(by) > 0) {
@@ -427,8 +428,9 @@ aggregate_mort <- function(
   for (lv_name in names(at_levels)) {
     gv_geo <- at_levels[[lv_name]]
 
-    # Only Total when by is empty; otherwise only the requested breakdown(s)
-    breakdown_keys <- if (length(by) == 0) "Total" else str_c("by_", by)
+    # Total included when by is empty or by="all"; skipped for single-dimension by
+    breakdown_keys <- if (length(by) == 0 || is_all) c("Total", if (length(by) > 0) str_c("by_", by))
+      else str_c("by_", by)
     for (br_key in breakdown_keys) {
       gv <- if (br_key == "Total") {
         gv_geo
