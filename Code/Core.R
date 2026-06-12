@@ -1476,7 +1476,9 @@ aggregate_mort <- function(x,
       id_cols <- setdiff(names(per_scen[[1]]), c("MEAN", "UP", "LOW", "value"))
 
       combined <- per_scen %>%
-        imap(~ rename_with(.x, ~ str_c(.y, "_", .x), -all_of(id_cols))) %>%
+        imap(function(df, scen) {
+          rename_with(df, function(cols) str_c(scen, "_", cols), -all_of(id_cols))
+        }) %>%
         reduce(left_join, by = id_cols)
 
       sheet_name <- str_c(lv_name, "_", br_key)
