@@ -1451,8 +1451,10 @@ aggregate_mort <- function(x,
   } else if (identical(by, "all")) {
     by <- c("endpoint", "agegroup")
   }
-  by <- match.arg(by, several.ok = TRUE,
-    choices = c("endpoint", "agegroup"))
+  if (length(by) > 0) {
+    by <- match.arg(by, several.ok = TRUE,
+      choices = c("endpoint", "agegroup"))
+  }
 
   # ---- Internal: aggregate one data frame ----
   do_aggregate <- function(df, group_vars) {
