@@ -99,7 +99,10 @@ set_Model <- function(Model, path = NULL) {
             str_c(ep_ages$endpoint, collapse = ", "))
     log_msg(INFO, "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}")
 
-    # ---- Auto-append to RR_std_config.json ----
+    # ---- Preview & auto-append to RR_std_config.json ----
+    cat("\n---- Auto-generated RR_std config entry ----\n")
+    cat(config_entry, "\n\n")
+
     cfg_path <- './Data/RR_std_config.json'
     if (file.exists(cfg_path)) {
       cfg_lines <- readLines(cfg_path)
@@ -107,7 +110,7 @@ set_Model <- function(Model, path = NULL) {
         log_msg(WARN, 'Model "{Model}" already exists in RR_std_config.json — skipping append.')
       } else {
         # Insert before the closing } of the JSON root object
-        close_idx <- tail(which(str_detect(str_trim(cfg_lines), '^}$')), 1)
+        close_idx <- tail(which(str_detect(str_trim(cfg_lines), '^\\}$')), 1)
         if (length(close_idx) == 0) close_idx <- length(cfg_lines)
         new_lines <- c(cfg_lines[1:(close_idx - 1)], ",", config_entry, "}")
         writeLines(new_lines, cfg_path)
