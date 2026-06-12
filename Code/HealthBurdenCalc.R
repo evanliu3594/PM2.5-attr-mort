@@ -81,4 +81,4 @@ grid_ci <- set_names(scenarios) %>%
 # aggregate_mort(grid_ci, at = "Region", by = "all", write = FALSE)
 
 ##  All geo levels and all group field at once ----
-aggregate_mort(grid_ci, at = "geo", by = NULL, write = FALSE)
+aggregate_mort(grid_ci, at = "geo", by = "all", write = FALSE)
