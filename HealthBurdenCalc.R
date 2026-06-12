@@ -18,7 +18,7 @@
 #       update 220602: simplify code                                                   #
 #       *Add GEMM model support                                                        #
 #       *Add better uncertainty assessments and improved the result return             #
-#       update 260610: compat to core_260610                                           #
+#       update 260610: add costume CRF support                                         #
 #                                                                                      #
 #======================================================================================#
 
@@ -36,8 +36,7 @@ source('./Code/aggregation.R', encoding = 'UTF8')
 # C-R Model setting ----
 # this section used to choose C-R Model for Health Impact Calculation.
 # Supported C-R functions:
-#              'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'O3'
-
+#     'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'O3', 'NO2'
 set_Model('NCD+LRI')
 
 # Data load ----
