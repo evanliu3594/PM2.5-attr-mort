@@ -1427,28 +1427,22 @@ aggregate_mort <- function(x,
 
   # Attach geo info
   x <- x %>% map(~ left_join(.x, Grid_info, by = c("x", "y")))
-  geo_available <- setdiff(names(Grid_info), c("x", "y"))
-
-  # x/y are also valid aggregation dimensions (lat/lon bands)
-  all_at_cols <- c("x", "y", geo_available)
 
   # ---- Resolve 'at' — each column is a separate aggregation level ----
   if (identical(at, "geo")) {
-    at_levels <- as.list(c("x", "y", geo_available))
+    at_levels <- as.list(names(Grid_info))
   } else if (identical(at, "grid")) {
     at_levels <- list(character(0))
   } else {
     at_levels <- lapply(at, function(a) {
-      if (!a %in% all_at_cols)
-        stop("Column \"", a, "\" not found. Available: ",
-             paste(all_at_cols, collapse = ", "))
+      if (!a %in% names(Grid_info))
+        stop("Column \"", a, "\" not found in Grid_info. Available: ",
+             paste(names(Grid_info), collapse = ", "))
       a
     })
   }
   names(at_levels) <- if (identical(at, "grid")) "Grid"
     else sapply(at_levels, function(a) if (length(a)) a else "Grid")
-
-  # Separate x/y columns (already in data) from geo columns (need join)
 
   # ---- Resolve 'by' ----
   if (is.null(by)) {
