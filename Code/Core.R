@@ -1490,17 +1490,6 @@ aggregate_mort <- function(x,
     }
   }
 
-  # ---- Write helper ----
-  write_result <- function(df, scen, level_name, br_name) {
-    out_dir <- if (isTRUE(write)) "./Result" else write
-    outpath <- file.path(out_dir,
-      str_glue("{tell_Model()}_{level_name}_{br_name}_{scen}_",
-               "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
-    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-    df %>% write_xlsx(outpath)
-    cat("Written:", outpath, "\n")
-  }
-
   # ---- Build result — iterate geo levels × breakdowns ----
   result <- list()
 
@@ -1511,15 +1500,24 @@ aggregate_mort <- function(x,
     # Total (no by-dimension breakdown)
     key <- "Total"
     lv_result[[key]] <- x %>% map(~ do_aggregate(.x, gv_geo))
-    if (!isFALSE(write))
-      for (scen in scenarios) write_result(lv_result[[key]][[scen]], scen, lv_name, key)
 
     # By-dimension breakdowns
     for (dim in by) {
       key <- str_c("by_", dim)
       lv_result[[key]] <- x %>% map(~ do_aggregate(.x, c(gv_geo, dim)))
-      if (!isFALSE(write))
-        for (scen in scenarios) write_result(lv_result[[key]][[scen]], scen, lv_name, key)
+    }
+
+    # ---- Write: one xlsx per (level, breakdown), scenarios as sheets ----
+    if (!isFALSE(write)) {
+      out_dir <- if (isTRUE(write)) "./Result" else write
+      dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+      for (br_name in names(lv_result)) {
+        outpath <- file.path(out_dir,
+          str_glue("{tell_Model()}_{lv_name}_{br_name}_",
+                   "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+        lv_result[[br_name]] %>% write_xlsx(outpath)
+        cat("Written:", outpath, "\n")
+      }
     }
 
     result[[lv_name]] <- lv_result
