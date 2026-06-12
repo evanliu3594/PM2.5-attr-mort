@@ -36,9 +36,13 @@ tell_Model <- function() {
 #' @param base For custom models: which built-in model's endpoint and agegroup
 #'   structure to reuse (e.g. `base = "NCD+LRI"` for a custom GEMM table).
 #'   Ignored when `Model` is a built-in.
+#' @param path Optional path to a custom RR lookup table (xlsx). When provided,
+#'   the MEAN sheet is read and its `{endpoint}_{agegroup}` columns are parsed
+#'   to auto-generate a standardisation config entry. The user should review
+#'   and add it to `Data/RR_std_config.json`.
 #'
 #' @export
-set_Model <- function(Model, base = NULL) {
+set_Model <- function(Model, base = NULL, path = NULL) {
   assign(".CR_Model", Model, envir = globalenv())
 
   builtins <- c("IER", "NCD+LRI", "5COD", "MRBRT", "O3", "NO2",
@@ -57,5 +61,56 @@ set_Model <- function(Model, base = NULL) {
       "Pass base = \"NCD+LRI\" (or similar) so RR_std() knows the ",
       "endpoint/agegroup structure to use. ",
       "You must also provide a custom RR_table via read_files(RR_table_path = ...)."))
+  }
+
+  # ---- Auto-generate standardisation config from custom lookup table ----
+  if (!is.null(path)) {
+    if (!file.exists(path))
+      stop("Custom RR lookup table not found: ", path)
+
+    raw <- read_xlsx(path, sheet = "MEAN")
+    # Parse columns like copd_25, ncd+lri_30, allcause_15 → endpoint_age
+    mort_cols <- str_subset(names(raw), '_[0-9]+$')
+    if (length(mort_cols) == 0)
+      stop("No {endpoint}_{age} columns found in ", path,
+           ". Expected pattern like copd_25 or ncd+lri_30.")
+
+    # Extract endpoint name and age from each column
+    parsed <- str_match(mort_cols, '^(.+)_([0-9]+)$')
+    ep_ages <- tibble(
+      endpoint = str_to_lower(parsed[, 2]),
+      age = as.integer(parsed[, 3])
+    ) %>%
+      group_by(endpoint) %>%
+      summarise(ages = list(sort(unique(age))), .groups = "drop")
+
+    # Build config entry
+    ep_entries <- ep_ages %>% rowwise() %>%
+      summarise(
+        json = str_glue('      {{ "name": "{endpoint}", "ages": [{str_c(ages, collapse=", ")}] }}'),
+        .groups = "drop"
+      ) %>% pull(json)
+
+    config_entry <- str_c(
+      '  "', Model, '": {\n',
+      '    "endpoints": [\n',
+      str_c(ep_entries, collapse = ",\n"), '\n',
+      '    ]\n',
+      '  }'
+    )
+
+    cat("\n---- Auto-generated RR_std config entry ----\n")
+    cat("Review and add the following to Data/RR_std_config.json:\n\n")
+    cat(config_entry, "\n\n")
+    cat(str_glue("Detected {nrow(ep_ages)} endpoints: ",
+                 str_c(ep_ages$endpoint, collapse = ", "), "\n"))
+    cat(str_glue("Total age-group columns parsed: {sum(lengths(ep_ages$ages))}\n\n"))
+
+    # Also store the parsed structure so RR_std can use it without the JSON file
+    assign(".CR_Config", list(
+      endpoints = lapply(seq_len(nrow(ep_ages)), function(i) {
+        list(name = ep_ages$endpoint[i], ages = ep_ages$ages[[i]])
+      })
+    ), envir = globalenv())
   }
 }
