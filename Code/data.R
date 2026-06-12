@@ -1,4 +1,5 @@
 # Data loading & RR lookup module
+library(jsonlite)
 #   - matchable(), normalize_coords()  — coordinate & numeric normalisation
 #   - read_files()                     — load all input data to global env
 #   - RR_std()                         — reshape CR lookup table
@@ -436,80 +437,48 @@ RR_std <- function(RR_index = "MEAN") {
     )
   }
 
-  RR_reshape <- if (CR == '5COD') {
-    expand_grid(
-      concentration = RR_table[[RR_index]] %>% pull(concentration),
-      endpoint = c('copd', 'ihd', 'lc', 'lri', 'stroke'),
-      agegroup = c('ALL', seq(25, 95, 5) %>% matchable(0))
-    ) %>%
-      left_join(RR_tbl) %>%
-      group_by(concentration, endpoint) %>%
-      fill(RR) %>%
-      ungroup %>%
-      filter(agegroup != 'ALL')
-  } else if (CR == 'NCD+LRI') {
-    expand_grid(
-      concentration = RR_table[[RR_index]] %>% pull(concentration),
-      endpoint = c('ncd+lri'),
-      agegroup = c('ALL', seq(25, 95, 5) %>% matchable(0))
-    ) %>%
-      left_join(RR_tbl) %>%
-      group_by(concentration, endpoint) %>%
-      fill(RR) %>%
-      ungroup %>%
-      filter(agegroup != 'ALL')
-  } else if (str_detect(CR, 'IER')) {
-    expand_grid(
-      concentration = RR_table[[RR_index]] %>% pull(concentration),
-      endpoint = c('copd', 'ihd', 'lc', 'stroke', 'lri'),
-      agegroup = c('ALL', seq(0, 95, 5) %>% matchable(0))
-    ) %>%
-      left_join(RR_tbl) %>%
-      group_by(concentration, endpoint) %>%
-      fill(RR) %>%
-      filter(agegroup != 'ALL') %>%
+  # ---- Read standardisation config (endpoints, agegroups, filters) ----
+  cfg_path <- './Data/RR_std_config.json'
+  if (!file.exists(cfg_path)) {
+    stop("RR_std config file not found: ", cfg_path)
+  }
+  cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = TRUE)
+
+  # Match config: try exact .CR_Base first, then IER prefix
+  cfg <- cfg_all[[CR]]
+  if (is.null(cfg) && str_detect(CR, '^IER')) {
+    cfg <- cfg_all[["IER"]]
+  }
+  if (is.null(cfg)) {
+    stop("No RR_std configuration for model \"", CR,
+         "\". Add it to ", cfg_path, ". ",
+         "Available: ", paste(names(cfg_all), collapse = ", "))
+  }
+
+  # Build the standardised grid
+  ages_all <- c('ALL', seq(cfg$ages[1], cfg$ages[2], cfg$ages[3]) %>% matchable(0))
+  conc_vals <- RR_table[[RR_index]] %>% pull(concentration)
+
+  RR_reshape <- expand_grid(
+    concentration = conc_vals,
+    endpoint = cfg$endpoints,
+    agegroup = ages_all
+  ) %>%
+    left_join(RR_tbl, by = c("concentration", "endpoint", "agegroup")) %>%
+    group_by(concentration, endpoint) %>%
+    fill(RR) %>%
+    ungroup %>%
+    filter(agegroup != 'ALL')
+
+  # Apply adult-only filter if configured
+  if (!is.null(cfg$adult_only) && !is.null(cfg$adult_age)) {
+    adult_eps <- cfg$adult_only
+    allage_eps <- setdiff(cfg$endpoints, adult_eps)
+    RR_reshape <- RR_reshape %>%
       filter(
-        (endpoint %>%
-          str_detect('copd|ihd|lc|stroke') &
-          as.integer(agegroup) >= 25) |
-          endpoint == 'lri'
-      ) %>%
-      ungroup
-  } else if (CR == 'MRBRT') {
-    expand_grid(
-      concentration = RR_table[[RR_index]] %>% pull(concentration),
-      endpoint = c('copd', 'dm', 'ihd', 'lc', 'lri', 'stroke'),
-      agegroup = c('ALL', seq(0, 95, 5) %>% matchable(0))
-    ) %>%
-      left_join(RR_tbl) %>%
-      group_by(concentration, endpoint) %>%
-      fill(RR) %>%
-      filter(agegroup != 'ALL') %>%
-      filter(
-        (endpoint %>%
-          str_detect('copd|dm|ihd|lc|stroke') &
-          as.integer(agegroup) >= 25) |
-          endpoint == 'lri'
-      ) %>%
-      ungroup
-  } else if (CR == "O3") {
-    expand_grid(
-      concentration = RR_table[[RR_index]] %>% pull(concentration),
-      endpoint = 'copd',
-      agegroup = c('ALL', seq(25, 95, 5) %>% matchable(0))
-    ) %>%
-      left_join(RR_tbl) %>%
-      fill(RR) %>%
-      filter(agegroup != 'ALL')
-  } else if (CR == "NO2") {
-    expand_grid(
-      concentration = RR_table[[RR_index]] %>% pull(concentration),
-      endpoint = 'cause', #ALL CAUSE
-      agegroup = c('ALL', seq(15, 95, 5) %>% matchable(0))
-    ) %>%
-      left_join(RR_tbl) %>%
-      fill(RR) %>%
-      filter(agegroup != 'ALL')
+        (endpoint %in% adult_eps & as.integer(agegroup) >= cfg$adult_age) |
+        endpoint %in% allage_eps
+      )
   }
 
   # ---- Guard: RR_reshape has data after reshape ----

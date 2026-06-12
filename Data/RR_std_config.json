@@ -1,0 +1,30 @@
+{
+  "NCD+LRI": {
+    "endpoints": ["ncd+lri"],
+    "ages": [25, 95, 5]
+  },
+  "5COD": {
+    "endpoints": ["copd", "ihd", "lc", "lri", "stroke"],
+    "ages": [25, 95, 5]
+  },
+  "IER": {
+    "endpoints": ["copd", "ihd", "lc", "stroke", "lri"],
+    "ages": [0, 95, 5],
+    "adult_only": ["copd", "ihd", "lc", "stroke"],
+    "adult_age": 25
+  },
+  "MRBRT": {
+    "endpoints": ["copd", "dm", "ihd", "lc", "lri", "stroke"],
+    "ages": [0, 95, 5],
+    "adult_only": ["copd", "dm", "ihd", "lc", "stroke"],
+    "adult_age": 25
+  },
+  "O3": {
+    "endpoints": ["copd"],
+    "ages": [25, 95, 5]
+  },
+  "NO2": {
+    "endpoints": ["cause"],
+    "ages": [15, 95, 5]
+  }
+}
