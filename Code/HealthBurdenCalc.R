@@ -57,7 +57,7 @@ grid_ci <- scenarios %>%
 # by  = NULL | "all" | "endpoint" | "agegroup"
 # write = FALSE | TRUE (-> ./Result/) | "./my/path"
 
-all_aggr <- aggregate_ci(
+all_aggr <- aggregate_mort(
   grid_ci,
   at    = c("Country", "Province"),
   by    = "all",
