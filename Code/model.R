@@ -7,9 +7,9 @@ library(writexl)
 library(readxl)
 library(jsonlite)
 
-log_msg <- function(level = c("INFO", "WARN", "ERROR"), ...) {
-  level <- match.arg(level)
-  msg <- str_glue(...)
+log_msg <- function(level, ...) {
+  level <- match.arg(as.character(substitute(level)), c("INFO", "WARN", "ERROR"))
+  msg <- str_glue(..., .envir = parent.frame())
   switch(level,
     INFO  = cli::cli_alert_info(msg),
     WARN  = cli::cli_alert_warning(msg),
