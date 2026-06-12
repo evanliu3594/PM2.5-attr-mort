@@ -53,51 +53,22 @@ scenarios <- names(Conc_real)[c(-1:-2)]
 
 grid_ci <- map(
   scenarios,
-  ~ Mortality_at(
-    at = .x,
-    CI = "RANGE",
-    domain = "Country"
-  )
-) %>%
-  set_names(scenarios)
+  ~ Mortality_at(at = .x, CI = "RANGE", domain = "Country")
+) %>% set_names(scenarios)
 
-# ---- Grid-level without CI (single branch, fast) ----
-# CI = "MEAN" / "UP" / "LOW" computes one branch.
-grid_mean <- Mortality_at(at = scenarios[1], CI = "MEAN", domain = "Country")
+# ---- One-shot aggregation across all geographic levels ----
+# summarise_ci() auto-detects CI branch columns and aggregates to
+# Country/Province/Region by Total, by endpoint, and by agegroup.
 
-# ---- Grid Aggregation ----
-# Mort_Aggregate accepts either scenario names (auto-computes MEAN internally)
-# or a pre-computed list of data frames. It auto-detects CI branch suffixes.
+all_aggr <- summarise_ci(grid_ci)
 
-grid_aggr <- Mort_Aggregate(scenarios, domain = 'Grid', write = FALSE)
+# Access results:
+#   all_aggr$Country$Total$base2015        — national total with CI
+#   all_aggr$Country$by_endpoint$base2015  — by cause of death
+#   all_aggr$Country$by_agegroup$base2015  — by age group
+#   all_aggr$Province$Total$base2015       — provincial total
 
-# grid_edpt <- Mort_Aggregate(scenarios, domain = 'Grid', by = 'endpoint')
-
-# grid_age <- Mort_Aggregate(scenarios, domain = 'Grid', by = 'agegroup')
-
-# ---- Province Aggregation ----
-
-# prov_aggr <- Mort_Aggregate(scenarios, domain = 'Province')
-
-# ---- Nation Aggregation from RANGE (direct summarise, no Mort_Aggregate needed) ----
-# grid_ci already has _MEAN / _UP / _LOW columns. A simple group_by + sum suffices.
-
-nation_from_ci <- grid_ci %>%
-  map(~ left_join(.x, Grid_info %>% select(x, y, Country))) %>%
-  map(~ group_by(.x, Country)) %>%
-  map(~ summarise(.x, across(matches('_[0-9]+_(MEAN|UP|LOW)$'), sum), .groups = "drop")) %>%
-  map(~ mutate(.x,
-    Total_MEAN = rowSums(select(., matches('_MEAN$')), na.rm = TRUE),
-    Total_UP   = rowSums(select(., matches('_UP$')),   na.rm = TRUE),
-    Total_LOW  = rowSums(select(., matches('_LOW$')),  na.rm = TRUE),
-    CI_UP  = Total_UP  - Total_MEAN,
-    CI_LOW = Total_MEAN - Total_LOW
-  ))
-
-# ---- Nation Aggregation (convenience wrapper with error-propagation CI) ----
-# Mort_Aggregate(auto-computes MEAN) is useful when you don't need RANGE and
-# want a quick aggregation. Pass includeConc=TRUE for concentration uncertainty.
-
+# ---- Convenience: Mort_Aggregate with error-propagation CI ----
 nation_aggr <- Mort_Aggregate(scenarios, domain = 'Country', write = FALSE)
 
 nation_edpt <- Mort_Aggregate(
