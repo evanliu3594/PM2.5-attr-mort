@@ -322,30 +322,7 @@ aggregate_mort <- function(
     stop("No mortality columns found. Expected patterns like 'copd_25' or 'copd_25_MEAN'.")
   }
 
-  # ---- 2. Pivot all scenarios to a single long table ----
-  long <- x |>
-    imap(~ .x |>
-      left_join(Grid_info, by = c("x", "y")) |>
-      pivot_longer(
-        cols = any_of(mort_cols),
-        names_to = ".col",
-        values_to = "value"
-      ) |>
-      mutate(scenario = .y, .before = 1)
-    ) |>
-    bind_rows()
-
-  # Parse column names: endpoint_agegroup_branch or endpoint_agegroup
-  if (length(suffixed) > 0) {
-    long <- long |>
-      separate(".col", c("endpoint", "agegroup", "branch"), sep = "_")
-  } else {
-    long <- long |>
-      separate(".col", c("endpoint", "agegroup"), sep = "_") |>
-      mutate(branch = "value")
-  }
-
-  # ---- 3. Resolve 'at' ----
+  # ---- 2. Resolve 'at' ----
   if (identical(at, "geo")) {
     at_levels <- c(list(Grid = character(0)), as.list(names(Grid_info)))
   } else if (identical(at, "grid")) {
@@ -361,7 +338,7 @@ aggregate_mort <- function(
   names(at_levels) <- if (identical(at, "grid")) "Grid"
     else sapply(at_levels, function(a) if (length(a)) a else "Grid")
 
-  # ---- 4. Resolve 'by' ----
+  # ---- 3. Resolve 'by' ----
   is_all <- identical(by, "all")
   if (is.null(by) || any(str_to_lower(by) == "total")) {
     by <- character(0)
@@ -371,7 +348,24 @@ aggregate_mort <- function(
   if (length(by) > 0)
     by <- match.arg(by, several.ok = TRUE, choices = c("endpoint", "agegroup", "total"))
 
-  # ---- 5. Aggregate each geo level × breakdown, pivot wide for output ----
+  # ---- 4. Pivot each scenario to long ONCE (pivot + parse done here, reused by all combos) ----
+  is_suffixed <- length(suffixed) > 0
+
+  long_list <- x |> imap(function(df, scen) {
+    df <- df |>
+      left_join(Grid_info, by = c("x", "y")) |>
+      pivot_longer(cols = any_of(mort_cols),
+                   names_to = ".col", values_to = "value") |>
+      mutate(scenario = scen)
+    if (is_suffixed) {
+      df |> separate(".col", c("endpoint", "agegroup", "branch"), sep = "_")
+    } else {
+      df |> separate(".col", c("endpoint", "agegroup"), sep = "_") |>
+        mutate(branch = "value")
+    }
+  })
+
+  # ---- 5. Aggregate: per-scenario summarise (small) → bind_rows ----
   result <- list()
 
   for (lv_name in names(at_levels)) {
@@ -382,7 +376,6 @@ aggregate_mort <- function(
       else str_c("by_", by)
 
     for (br_key in breakdown_keys) {
-      # Group variables
       gv <- if (br_key == "Total") {
         gv_geo
       } else {
@@ -390,10 +383,13 @@ aggregate_mort <- function(
           str_remove(br_key, "^by_"))
       }
 
-      # Aggregate from long table
-      agg <- long |>
-        group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
-        summarise(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+      # Per-scenario: summarise (small), then bind_rows
+      agg <- long_list |>
+        map(~ .x |>
+          group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
+          summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
+        ) |>
+        bind_rows() |>
         unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
         pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
 
