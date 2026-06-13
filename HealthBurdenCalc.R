@@ -54,7 +54,7 @@ read_files(
 scenarios <- names(Conc_real)[c(-1:-2)]
 
 # Grid-level calculation with 95% CI (MEAN + UP + LOW in one pass) ----
-grid_ci <- set_names(scenarios) %>%
+grid_ci <- set_names(scenarios) |>
   map(~ Mortality_at(at = .x, CI = "RANGE"))
 
 # Aggregation ----

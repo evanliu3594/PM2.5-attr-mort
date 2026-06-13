@@ -67,8 +67,8 @@ set_Model <- function(Model, path = NULL) {
       ep_ages <- tibble(
         endpoint = str_to_lower(parsed[, 2]),
         age = as.integer(parsed[, 3])
-      ) %>%
-        group_by(endpoint) %>%
+      ) |>
+        group_by(endpoint) |>
         summarise(ages = list(sort(unique(age))), .groups = "drop")
     } else {
       all_cols <- str_subset(names(raw), '_ALL$')
@@ -93,14 +93,14 @@ set_Model <- function(Model, path = NULL) {
       )
     }
 
-    ep_entries <- ep_ages %>%
-      rowwise() %>%
+    ep_entries <- ep_ages |>
+      rowwise() |>
       summarise(
         json = str_glue(
           '      {{ "name": "{endpoint}", "ages": [{str_c(ages, collapse=", ")}] }}'
         ),
         .groups = "drop"
-      ) %>%
+      ) |>
       pull(json)
 
     config_entry <- str_c(

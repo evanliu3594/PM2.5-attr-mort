@@ -17,7 +17,7 @@
 #' @examples
 #' matchable(3.33333, 1)
 matchable <- function(num, dgt = 1) {
-  num %>% round(dgt) %>% str_c
+  num |> round(dgt) |> str_c()
 }
 
 #' Normalize geographic coordinate column names to "x" and "y"
@@ -88,7 +88,7 @@ normalize_coords <- function(df) {
   }
 
   if (lon_col != "x" || lat_col != "y") {
-    df <- df %>% rename(x = !!lon_col, y = !!lat_col)
+    df <- df |> rename(x = !!lon_col, y = !!lat_col)
     log_msg(
       INFO,
       "Coordinates normalized: \"{lon_col}\" -> \"x\", \"{lat_col}\" -> \"y\""
@@ -151,8 +151,8 @@ read_files <- function(
     }
   }
 
-  grid_df <- fuse_read(Grids) %>%
-    normalize_coords() %>%
+  grid_df <- fuse_read(Grids) |>
+    normalize_coords() |>
     mutate(across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)))
 
   if (!all(c("x", "y") %in% names(grid_df))) {
@@ -165,8 +165,8 @@ read_files <- function(
 
   assign('Grid_info', envir = globalenv(), grid_df)
 
-  pop_df <- fuse_read(Pop) %>%
-    normalize_coords() %>%
+  pop_df <- fuse_read(Pop) |>
+    normalize_coords() |>
     mutate(across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)))
 
   if (!all(c("x", "y") %in% names(pop_df))) {
@@ -179,8 +179,8 @@ read_files <- function(
 
   assign("Pop", envir = globalenv(), pop_df)
 
-  conc_real_df <- fuse_read(Conc_real) %>%
-    normalize_coords() %>%
+  conc_real_df <- fuse_read(Conc_real) |>
+    normalize_coords() |>
     mutate(
       across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)),
       across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
@@ -199,8 +199,8 @@ read_files <- function(
   # Specify UNREAL PM2.5 data, used for only counter-fact scenario.
 
   if (file.exists(Conc_cf)) {
-    conc_cf_df <- fuse_read(Conc_cf) %>%
-      normalize_coords() %>%
+    conc_cf_df <- fuse_read(Conc_cf) |>
+      normalize_coords() |>
       mutate(
         across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)),
         across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
@@ -237,7 +237,7 @@ read_files <- function(
   assign(
     'MortRate',
     envir = globalenv(),
-    mort_rate_raw %>%
+    mort_rate_raw |>
       mutate(across(where(is.numeric) & agegroup, ~ matchable(.x, dgt = 0)))
   )
 
@@ -252,7 +252,7 @@ read_files <- function(
   assign(
     "AgeGroup",
     envir = globalenv(),
-    age_group_raw %>%
+    age_group_raw |>
       mutate(across(where(is.numeric) & agegroup, ~ matchable(.x, dgt = 0)))
   )
 
@@ -309,10 +309,10 @@ read_files <- function(
   assign(
     "RR_table",
     envir = globalenv(),
-    expand_grid(excel_sheets(CR_file), CR_file) %>%
-      deframe %>%
+    expand_grid(excel_sheets(CR_file), CR_file) |>
+    deframe() |>
       imap(
-        ~ read_excel(.x, sheet = .y) %>%
+        ~ read_excel(.x, sheet = .y) |>
           mutate(
             across(
               where(is.numeric) & concentration,
@@ -340,14 +340,14 @@ read_files <- function(
   n_grid <- nrow(grid_df)
   n_conc <- nrow(conc_real_df)
   n_pop <- nrow(pop_df)
-  overlap_gc <- grid_df %>%
-    select(x, y) %>%
-    inner_join(conc_real_df %>% select(x, y), by = c("x", "y")) %>%
-    nrow
-  overlap_gp <- grid_df %>%
-    select(x, y) %>%
-    inner_join(pop_df %>% select(x, y), by = c("x", "y")) %>%
-    nrow
+  overlap_gc <- grid_df |>
+    select(x, y) |>
+    inner_join(conc_real_df |> select(x, y), by = c("x", "y")) |>
+    nrow()
+  overlap_gp <- grid_df |>
+    select(x, y) |>
+    inner_join(pop_df |> select(x, y), by = c("x", "y")) |>
+    nrow()
 
   log_msg(
     INFO,
@@ -424,13 +424,13 @@ RR_std <- function(RR_index = "MEAN") {
     )
   }
 
-  RR_tbl <- RR_table[[RR_index]] %>%
+  RR_tbl <- RR_table[[RR_index]] |>
     pivot_longer(
       cols = -concentration,
       values_to = "RR",
       names_to = c("endpoint", "agegroup"),
       names_sep = '_'
-    ) %>%
+    ) |>
     mutate(endpoint = tolower(endpoint))
 
   #  Guard: RR_tbl has data after pivot
@@ -463,7 +463,7 @@ RR_std <- function(RR_index = "MEAN") {
   }
 
   # Build the standardised grid: each endpoint defines its own age groups
-  conc_vals <- RR_table[[RR_index]] %>% pull(concentration)
+  conc_vals <- RR_table[[RR_index]] |> pull(concentration)
 
   ep_grids <- lapply(cfg$endpoints, function(ep) {
     ages <- c('ALL', matchable(unlist(ep$ages), 0))
@@ -474,11 +474,11 @@ RR_std <- function(RR_index = "MEAN") {
     )
   })
 
-  RR_reshape <- bind_rows(ep_grids) %>%
-    left_join(RR_tbl, by = c("concentration", "endpoint", "agegroup")) %>%
-    group_by(concentration, endpoint) %>%
-    fill(RR) %>%
-    ungroup %>%
+  RR_reshape <- bind_rows(ep_grids) |>
+    left_join(RR_tbl, by = c("concentration", "endpoint", "agegroup")) |>
+    group_by(concentration, endpoint) |>
+    fill(RR) |>
+    ungroup() |>
     filter(agegroup != 'ALL')
 
   #  Guard: RR_reshape has data after reshape
@@ -493,7 +493,7 @@ RR_std <- function(RR_index = "MEAN") {
   }
 
   #  Guard: no remaining NA in RR after fill
-  na_rr <- RR_reshape %>% filter(is.na(RR))
+  na_rr <- RR_reshape |> filter(is.na(RR))
   if (nrow(na_rr) > 0) {
     log_msg(
       WARN,
@@ -537,8 +537,8 @@ getMortRate <- function(at) {
   }
 
   # fmt: skip
-  MortRate %>%
-    mutate(endpoint = tolower(endpoint)) %>%
+  MortRate |>
+    mutate(endpoint = tolower(endpoint)) |>
     select(domain, endpoint, agegroup, MortRate = {at})
 }
 
@@ -563,7 +563,7 @@ getConc_real <- function(at) {
     )
   }
   # fmt: skip
-  Conc_real %>% select(x, y, concentration = {at})
+  Conc_real |> select(x, y, concentration = {at})
 }
 
 #' get Conc_cf data
@@ -591,7 +591,7 @@ getConc_cf <- function(at) {
   }
 
   # fmt: skip
-  Conc_cf %>% select(x, y, concentration = {at})
+  Conc_cf |> select(x, y, concentration = {at})
 }
 
 #' get Pop data
@@ -615,7 +615,7 @@ getPop <- function(at) {
     )
   }
   # fmt: skip
-  Pop %>% select(x, y, Pop = {at})
+  Pop |> select(x, y, Pop = {at})
 }
 
 #' get AgeGroup data
@@ -640,5 +640,5 @@ getAgeGroup <- function(at) {
   }
 
   # fmt: skip
-  AgeGroup %>% select(domain, agegroup, AgeStruc = {at})
+  AgeGroup |> select(domain, agegroup, AgeStruc = {at})
 }

@@ -6,7 +6,7 @@ library(writexl)
 
 simpledate <- \() format(Sys.Date(), '%y%m%d')
 
-matchable <- \(num, dgt = 1) num %>% round(digits = dgt) %>% str_c
+matchable <- \(num, dgt = 1) num |> round(digits = dgt) |> str_c
 
 # utils ----
 
@@ -23,22 +23,22 @@ compute_RR_index <- function(ERL, write = F) {
   iter_conc <- seq(0, 300, .1)
 
   ier_iter_conc <- \(alpha, beta, gamma, tmrel, ...) {
-    iter_conc %>%
-      set_names %>%
+    iter_conc |>
+      set_names() |>
       map_dbl(~ alpha * (1 - exp(-1 * beta * max(.x - tmrel, 0)^gamma)) + 1)
   }
 
   RR_table <- if (str_detect(ERL, 'IER')) {
-    read_csv(para.file) %>%
+    read_csv(para.file) |>
       mutate(
         age = str_replace(age, '(A|a)ll ?(A|a)ge', 'ALL'),
         cause = str_replace(cause, 'ALRI', 'LRI')
-      ) %>%
-      rename_with(~'tmrel', matches('zcf')) %>%
-      rename_with(~'gamma', matches('delta')) %>%
-      mutate(RR = pmap(select(., alpha, beta, gamma, tmrel), ier_iter_conc)) %>%
-      unnest_longer(RR, values_to = 'RR', indices_to = 'concentration') %>%
-      group_by(cause, age, concentration) %>%
+      ) |>
+      rename_with(~'tmrel', matches('zcf')) |>
+      rename_with(~'gamma', matches('delta')) |>
+      mutate(RR = pmap(select(., alpha, beta, gamma, tmrel), ier_iter_conc)) |>
+      unnest_longer(RR, values_to = 'RR', indices_to = 'concentration') |>
+      group_by(cause, age, concentration) |>
       summarise(
         MEAN = mean(RR),
         LOW = quantile(RR, .025),
@@ -48,13 +48,13 @@ compute_RR_index <- function(ERL, write = F) {
     expand_grid(
       concentration = iter_conc,
       read_csv(para.file)
-    ) %>%
+    ) |>
       mutate(
         Causes = str_replace(Causes, 'ALRI', 'LRI'),
         Age = str_replace(Age, '(A|a)ll ?(A|a)ge', 'ALL'),
         z = pmax(concentration - 2.4, 0),
-        concentration = concentration %>% matchable
-      ) %>%
+        concentration = concentration |> matchable
+      ) |>
       mutate(
         .keep = 'unused',
         MEAN = exp((theta) * log(1 + z / alpha) / (1 + exp((mu - z) / gama))),
@@ -68,26 +68,26 @@ compute_RR_index <- function(ERL, write = F) {
             log(1 + z / alpha) /
             (1 + exp((mu - z) / gama))
         )
-      ) %>%
+      ) |>
       rename(cause = Causes, age = Age)
   }
 
-  RR_index <- RR_table %>%
+  RR_index <- RR_table |>
     pivot_longer(
       cols = c('MEAN', 'LOW', 'UP'),
       names_to = 'CI',
       values_to = 'RR'
-    ) %>%
+    ) |>
     pivot_wider(
       names_from = c('cause', 'age'),
       names_sep = '_',
       values_from = 'RR'
-    ) %>%
-    split(.$CI) %>%
+    ) |>
+    split(.$CI) |>
     map(~ select(.x, -CI))
 
   if (write) {
-    RR_index %>%
+    RR_index |>
       write_xlsx(str_glue(
         './Data/RR_index/{ERL}_Lookup_Table_Build_{simpledate()}.xlsx'
       ))
@@ -110,26 +110,26 @@ compute_RR_index. <- function(ERL, write = F) {
   iter_conc <- seq(0, 300, .1)
 
   ier_iter_conc. <- \(alpha, beta, gamma, tmrel, ...) {
-    iter_conc %>%
-      set_names %>%
+    iter_conc |>
+      set_names() |>
       map_dbl(~ alpha * (1 - exp(-1 * beta * max(.x - tmrel, 0)^gamma)) + 1)
   }
 
   RR_table <- if (str_detect(ERL, 'IER')) {
-    expand_grid(Concentration = iter_conc, read_csv(para.file)) %>%
+    expand_grid(Concentration = iter_conc, read_csv(para.file)) |>
       mutate(
         age = str_replace(age, '(A|a)ll ?(A|a)ge', 'ALL'),
         cause = str_replace(cause, 'ALRI', 'LRI')
-      ) %>%
-      rename_with(~'tmrel', matches('zcf')) %>%
-      rename_with(~'gamma', matches('delta')) %>%
+      ) |>
+      rename_with(~'tmrel', matches('zcf')) |>
+      rename_with(~'gamma', matches('delta')) |>
       mutate(
         .keep = 'unused',
         RR = alpha *
           (1 - exp(-1 * beta * pmax(Concentration - tmrel, 0)^gamma)) +
           1,
-        concentration = Concentration %>% matchable
-      ) %>%
+        concentration = Concentration |> matchable
+      ) |>
       summarise(
         .by = c(cause, age, concentration),
         MEAN = mean(RR),
@@ -140,13 +140,13 @@ compute_RR_index. <- function(ERL, write = F) {
     expand_grid(
       concentration = iter_conc,
       read_csv(para.file)
-    ) %>%
+    ) |>
       mutate(
         Causes = str_replace(Causes, 'ALRI', 'LRI'),
         Age = str_replace(Age, '(A|a)ll ?(A|a)ge', 'ALL'),
         z = pmax(concentration - 2.4, 0),
-        concentration = concentration %>% matchable
-      ) %>%
+        concentration = concentration |> matchable
+      ) |>
       mutate(
         .keep = 'unused',
         MEAN = exp((theta) * log(1 + z / alpha) / (1 + exp((mu - z) / gama))),
@@ -160,26 +160,26 @@ compute_RR_index. <- function(ERL, write = F) {
             log(1 + z / alpha) /
             (1 + exp((mu - z) / gama))
         )
-      ) %>%
+      ) |>
       rename(cause = Causes, age = Age)
   }
 
-  RR_index <- RR_table %>%
+  RR_index <- RR_table |>
     pivot_longer(
       cols = c('MEAN', 'LOW', 'UP'),
       names_to = 'CI',
       values_to = 'RR'
-    ) %>%
+    ) |>
     pivot_wider(
       names_from = c('cause', 'age'),
       names_sep = '_',
       values_from = 'RR'
-    ) %>%
-    split(.$CI) %>%
+    ) |>
+    split(.$CI) |>
     map(~ select(.x, -CI))
 
   if (write) {
-    RR_index %>%
+    RR_index |>
       write_xlsx(str_glue(
         './Data/RR_index/{ERL}_Lookup_Table_Build_{simpledate()}.xlsx'
       ))
