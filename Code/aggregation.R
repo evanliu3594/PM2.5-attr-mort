@@ -297,40 +297,12 @@ Mort_Aggregate <- function(
 #' @examples
 #' grid_ci <- Mortality_at(at = "base2015", CI = "RANGE", domain = "Country")
 #' all <- aggregate_mort(grid_ci, at = "Country", by = "all")
-# Pure aggregation worker: one at level, one by dimension.
-# Called by aggregate_mort for each expanded at×by combo.
-agg_mort <- function(long_list, at_val, by_val) {
-  gv_geo <- if (identical(at_val, "Grid")) character(0) else at_val
-  by_dim  <- if (identical(by_val, "Total")) character(0) else by_val
-
-  gv <- if (length(by_dim) == 0) {
-    gv_geo
-  } else {
-    c(if (length(gv_geo) == 0) c("x", "y") else gv_geo, by_dim)
-  }
-
-  long_list |>
-    map(
-      ~ .x |>
-        group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
-        summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
-    ) |>
-    bind_rows() |>
-    unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
-    pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
-}
-
-aggregate_mort <- function(
-  x,
-  at = c("Country"),
-  by = NULL,
-  write = FALSE
-) {
-  if (is.data.frame(x)) x <- list(scenario = x)
-
-  # ---- 1. Pivot all scenarios to long ONCE ----
+# Self-contained worker: takes raw wide data, pivots, aggregates ONE at×by combo.
+# at_val: grouping columns, e.g. c("x","y") for grid, "Country", c("Country","endpoint")
+# by_val: "Total" (no extra dim), "endpoint", or "agegroup"
+agg_mort <- function(x, at_val, by_val, write = FALSE) {
   sample_nm <- names(x[[1]])
-  suffixed   <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
+  suffixed <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
   unsuffixed <- str_subset(sample_nm, '_[1-9]?(0|5)$') |>
     str_subset('_(MEAN|UP|LOW)$', negate = TRUE)
 
@@ -341,57 +313,131 @@ aggregate_mort <- function(
     mort_cols <- unsuffixed
     is_suffixed <- FALSE
   } else {
-    stop("No mortality columns found. Expected patterns like 'copd_25' or 'copd_25_MEAN'.")
+    stop("No mortality columns found.")
   }
 
-  long_list <- x |> imap(function(df, scen) {
-    df <- df |>
-      left_join(Grid_info, by = c("x", "y")) |>
-      pivot_longer(cols = any_of(mort_cols),
-                   names_to = ".col", values_to = "value") |>
-      mutate(scenario = scen)
-    if (is_suffixed) {
-      df |> separate(".col", c("endpoint", "agegroup", "branch"), sep = "_")
-    } else {
-      df |> separate(".col", c("endpoint", "agegroup"), sep = "_") |>
-        mutate(branch = "value")
-    }
-  })
+  gv <- if (by_val == "Total") at_val else c(at_val, by_val)
 
-  # ---- 2. Expand 'at' ----
-  if (identical(at, "geo")) {
-    at <- c("Grid", names(Grid_info))
-  } else if (identical(at, "grid")) {
-    at <- "Grid"
-  }
+  agg <- x |>
+    imap(function(df, scen) {
+      df <- df |>
+        left_join(Grid_info, by = c("x", "y")) |>
+        pivot_longer(
+          cols = any_of(mort_cols),
+          names_to = ".col",
+          values_to = "value"
+        ) |>
+        mutate(scenario = scen)
+      if (is_suffixed) {
+        df |> separate(".col", c("endpoint", "agegroup", "branch"), sep = "_")
+      } else {
+        df |>
+          separate(".col", c("endpoint", "agegroup"), sep = "_") |>
+          mutate(branch = "value")
+      }
+    }) |>
+    map(
+      ~ .x |>
+        group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
+        summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
+    ) |>
+    bind_rows() |>
+    unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
+    pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
 
-  # ---- 3. Expand 'by' ----
-  if (identical(by, "all")) {
-    by <- c("Total", "endpoint", "agegroup")
-  } else if (is.null(by) || any(str_to_lower(by) == "total")) {
-    by <- "Total"
-  }
-  valid_by <- c("Total", "endpoint", "agegroup")
-  unknown <- setdiff(by, valid_by)
-  if (length(unknown) > 0)
-    stop("Invalid by value(s): ", paste(unknown, collapse = ", "),
-         ". Use 'total', 'all', 'endpoint', or 'agegroup'.")
-
-  # ---- 4. Call agg_mort for each at×by combo ----
-  result <- list()
-  for (a in at) {
-    for (b in by) {
-      sheet_name <- str_c(a, "_", if (b == "Total") "Total" else str_c("by_", b))
-      result[[sheet_name]] <- agg_mort(long_list, at_val = a, by_val = b)
-    }
-  }
-
-  # ---- 5. Write ----
   if (!isFALSE(write)) {
     out_dir <- if (isTRUE(write)) "./Result" else write
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
     outpath <- file.path(out_dir,
-      str_glue("{tell_Model()}_Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+      str_glue("{tell_Model()}_{str_c(at_val, collapse='+')}_{by_val}_",
+               "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+    write_xlsx(list(result = agg), outpath)
+    log_msg(INFO, "Written: ", outpath)
+  }
+
+  agg
+}
+
+# Dispatch: Given-When-Then by at + by, calls agg_mort for each combo.
+aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
+  if (is.data.frame(x)) {
+    x <- list(scenario = x)
+  }
+  geo_cols <- c("grid", names(Grid_info))
+  result <- list()
+
+  # ---- at = geo, by = all ----
+  if (identical(at, "geo") && identical(by, "all")) {
+    for (g in geo_cols) {
+      result[[str_c(g, "_Total")]] <- agg_mort(x, at_val = g, by_val = "Total", write = FALSE)
+      result[[str_c(g, "_by_endpoint")]] <- agg_mort(
+        x,
+        at_val = g,
+        by_val = "endpoint"
+      )
+      result[[str_c(g, "_by_agegroup")]] <- agg_mort(
+        x,
+        at_val = g,
+        by_val = "agegroup"
+      )
+    }
+  } else if (identical(at, "geo")) {
+    # ---- at = geo ----
+    b <- if (is.null(by)) "Total" else by
+    for (g in c("x", "y", geo_cols)) {
+      result[[str_c(g, "_", b)]] <- agg_mort(x, at_val = g, by_val = b, write = FALSE)
+    }
+  } else if (identical(at, "grid") && identical(by, "all")) {
+    # ---- at = grid, by = all ----
+    result[["Grid_Total"]] <- agg_mort(
+      x,
+      at_val = c("x", "y"),
+      by_val = "Total"
+    )
+    result[["Grid_by_endpoint"]] <- agg_mort(
+      x,
+      at_val = c("x", "y"),
+      by_val = "endpoint"
+    )
+    result[["Grid_by_agegroup"]] <- agg_mort(
+      x,
+      at_val = c("x", "y"),
+      by_val = "agegroup"
+    )
+  } else if (identical(at, "grid")) {
+    # ---- at = grid ----
+    b <- if (is.null(by)) "Total" else by
+    result[[str_c("Grid_", b)]] <- agg_mort(x, at_val = c("x", "y"), by_val = b)
+  } else if (identical(by, "all")) {
+    # ---- by = all ----
+    for (a in at) {
+      result[[str_c(a, "_Total")]] <- agg_mort(x, at_val = a, by_val = "Total", write = FALSE)
+      result[[str_c(a, "_by_endpoint")]] <- agg_mort(
+        x,
+        at_val = a,
+        by_val = "endpoint"
+      )
+      result[[str_c(a, "_by_agegroup")]] <- agg_mort(
+        x,
+        at_val = a,
+        by_val = "agegroup"
+      )
+    }
+  } else {
+    # ---- specific at + by ----
+    b <- if (is.null(by)) "Total" else by
+    for (a in at) {
+      result[[str_c(a, "_", b)]] <- agg_mort(x, at_val = a, by_val = b, write = FALSE)
+    }
+  }
+
+  if (!isFALSE(write)) {
+    out_dir <- if (isTRUE(write)) "./Result" else write
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+    outpath <- file.path(
+      out_dir,
+      str_glue("{tell_Model()}_Build{format(Sys.Date(), '%y%m%d')}.xlsx")
+    )
     result |> write_xlsx(outpath)
     log_msg(INFO, "Written: ", outpath)
   }
