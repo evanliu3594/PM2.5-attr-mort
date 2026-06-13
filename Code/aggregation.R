@@ -387,7 +387,7 @@ aggregate_mort <- function(
       if (length(branches) > 0) {
         for (br in branches) {
           br_cols <- str_subset(names(df), str_c("_", br, "$"))
-          total_nm <- str_c("Total_", br)
+          total_nm <- br
           df <- df |>
             rowwise() |>
             mutate(
@@ -396,7 +396,7 @@ aggregate_mort <- function(
             ungroup()
         }
         df |>
-          select(x, y, starts_with("Total_"))
+          select(x, y, any_of(branches))
       } else {
         df |>
           rowwise() |>
