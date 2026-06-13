@@ -297,18 +297,38 @@ Mort_Aggregate <- function(
 #' @examples
 #' grid_ci <- Mortality_at(at = "base2015", CI = "RANGE", domain = "Country")
 #' all <- aggregate_mort(grid_ci, at = "Country", by = "all")
+# Pure aggregation worker: one at level, one by dimension.
+# Called by aggregate_mort for each expanded at×by combo.
+agg_mort <- function(long_list, at_val, by_val) {
+  gv_geo <- if (identical(at_val, "Grid")) character(0) else at_val
+  by_dim  <- if (identical(by_val, "Total")) character(0) else by_val
+
+  gv <- if (length(by_dim) == 0) {
+    gv_geo
+  } else {
+    c(if (length(gv_geo) == 0) c("x", "y") else gv_geo, by_dim)
+  }
+
+  long_list |>
+    map(
+      ~ .x |>
+        group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
+        summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
+    ) |>
+    bind_rows() |>
+    unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
+    pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
+}
+
 aggregate_mort <- function(
   x,
   at = c("Country"),
   by = NULL,
   write = FALSE
 ) {
-  # Normalise to named list of data frames
   if (is.data.frame(x)) x <- list(scenario = x)
-  scenarios <- names(x)
-  if (is.null(scenarios)) scenarios <- seq_along(x)
 
-  # ---- 1. Auto-detect CI branch columns, pivot+parse ONCE ----
+  # ---- 1. Pivot all scenarios to long ONCE ----
   sample_nm <- names(x[[1]])
   suffixed   <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
   unsuffixed <- str_subset(sample_nm, '_[1-9]?(0|5)$') |>
@@ -338,62 +358,31 @@ aggregate_mort <- function(
     }
   })
 
-  # ---- 2. Resolve 'at' → expand, then recurse for each ----
+  # ---- 2. Expand 'at' ----
   if (identical(at, "geo")) {
-    at <- c(list(Grid = character(0)), as.list(names(Grid_info)))
+    at <- c("Grid", names(Grid_info))
   } else if (identical(at, "grid")) {
-    at <- list(Grid = character(0))
-  } else {
-    at <- as.list(at)
-    names(at) <- at
+    at <- "Grid"
   }
 
-  # ---- 3. Resolve 'by' → expand, then iterate for each ----
+  # ---- 3. Expand 'by' ----
   if (identical(by, "all")) {
-    by <- c("endpoint", "agegroup")
+    by <- c("Total", "endpoint", "agegroup")
+  } else if (is.null(by) || any(str_to_lower(by) == "total")) {
+    by <- "Total"
   }
-  if (!is.null(by) && !identical(by, "all")) {
-    valid_by <- c("endpoint", "agegroup", "total")
-    unknown <- setdiff(by, valid_by)
-    if (length(unknown) > 0)
-      stop("Invalid by value(s): ", paste(unknown, collapse = ", "),
-           ". Use 'total', 'all', 'endpoint', or 'agegroup'.")
-  }
-  if (is.null(by) || any(str_to_lower(by) == "total")) {
-    by <- list(character(0))
-    names(by) <- "Total"
-  } else {
-    by <- as.list(by)
-    names(by) <- str_c("by_", by)
-  }
+  valid_by <- c("Total", "endpoint", "agegroup")
+  unknown <- setdiff(by, valid_by)
+  if (length(unknown) > 0)
+    stop("Invalid by value(s): ", paste(unknown, collapse = ", "),
+         ". Use 'total', 'all', 'endpoint', or 'agegroup'.")
 
-  # ---- 4. For each at×by, aggregate and collect ----
+  # ---- 4. Call agg_mort for each at×by combo ----
   result <- list()
-
-  for (at_name in names(at)) {
-    gv_geo <- at[[at_name]]
-
-    for (by_name in names(by)) {
-      by_dim <- by[[by_name]]
-
-      gv <- if (length(by_dim) == 0) {
-        gv_geo
-      } else {
-        c(if (length(gv_geo) == 0) c("x", "y") else gv_geo, by_dim)
-      }
-
-      # Per-scenario: group_by+summarise → tiny → bind_rows
-      agg <- long_list |>
-        map(~ .x |>
-          group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
-          summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
-        ) |>
-        bind_rows() |>
-        unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
-        pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
-
-      sheet_name <- str_c(at_name, "_", by_name)
-      result[[sheet_name]] <- agg
+  for (a in at) {
+    for (b in by) {
+      sheet_name <- str_c(a, "_", if (b == "Total") "Total" else str_c("by_", b))
+      result[[sheet_name]] <- agg_mort(long_list, at_val = a, by_val = b)
     }
   }
 
