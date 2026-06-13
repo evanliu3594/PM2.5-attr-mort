@@ -36,8 +36,8 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 
     ```r
     # Built-in models — lookup path and endpoint/agegroup config read from RR_std_config.json
-    set_Model('NCD+LRI')
     set_Model('IER')
+    set_Model('NCD+LRI')
     set_Model('5COD')
     set_Model('MRBRT')
     set_Model('O3')
@@ -59,7 +59,7 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 # Release notes
 
 ## v5.0 (current)
-- **RR-substitution CI**: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass; `CI = "MEAN"/"UP"/"LOW"` for single branches, all with column suffixes
+- **RR-substitution CI95**: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass; `CI = "MEAN"/"UP"/"LOW"` for single branches, all with column suffixes
 - **JSON-driven CR configuration**: `Data/RR_std_config.json` defines endpoints, age groups, lookup paths, and output labels per model; `RR_std()` auto-reads it
 - **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table and appends to the JSON file; `read_files(RR_table_path = "...")` for custom tables
 - **Auto PWRR domain detection**: `detect_domain()` matches mortality data domains against Grid_info columns

@@ -89,7 +89,10 @@ normalize_coords <- function(df) {
 
   if (lon_col != "x" || lat_col != "y") {
     df <- df %>% rename(x = !!lon_col, y = !!lat_col)
-    log_msg(INFO, "Coordinates normalized: \"{lon_col}\" -> \"x\", \"{lat_col}\" -> \"y\"")
+    log_msg(
+      INFO,
+      "Coordinates normalized: \"{lon_col}\" -> \"x\", \"{lat_col}\" -> \"y\""
+    )
   }
 
   return(df)
@@ -123,7 +126,7 @@ read_files <- function(
   dgt_grid = 2,
   dgt_conc = 1
 ) {
-  # ---- Guard: file existence ----
+  #  Guard: file existence
   for (f in list(
     Grids = Grids,
     Pop = Pop,
@@ -216,8 +219,11 @@ read_files <- function(
   assign('Conc_cf', envir = globalenv(), conc_cf_df)
 
   if (is.null(conc_cf_df)) {
-    log_msg(WARN, "Conc_cf file \"{Conc_cf}\" not found — set to NULL. ",
-            "Counterfactual scenarios will fall back to real concentrations.")
+    log_msg(
+      WARN,
+      "Conc_cf file \"{Conc_cf}\" not found — set to NULL. ",
+      "Counterfactual scenarios will fall back to real concentrations."
+    )
   }
 
   mort_rate_raw <- fuse_read(MortRate)
@@ -250,7 +256,7 @@ read_files <- function(
       mutate(across(where(is.numeric) & agegroup, ~ matchable(.x, dgt = 0)))
   )
 
-  # ---- Guard: .CR_Model must be set ----
+  #  Guard: .CR_Model must be set
   if (!exists('.CR_Model', envir = globalenv())) {
     stop(
       "C-R model not set. Call set_Model() before read_files(). ",
@@ -258,26 +264,35 @@ read_files <- function(
     )
   }
 
-  # ---- Resolve RR table path ----
+  #  Resolve RR table path
   if (!is.null(RR_table_path)) {
     CR_file <- RR_table_path
     log_msg(INFO, "Using custom RR lookup table: {CR_file}")
   } else {
     cfg_path <- './Data/RR_std_config.json'
-    if (!file.exists(cfg_path))
+    if (!file.exists(cfg_path)) {
       stop("RR_std config file not found: ", cfg_path)
+    }
 
     cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
 
     # Try exact model name, then IER prefix
     model_entry <- cfg_all[[.CR_Model]]
-    if (is.null(model_entry) && str_detect(.CR_Model, '^IER'))
+    if (is.null(model_entry) && str_detect(.CR_Model, '^IER')) {
       model_entry <- cfg_all[["IER"]]
+    }
 
-    if (is.null(model_entry) || is.null(model_entry$lookup))
-      stop("No lookup table path configured for model \"", .CR_Model,
-           "\" in ", cfg_path, ". ",
-           "Available: ", paste(names(cfg_all), collapse = ", "))
+    if (is.null(model_entry) || is.null(model_entry$lookup)) {
+      stop(
+        "No lookup table path configured for model \"",
+        .CR_Model,
+        "\" in ",
+        cfg_path,
+        ". ",
+        "Available: ",
+        paste(names(cfg_all), collapse = ", ")
+      )
+    }
 
     CR_file <- model_entry$lookup
   }
@@ -307,17 +322,21 @@ read_files <- function(
       )
   )
 
-  # ---- Guard: RR_table has expected sheets ----
+  #  Guard: RR_table has expected sheets
   expected_sheets <- c("MEAN", "LOW", "UP")
   missing_sheets <- setdiff(expected_sheets, names(RR_table))
   if (length(missing_sheets) > 0) {
-    log_msg(WARN, "RR lookup table is missing expected sheet(s): ",
-            paste(missing_sheets, collapse = ", "),
-            ". Available: ", paste(names(RR_table), collapse = ", "),
-            ". Uncertainty calculation will fail if these are needed.")
+    log_msg(
+      WARN,
+      "RR lookup table is missing expected sheet(s): ",
+      paste(missing_sheets, collapse = ", "),
+      ". Available: ",
+      paste(names(RR_table), collapse = ", "),
+      ". Uncertainty calculation will fail if these are needed."
+    )
   }
 
-  # ---- Guard: coordinate consistency summary ----
+  #  Guard: coordinate consistency summary
   n_grid <- nrow(grid_df)
   n_conc <- nrow(conc_real_df)
   n_pop <- nrow(pop_df)
@@ -330,9 +349,18 @@ read_files <- function(
     inner_join(pop_df %>% select(x, y), by = c("x", "y")) %>%
     nrow
 
-  log_msg(INFO, "Data loaded: {n_grid} grids, {n_conc} concentration records, {n_pop} population records.")
-  log_msg(INFO, "  Grids × Conc overlap: {overlap_gc}/{n_grid} ({round(overlap_gc/min(n_grid,n_conc)*100)}% of smaller)")
-  log_msg(INFO, "  Grids × Pop  overlap: {overlap_gp}/{n_grid} ({round(overlap_gp/min(n_grid,n_pop)*100)}% of smaller)")
+  log_msg(
+    INFO,
+    "Data loaded: {n_grid} grids, {n_conc} concentration records, {n_pop} population records."
+  )
+  log_msg(
+    INFO,
+    "  Grids × Conc overlap: {overlap_gc}/{n_grid} ({round(overlap_gc/min(n_grid,n_conc)*100)}% of smaller)"
+  )
+  log_msg(
+    INFO,
+    "  Grids × Pop  overlap: {overlap_gp}/{n_grid} ({round(overlap_gp/min(n_grid,n_pop)*100)}% of smaller)"
+  )
 
   # Warn only if overlap is low from the perspective of the SMALLER dataset —
   # a grid file covering a larger region than Conc/Pop is normal (extra grids
@@ -341,11 +369,14 @@ read_files <- function(
   pop_overlap_pct <- overlap_gp / min(n_grid, n_pop)
 
   if (conc_overlap_pct < 0.8 || pop_overlap_pct < 0.8) {
-    log_msg(WARN, "Low coordinate overlap between Grid_info and Conc/Pop data ",
-            "(Conc: {round(conc_overlap_pct * 100)}%, ",
-            "Pop: {round(pop_overlap_pct * 100)}% of smaller). ",
-            "Check that all files use the same (x, y) precision (dgt_grid = {dgt_grid}) ",
-            "and cover the same geographic domain.")
+    log_msg(
+      WARN,
+      "Low coordinate overlap between Grid_info and Conc/Pop data ",
+      "(Conc: {round(conc_overlap_pct * 100)}%, ",
+      "Pop: {round(pop_overlap_pct * 100)}% of smaller). ",
+      "Check that all files use the same (x, y) precision (dgt_grid = {dgt_grid}) ",
+      "and cover the same geographic domain."
+    )
   }
 }
 
@@ -358,7 +389,7 @@ read_files <- function(
 #'
 #' @examples
 RR_std <- function(RR_index = "MEAN") {
-  # ---- Guard: CR model must be set ----
+  #  Guard: CR model must be set
   if (!exists('.CR_Model', envir = globalenv())) {
     stop("C-R model not set. Call set_Model() before using RR_std().")
   }
@@ -368,7 +399,7 @@ RR_std <- function(RR_index = "MEAN") {
     error = function(e) stop("Cannot access .CR_Model from global environment.")
   )
 
-  # ---- Guard: RR_table is loaded ----
+  #  Guard: RR_table is loaded
   if (!exists('RR_table', envir = globalenv())) {
     stop("RR_table not found in global environment. Run read_files() first.")
   }
@@ -382,7 +413,7 @@ RR_std <- function(RR_index = "MEAN") {
     )
   }
 
-  # ---- Guard: requested RR_index exists ----
+  #  Guard: requested RR_index exists
   if (!RR_index %in% names(RR_table)) {
     stop(
       "RR_index \"",
@@ -402,7 +433,7 @@ RR_std <- function(RR_index = "MEAN") {
     ) %>%
     mutate(endpoint = tolower(endpoint))
 
-  # ---- Guard: RR_tbl has data after pivot ----
+  #  Guard: RR_tbl has data after pivot
   if (nrow(RR_tbl) == 0) {
     stop(
       "RR_table[[\"",
@@ -412,7 +443,7 @@ RR_std <- function(RR_index = "MEAN") {
     )
   }
 
-  # ---- Read standardisation config from JSON ----
+  #  Read standardisation config from JSON
   cfg_path <- './Data/RR_std_config.json'
   if (!file.exists(cfg_path)) {
     stop("RR_std config file not found: ", cfg_path)
@@ -420,9 +451,15 @@ RR_std <- function(RR_index = "MEAN") {
   cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
   cfg <- cfg_all[[CR]]
   if (is.null(cfg)) {
-    stop("No RR_std configuration for model \"", CR,
-         "\". Add it to ", cfg_path, ". ",
-         "Available: ", paste(names(cfg_all), collapse = ", "))
+    stop(
+      "No RR_std configuration for model \"",
+      CR,
+      "\". Add it to ",
+      cfg_path,
+      ". ",
+      "Available: ",
+      paste(names(cfg_all), collapse = ", ")
+    )
   }
 
   # Build the standardised grid: each endpoint defines its own age groups
@@ -436,6 +473,7 @@ RR_std <- function(RR_index = "MEAN") {
       agegroup = ages
     )
   })
+
   RR_reshape <- bind_rows(ep_grids) %>%
     left_join(RR_tbl, by = c("concentration", "endpoint", "agegroup")) %>%
     group_by(concentration, endpoint) %>%
@@ -443,7 +481,7 @@ RR_std <- function(RR_index = "MEAN") {
     ungroup %>%
     filter(agegroup != 'ALL')
 
-  # ---- Guard: RR_reshape has data after reshape ----
+  #  Guard: RR_reshape has data after reshape
   if (nrow(RR_reshape) == 0) {
     stop(
       "RR_reshape is empty for model \"",
@@ -454,16 +492,19 @@ RR_std <- function(RR_index = "MEAN") {
     )
   }
 
-  # ---- Guard: no remaining NA in RR after fill ----
+  #  Guard: no remaining NA in RR after fill
   na_rr <- RR_reshape %>% filter(is.na(RR))
   if (nrow(na_rr) > 0) {
-    log_msg(WARN, nrow(na_rr),
-            " NA values remain in RR_reshape after fill. ",
-            "Common causes: (1) RR lookup table is missing endpoint/agegroup combinations ",
-            "at certain concentrations; (2) the 'ALL' fill row is missing for some endpoints. ",
-            "These rows will be dropped downstream. ",
-            "First few: concentration=",
-            paste(head(unique(na_rr$concentration), 3), collapse = ", "))
+    log_msg(
+      WARN,
+      nrow(na_rr),
+      " NA values remain in RR_reshape after fill. ",
+      "Common causes: (1) RR lookup table is missing endpoint/agegroup combinations ",
+      "at certain concentrations; (2) the 'ALL' fill row is missing for some endpoints. ",
+      "These rows will be dropped downstream. ",
+      "First few: concentration=",
+      paste(head(unique(na_rr$concentration), 3), collapse = ", ")
+    )
   }
 
   return(RR_reshape)
@@ -477,11 +518,11 @@ RR_std <- function(RR_index = "MEAN") {
 #'
 #' @examples
 getMortRate <- function(at) {
-  # ---- Guard: MortRate loaded ----
+  #  Guard: MortRate loaded
   if (!exists('MortRate', envir = globalenv())) {
     stop("MortRate not found in global environment. Run read_files() first.")
   }
-  # ---- Guard: year column exists ----
+  #  Guard: year column exists
   if (!at %in% names(MortRate)) {
     stop(
       "Year/scenario \"",
@@ -494,11 +535,11 @@ getMortRate <- function(at) {
       )
     )
   }
+
+  # fmt: skip
   MortRate %>%
     mutate(endpoint = tolower(endpoint)) %>%
-    select(domain, endpoint, agegroup, MortRate = {
-      at
-    })
+    select(domain, endpoint, agegroup, MortRate = {at})
 }
 
 #' get Conc_real data
@@ -521,10 +562,8 @@ getConc_real <- function(at) {
       paste(setdiff(names(Conc_real), c("x", "y")), collapse = ", ")
     )
   }
-  Conc_real %>%
-    select(x, y, concentration = {
-      at
-    })
+  # fmt: skip
+  Conc_real %>% select(x, y, concentration = {at})
 }
 
 #' get Conc_cf data
@@ -550,10 +589,9 @@ getConc_cf <- function(at) {
       paste(setdiff(names(Conc_cf), c("x", "y")), collapse = ", ")
     )
   }
-  Conc_cf %>%
-    select(x, y, concentration = {
-      at
-    })
+
+  # fmt: skip
+  Conc_cf %>% select(x, y, concentration = {at})
 }
 
 #' get Pop data
@@ -576,10 +614,8 @@ getPop <- function(at) {
       paste(setdiff(names(Pop), c("x", "y")), collapse = ", ")
     )
   }
-  Pop %>%
-    select(x, y, Pop = {
-      at
-    })
+  # fmt: skip
+  Pop %>% select(x, y, Pop = {at})
 }
 
 #' get AgeGroup data
@@ -602,9 +638,7 @@ getAgeGroup <- function(at) {
       paste(setdiff(names(AgeGroup), c("domain", "agegroup")), collapse = ", ")
     )
   }
-  AgeGroup %>%
-    select(domain, agegroup, AgeStruc = {
-      at
-    })
-}
 
+  # fmt: skip
+  AgeGroup %>% select(domain, agegroup, AgeStruc = {at})
+}

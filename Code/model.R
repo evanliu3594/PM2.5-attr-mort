@@ -53,7 +53,7 @@ set_Model <- function(Model, path = NULL) {
   assign(".CR_Model", Model, envir = globalenv())
   log_msg(INFO, "C-R Model \"{tell_Model()}\" is set.")
 
-  # ---- Auto-generate standardisation config from custom lookup table ----
+  # Auto-generate standardisation config from custom lookup table
   if (!is.null(path)) {
     if (!file.exists(path)) {
       stop("Custom RR lookup table not found: ", path)
@@ -124,7 +124,7 @@ set_Model <- function(Model, path = NULL) {
       "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}"
     )
 
-    # ---- Preview & auto-append to RR_std_config.json ----
+    # Preview & auto-append to RR_std_config.json
     cat("\n---- Auto-generated RR_std config entry ----\n")
     cat(config_entry, "\n\n")
 
