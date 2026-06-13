@@ -163,7 +163,7 @@ Mort_Aggregate <- function(
         df_out <- df
         for (br in ci_branches) {
           br_cols <- str_subset(names(df_out), str_c("_", br, "$"))
-          total_name <- str_c("Total_", br)
+          total_name <- str_c("total_", br)
           df_out <- df_out |>
             mutate(
               !!total_name := rowSums(pick(any_of(br_cols)), na.rm = TRUE)
@@ -171,7 +171,7 @@ Mort_Aggregate <- function(
         }
         df_out |>
           relocate(
-            starts_with("Total_"),
+            starts_with("total_"),
             .after = if (domain == 'Grid') y else all_of(domain)
           )
       })
@@ -181,13 +181,13 @@ Mort_Aggregate <- function(
         if (domain == 'Grid') {
           ~ .x |>
             mutate(
-              Total = rowSums(pick(any_of(mort_cols)), na.rm = TRUE),
+              total = rowSums(pick(any_of(mort_cols)), na.rm = TRUE),
               .after = x:y
             )
         } else {
           ~ .x |>
             mutate(
-              Total = rowSums(pick(-all_of(!!domain)), na.rm = TRUE),
+              total = rowSums(pick(-all_of(!!domain)), na.rm = TRUE),
               .after = !!domain
             )
         }
@@ -280,10 +280,10 @@ Mort_Aggregate <- function(
 #' each branch independently.
 #'
 #' @param x A data frame from Mortality(), or a named list of them (one per scenario).
-#' @param at Aggregation level. \code{"grid"} keeps grid-level (adds Total columns).
+#' @param at Aggregation level. \code{"grid"} keeps grid-level (adds total columns).
 #'   \code{"geo"} aggregates to all geographic columns in Grid_info.
 #'   A specific column name (e.g. \code{"Country"}) or vector of names.
-#' @param by Breakdown dimension. \code{NULL} for Total only (no breakdown).
+#' @param by Breakdown dimension. \code{NULL} for total only (no breakdown).
 #'   \code{"all"} for both endpoint and agegroup. \code{"endpoint"} or
 #'   \code{"agegroup"} for a single dimension.
 #' @param write If \code{FALSE}, no output written. If \code{TRUE}, writes to
@@ -296,7 +296,7 @@ Mort_Aggregate <- function(
 #'
 #' @examples
 #' grid_ci <- Mortality_at(at = "base2015", CI = "RANGE", domain = "Country")
-#' all <- aggregate_mort(grid_ci, at = "Country", by = "all")
+#' all <- aggregate_mort(grid_ci, at = "Country", by = "total")
 # Pure worker: per-scenario pivot by_val → group_by → bind → spread.
 # Flow: 1) pivot only the by dimension from column names
 #       2) group_by(at + by + CI) per scenario
@@ -308,7 +308,7 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
   }
 
   # Pivot pattern: extract by dimensions + CI; .value keeps collapsed dims as cols
-  if (identical(by_val, "Total")) {
+  if (identical(by_val, "total")) {
     ptrn <- "(.+)_(MEAN|UP|LOW)"
     to_cols <- c(".value", "CI")
     group_vals <- c(at_val, "scenario", "CI")
@@ -378,10 +378,23 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
 }
 
 # Dispatch: Given-When-Then by at + by, calls agg_mort for each combo.
-aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
+aggregate_mort <- function(x, at = "Country", by = "total", write = FALSE) {
   if (is.data.frame(x)) {
     x <- list(scenario = x)
   }
+
+  # Normalize and validate `by`
+  valid_by <- c("total", "endpoint", "agegroup", "all")
+  if (!by %in% valid_by) {
+    stop(
+      "by must be one of: \"",
+      paste(valid_by, collapse = "\", \""),
+      "\". Got: \"",
+      by,
+      "\""
+    )
+  }
+
   geo_cols <- names(Grid_info)
   grid_col = c("x", "y")
 
@@ -402,14 +415,12 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
 
     # ---- at = geo ----
   } else if (identical(at, "geo")) {
-    b <- if (is.null(by)) "Total" else by
-
-    cat(str_c("grid", "_", b, "\n"))
-    agg_mort(x, at_val = grid_col, by_val = b, write = write)
+    cat(str_c("grid", "_", by, "\n"))
+    agg_mort(x, at_val = grid_col, by_val = by, write = write)
 
     for (g in geo_cols) {
-      cat(str_c(g, "_", b, "\n"))
-      agg_mort(x, at_val = g, by_val = b, write = write)
+      cat(str_c(g, "_", by, "\n"))
+      agg_mort(x, at_val = g, by_val = by, write = write)
     }
 
     # ---- at = grid, by = all ----
@@ -424,10 +435,8 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
 
     # ---- at = grid ----
   } else if (identical(at, "grid")) {
-    b <- if (is.null(by)) "Total" else by
-
-    cat(str_c("grid", "_", b, "\n"))
-    agg_mort(x, at_val = grid_col, by_val = b, write = write)
+    cat(str_c("grid", "_", by, "\n"))
+    agg_mort(x, at_val = grid_col, by_val = by, write = write)
 
     # ---- by = all ----
   } else if (identical(by, "all")) {
@@ -438,10 +447,9 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
 
     # ---- specific at + by ----
   } else {
-    b <- if (is.null(by)) "Total" else by
     for (a in at) {
-      cat(str_c(a, "_", b, "\n"))
-      agg_mort(x, at_val = a, by_val = b, write = write)
+      cat(str_c(a, "_", by, "\n"))
+      agg_mort(x, at_val = a, by_val = by, write = write)
     }
   }
 }
