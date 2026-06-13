@@ -365,7 +365,7 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
     outpath <- file.path(
       out_dir,
       str_glue(
-        "{tell_Model()}_{str_c(at_val, collapse='+')}_{by_val}_",
+        "{tell_Model()}_{str_c(at_val, collapse='+')}_{str_c(by_val, collapse='+')}_",
         "Build{format(Sys.Date(), '%y%m%d')}.xlsx"
       )
     )
