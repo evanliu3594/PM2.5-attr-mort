@@ -304,181 +304,110 @@ aggregate_mort <- function(
   write = FALSE
 ) {
   # Normalise to named list of data frames
-  if (is.data.frame(x)) {
-    x <- list(scenario = x)
-  }
+  if (is.data.frame(x)) x <- list(scenario = x)
   scenarios <- names(x)
-  if (is.null(scenarios)) {
-    scenarios <- seq_along(x)
-  }
+  if (is.null(scenarios)) scenarios <- seq_along(x)
 
-  #  Auto-detect CI branch columns
-  # Suffixed:  copd_25_MEAN, copd_25_UP, copd_25_LOW
-  # Unsuffixed (legacy): copd_25
+  # ---- 1. Auto-detect CI branch columns ----
   sample_nm <- names(x[[1]])
-  suffixed <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
+  suffixed   <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
   unsuffixed <- str_subset(sample_nm, '_[1-9]?(0|5)$') |>
     str_subset('_(MEAN|UP|LOW)$', negate = TRUE)
 
   if (length(suffixed) > 0) {
     mort_cols <- suffixed
-    branches <- str_extract(suffixed, '(MEAN|UP|LOW)$') |> unique()
   } else if (length(unsuffixed) > 0) {
     mort_cols <- unsuffixed
-    branches <- character(0) # no suffix → single branch, no branch column
   } else {
-    stop(
-      "No mortality columns found. Expected patterns like 'copd_25' or 'copd_25_MEAN'."
-    )
+    stop("No mortality columns found. Expected patterns like 'copd_25' or 'copd_25_MEAN'.")
   }
 
-  # Attach geo info
-  x <- x |> map(~ left_join(.x, Grid_info, by = c("x", "y")))
+  # ---- 2. Pivot all scenarios to a single long table ----
+  long <- x |>
+    imap(~ .x |>
+      left_join(Grid_info, by = c("x", "y")) |>
+      pivot_longer(
+        cols = any_of(mort_cols),
+        names_to = ".col",
+        values_to = "value"
+      ) |>
+      mutate(scenario = .y, .before = 1)
+    ) |>
+    bind_rows()
 
-  #  Resolve 'at' — each column is a separate aggregation level
+  # Parse column names: endpoint_agegroup_branch or endpoint_agegroup
+  if (length(suffixed) > 0) {
+    long <- long |>
+      separate(".col", c("endpoint", "agegroup", "branch"), sep = "_")
+  } else {
+    long <- long |>
+      separate(".col", c("endpoint", "agegroup"), sep = "_") |>
+      mutate(branch = "value")
+  }
+
+  # ---- 3. Resolve 'at' ----
   if (identical(at, "geo")) {
     at_levels <- c(list(Grid = character(0)), as.list(names(Grid_info)))
   } else if (identical(at, "grid")) {
     at_levels <- list(character(0))
   } else {
     at_levels <- lapply(at, function(a) {
-      if (!a %in% names(Grid_info)) {
-        stop(
-          "Column \"",
-          a,
-          "\" not found in Grid_info. Available: ",
-          paste(names(Grid_info), collapse = ", ")
-        )
-      }
+      if (!a %in% names(Grid_info))
+        stop("Column \"", a, "\" not found in Grid_info. Available: ",
+             paste(names(Grid_info), collapse = ", "))
       a
     })
   }
-  names(at_levels) <- if (identical(at, "grid")) {
-    "Grid"
-  } else {
-    sapply(at_levels, function(a) if (length(a)) a else "Grid")
-  }
+  names(at_levels) <- if (identical(at, "grid")) "Grid"
+    else sapply(at_levels, function(a) if (length(a)) a else "Grid")
 
-  #  Resolve 'by'
-  is_all <- identical(by, "all") # remember before expansion
+  # ---- 4. Resolve 'by' ----
+  is_all <- identical(by, "all")
   if (is.null(by) || any(str_to_lower(by) == "total")) {
     by <- character(0)
   } else if (is_all) {
     by <- c("endpoint", "agegroup")
   }
-  if (length(by) > 0) {
-    by <- match.arg(
-      by,
-      several.ok = TRUE,
-      choices = c("endpoint", "agegroup", "total")
-    )
-  }
+  if (length(by) > 0)
+    by <- match.arg(by, several.ok = TRUE, choices = c("endpoint", "agegroup", "total"))
 
-  #  Internal: aggregate one data frame
-  do_aggregate <- function(df, group_vars) {
-    if (length(group_vars) == 0) {
-      # Grid-level: add Total columns, drop per-endpoint-age columns
-      if (length(branches) > 0) {
-        for (br in branches) {
-          br_cols <- str_subset(names(df), str_c("_", br, "$"))
-          total_nm <- br
-          df <- df |>
-            mutate(
-              !!total_nm := rowSums(pick(any_of(br_cols)), na.rm = TRUE)
-            )
-        }
-        df |>
-          select(x, y, any_of(branches))
-      } else {
-        df |>
-          mutate(
-            Total = rowSums(pick(any_of(mort_cols)), na.rm = TRUE),
-            .after = y
-          )
-      }
-    } else if (length(branches) > 0) {
-      # Suffixed columns: pivot with endpoint/agegroup/branch
-      df |>
-        pivot_longer(
-          cols = any_of(mort_cols),
-          names_to = c("endpoint", "agegroup", "branch"),
-          names_sep = "_"
-        ) |>
-        group_by(pick(all_of(c(group_vars, "branch")))) |>
-        summarise(value = sum(value, na.rm = TRUE), .groups = "drop") |>
-        pivot_wider(
-          names_from = "branch",
-          values_from = "value",
-          values_fill = 0
-        )
-    } else {
-      # Legacy unsuffixed: aggregate Total by group_vars
-      df |>
-        mutate(Total = rowSums(pick(any_of(mort_cols)), na.rm = TRUE)) |>
-        select(all_of(c(group_vars, "Total"))) |>
-        group_by(pick(all_of(group_vars))) |>
-        summarise(Total = sum(Total, na.rm = TRUE), .groups = "drop")
-    }
-  }
-
-  #  Build result: all geo levels × breakdowns → single named list
+  # ---- 5. Aggregate each geo level × breakdown, pivot wide for output ----
   result <- list()
 
   for (lv_name in names(at_levels)) {
     gv_geo <- at_levels[[lv_name]]
 
-    # Total included when by is empty or by="all"; skipped for single-dimension by
-    breakdown_keys <- if (length(by) == 0 || is_all) {
+    breakdown_keys <- if (length(by) == 0 || is_all)
       c("Total", if (length(by) > 0) str_c("by_", by))
-    } else {
-      str_c("by_", by)
-    }
+      else str_c("by_", by)
+
     for (br_key in breakdown_keys) {
+      # Group variables
       gv <- if (br_key == "Total") {
         gv_geo
       } else {
-        # Grid-level breakdowns need x,y to keep per-grid rows
-        c(
-          if (length(gv_geo) == 0) c("x", "y") else gv_geo,
-          str_remove(br_key, "^by_")
-        )
+        c(if (length(gv_geo) == 0) c("x", "y") else gv_geo,
+          str_remove(br_key, "^by_"))
       }
 
-      # Compute per scenario, then combine: rename value cols with scenario prefix, join
-      per_scen <- x |> map(~ do_aggregate(.x, gv))
-
-      id_cols <- str_subset(
-        names(per_scen[[1]]),
-        '(MEAN|UP|LOW)$',
-        negate = TRUE
-      )
-      if (length(id_cols) == 0) {
-        id_cols <- names(per_scen[[1]])
-      } # fallback: keep all
-
-      combined <- per_scen |>
-        imap(function(df, scen) {
-          rename_with(
-            df,
-            function(cols) str_c(scen, "_", cols),
-            -all_of(id_cols)
-          )
-        }) |>
-        reduce(left_join, by = id_cols)
+      # Aggregate from long table
+      agg <- long |>
+        group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
+        summarise(value = sum(value, na.rm = TRUE), .groups = "drop") |>
+        unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
+        pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
 
       sheet_name <- str_c(lv_name, "_", br_key)
-      result[[sheet_name]] <- combined
+      result[[sheet_name]] <- agg
     }
   }
 
-  #  Write: one xlsx, one sheet per (geo level × breakdown)
+  # ---- 6. Write ----
   if (!isFALSE(write)) {
     out_dir <- if (isTRUE(write)) "./Result" else write
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-    outpath <- file.path(
-      out_dir,
-      str_glue("{tell_Model()}_Build{format(Sys.Date(), '%y%m%d')}.xlsx")
-    )
+    outpath <- file.path(out_dir,
+      str_glue("{tell_Model()}_Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
     result |> write_xlsx(outpath)
     log_msg(INFO, "Written: ", outpath)
   }
