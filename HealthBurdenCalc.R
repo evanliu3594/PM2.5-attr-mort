@@ -22,8 +22,8 @@
 #                                                                                      #
 #======================================================================================#
 
-# Install non-tidyverse dependencies (run once) ----
-# install.packages(c("jsonlite", "writexl", "readxl"))
+# Install dependencies (run once) ----
+# install.packages(c("tidyverse", "jsonlite", "writexl", "readxl"))
 
 # Core functions load ----
 

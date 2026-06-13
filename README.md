@@ -52,9 +52,25 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
     read_files(Grids = "...", Pop = "...", Conc_real = "...", ...)
     ```
 
-    All model configuration is driven by `Data/RR_std_config.json` — labels, RR lookup paths, endpoint lists, and age groups. Adding a new built-in model only requires editing this file.
+    All model configuration is driven by `Data/RR_std_config.json` — labels, RR lookup paths, endpoint lists, and age groups. Adding a model only requires editing this file.
+`by = "all"` breaks down by endpoint **and** agegroup together (not three separate runs).
 
-4. Run line by line to compute grid-level results and aggregate.
+4. Compute and aggregate:
+
+    ```r
+    # Grid-level mortality with 95% CI
+    grid_ci <- scenarios |>
+      set_names() |>
+      map(~ Mortality_at(at = .x, CI = "RANGE"))
+
+    # One-shot aggregation: geo=all levels, by=endpoint×agegroup simultaneously
+    aggregate_mort(grid_ci, at = "geo", by = "all", write = FALSE)
+
+    # Or pick specific levels:
+    # aggregate_mort(grid_ci, at = "Country",   by = "endpoint", write = TRUE)
+    # aggregate_mort(grid_ci, at = "Province",  by = "agegroup", write = TRUE)
+    # aggregate_mort(grid_ci, at = c("x","y"),  by = "Total",    write = TRUE)  # grid-level
+    ```
 
 # Release notes
 
@@ -63,7 +79,7 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 - **JSON-driven CR configuration**: `Data/RR_std_config.json` defines endpoints, age groups, lookup paths, and output labels per model; `RR_std()` auto-reads it
 - **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table and appends to the JSON file; `read_files(RR_table_path = "...")` for custom tables
 - **Auto PWRR domain detection**: `detect_domain()` matches mortality data domains against Grid_info columns
-- **`aggregate_mort()`**: one-shot multi-level aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/all/endpoint/agegroup); writes single xlsx with all scenarios as columns
+- **`aggregate_mort()`**: one-shot multi-level aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/endpoint/agegroup/all — all = endpoint+agegroup simultaneously); `.value`-based pivot keeps non-by dimensions as columns to reduce memory; writes single xlsx with all scenarios as columns
 - **Modular code structure**: model / data / mortality / uncertainty / aggregation
 - **Unified coordinate handling**: `normalize_coords()` accepts x/lon/long/longitude and y/lat/latitude variants
 - **Concentration clamping**: values beyond CR lookup range are capped to nearest boundary instead of dropped
