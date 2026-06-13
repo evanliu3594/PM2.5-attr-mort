@@ -157,51 +157,56 @@ The decomposition is designed to answer "which driving factors explain the obser
 
 PA changes `AgeStruc`; ORF changes `MortRate`. In reality, population aging shifts the disease spectrum, which in turn changes age-specific mortality rates. This PA×ORF interaction has no independent term in the 4-factor decomposition — it is distributed between PA and ORF through the 24-permutation average. This preserves additive completeness but means neither PA nor ORF can be interpreted as "pure" effects when the age structure and disease spectrum are shifting simultaneously.
 
-## Aggregation design (`aggregate_mort` / `agg_mort`)
+## 聚合设计（`aggregate_mort` / `agg_mort`）
 
-The aggregation layer uses a two-function split:
+### 设计原则
+聚合层采用双函数拆分：
+- `agg_mort`是一个纯函数：零I/O、零对魔法值的分支、始终使用相同的管道。
+- `aggregate_mort`仅进行调度和写入；不进行数据处理。
+- 每个`at×by`组合都是一个显式的`agg_mort()`调用——循环仅用于用户提供的、代码时长度未知的列向量（例如`geo_cols`）。
 
-### `agg_mort(x, at_val, by_val)` — pure worker
 
-Takes raw wide-format mortality data, pivots to long, and aggregates for **one** `at×by` combination. No dispatch logic, no write capability.
+### `agg_mort(x, at_val, by_val)` — 纯工作函数
 
-- `at_val`: grouping columns that remain as **rows** in the output. For grid-level this is `c("x", "y")`; for national this is `"Country"`.
-- `by_val`: `"Total"` (no extra dimension), `"endpoint"`, or `"agegroup"`. These are grouped alongside `at`, then **spread into column names** together with `scenario` and `branch`.
+接收原始宽格式死亡率数据，转换为长格式，并为**一个**`at×by`组合进行聚合并写根据write参数判断是否写出到xlsx。没有含调度逻辑。
+
+- `at_val`：在输出中保留的分组列。对于网格级别为`c("x", "y")`；对于经度为`"x"`，对于纬度为`"y"`，对于国家级别为`"Country"`。
+- `by_val`：`"Total"`（无额外维度）、`"endpoint"`或`"agegroup"`。这些与`at`一起在`group_by`运算中分组。
 
 ```
-group_by keys: at_val + (by_val if != "Total") + scenario + branch
-column names:  (by_val if != "Total") + scenario + branch
+group_by 键：at_val +（如果by_val != "Total"则为by_val）+ scenario/year + CI
+列名：at_val + by_val（by_val == "Total"则没有这一列）+ scenario/year + CI
 ```
 
-Output columns examples:
-- `by = "Total"` → `base2015_MEAN`, `base2015_UP`, `SSP1_2030_MEAN`, ...
-- `by = "endpoint"` → `copd_base2015_MEAN`, `copd_SSP1_2030_UP`, `ihd_base2015_MEAN`, ...
-- `by = "agegroup"` → `25_base2015_MEAN`, `80_SSP1_2030_UP`, ...
+输出列示例：
+- `at = "grid"` + `by = "Total"` → `x`、`y`、`base2015_MEAN`、`base2015_UP`、`SSP1_2030_MEAN`...
+- `at = "y"` + `by = "endpoint"` → `y`、`endpoint`、`base2015_MEAN`、`SSP1_2030_UP`、`base2015_MEAN`...
+- `at = "Country"` + `by = "agegroup"` → `Country`、`agegroup`、`base2015_MEAN`、`SSP1_2030_UP`...
 
-### `aggregate_mort(x, at, by, write)` — dispatcher
+### `aggregate_mort(x, at, by, write)` — 调度函数
 
-A Given-When-Then router. Expands shorthand values and calls `agg_mort` for each concrete combination, collecting results into a named list. Optionally writes one xlsx with all combos as sheets.
+一个Given-When-Then路由。展开缩写值并对每个具体组合调用`agg_mort`，将结果收集到命名列表中。并将write参数传输给agg_mort。
 
-- `at = "geo"` → expands to `c("x", "y", Country, Province, Region, ...)`
-- `at = "grid"` → maps to `at_val = c("x", "y")`
-- `by = "all"` → expands to `c("Total", "endpoint", "agegroup")`
-- `by = NULL` or `"total"` → maps to `by_val = "Total"`
+- `at = "geo"` → 展开为`c("grid", "x", "y", Country, Province, Region, ...)`
+- `at = "grid"` → 映射为`at_val = c("x", "y")`
+- `by = "all"` → 展开为`c("Total", "endpoint", "agegroup")`
+- `by = NULL`或`"total"` → 映射为`by_val = "Total"`
 
-Dispatch cases (hardcoded for clarity):
+调度情况示例（为清晰起见硬编码）：
 ```
-at=geo  + by=all  → for each geo column: Total, endpoint, agegroup
-at=geo  + by=X    → for each geo column: X
-at=grid + by=all  → c("x","y") × Total, endpoint, agegroup
-at=grid + by=X    → c("x","y") × X
-at=X    + by=all  → X × Total, endpoint, agegroup
+at=geo  + by=all  → 对每个geo列：Total, endpoint, agegroup
+at=geo  + by=Total  → 对每个geo列：Total
+at=geo  + by=endpoint  → 对每个geo列：endpoint
+at=geo  + by=agegroup  → 对每个geo列：agegroup
+
+at=grid + by=all  → 对每个grid(即c("x","y"))：Total, endpoint, agegroup
+at=grid + by=Total  → 对每个grid(即c("x","y"))：Total
+at=grid + by=endpoint  → 对每个grid(即c("x","y"))：endpoint
+at=grid + by=agegroup  → 对每个grid(即c("x","y"))：agegroup
+
+at=X    + by=all  → 对每个 X：Total, endpoint, agegroup
 at=X    + by=Y    → X × Y
 ```
-
-### Design principles
-
-- `agg_mort` is a pure function: zero I/O, zero branching on magic values, always the same pipeline.
-- `aggregate_mort` only dispatches and writes; no data manipulation.
-- Each `at×by` combo is an explicit `agg_mort()` call — loops are only used for user-provided column vectors whose length is unknown at code time (e.g. `geo_cols`).
 
 ## Common commands
 

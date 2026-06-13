@@ -300,7 +300,7 @@ Mort_Aggregate <- function(
 # Self-contained worker: takes raw wide data, pivots, aggregates ONE at×by combo.
 # at_val: grouping columns, e.g. c("x","y") for grid, "Country", c("Country","endpoint")
 # by_val: "Total" (no extra dim), "endpoint", or "agegroup"
-agg_mort <- function(x, at_val, by_val, write = write) {
+agg_mort <- function(x, at_val, by_val, write = FALSE) {
   sample_nm <- names(x[[1]])
   suffixed <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
   unsuffixed <- str_subset(sample_nm, '_[1-9]?(0|5)$') |>
@@ -348,9 +348,13 @@ agg_mort <- function(x, at_val, by_val, write = write) {
   if (!isFALSE(write)) {
     out_dir <- if (isTRUE(write)) "./Result" else write
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-    outpath <- file.path(out_dir,
-      str_glue("{tell_Model()}_{str_c(at_val, collapse='+')}_{by_val}_",
-               "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
+    outpath <- file.path(
+      out_dir,
+      str_glue(
+        "{tell_Model()}_{str_c(at_val, collapse='+')}_{by_val}_",
+        "Build{format(Sys.Date(), '%y%m%d')}.xlsx"
+      )
+    )
     write_xlsx(list(result = agg), outpath)
     log_msg(INFO, "Written: ", outpath)
   }
@@ -359,76 +363,64 @@ agg_mort <- function(x, at_val, by_val, write = write) {
 }
 
 # Dispatch: Given-When-Then by at + by, calls agg_mort for each combo.
-aggregate_mort <- function(x, at = "Country", by = NULL, write = write) {
+aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
   if (is.data.frame(x)) {
     x <- list(scenario = x)
   }
-  geo_cols <- c("grid", names(Grid_info))
+  geo_cols <- setdiff(names(Grid_info), c("x", "y"))
+  G <- c("x", "y")  # grid shorthand
   result <- list()
 
   # ---- at = geo, by = all ----
   if (identical(at, "geo") && identical(by, "all")) {
+    result[["grid_Total"]]       <- agg_mort(x, at_val = G, by_val = "Total", write = write)
+    result[["grid_by_endpoint"]] <- agg_mort(x, at_val = G, by_val = "endpoint", write = write)
+    result[["grid_by_agegroup"]] <- agg_mort(x, at_val = G, by_val = "agegroup", write = write)
+    result[["x_Total"]]          <- agg_mort(x, at_val = "x", by_val = "Total", write = write)
+    result[["x_by_endpoint"]]    <- agg_mort(x, at_val = "x", by_val = "endpoint", write = write)
+    result[["x_by_agegroup"]]    <- agg_mort(x, at_val = "x", by_val = "agegroup", write = write)
+    result[["y_Total"]]          <- agg_mort(x, at_val = "y", by_val = "Total", write = write)
+    result[["y_by_endpoint"]]    <- agg_mort(x, at_val = "y", by_val = "endpoint", write = write)
+    result[["y_by_agegroup"]]    <- agg_mort(x, at_val = "y", by_val = "agegroup", write = write)
     for (g in geo_cols) {
-      result[[str_c(g, "_Total")]] <- agg_mort(x, at_val = g, by_val = "Total", write = write)
-      result[[str_c(g, "_by_endpoint")]] <- agg_mort(
-        x,
-        at_val = g,
-        by_val = "endpoint"
-      )
-      result[[str_c(g, "_by_agegroup")]] <- agg_mort(
-        x,
-        at_val = g,
-        by_val = "agegroup"
-      )
+      result[[str_c(g, "_Total")]]       <- agg_mort(x, at_val = g, by_val = "Total", write = write)
+      result[[str_c(g, "_by_endpoint")]] <- agg_mort(x, at_val = g, by_val = "endpoint", write = write)
+      result[[str_c(g, "_by_agegroup")]] <- agg_mort(x, at_val = g, by_val = "agegroup", write = write)
     }
+
+  # ---- at = geo ----
   } else if (identical(at, "geo")) {
-    # ---- at = geo ----
     b <- if (is.null(by)) "Total" else by
-    for (g in c("x", "y", geo_cols)) {
+    result[[str_c("grid_", b)]] <- agg_mort(x, at_val = G, by_val = b, write = write)
+    result[[str_c("x_", b)]]    <- agg_mort(x, at_val = "x", by_val = b, write = write)
+    result[[str_c("y_", b)]]    <- agg_mort(x, at_val = "y", by_val = b, write = write)
+    for (g in geo_cols)
       result[[str_c(g, "_", b)]] <- agg_mort(x, at_val = g, by_val = b, write = write)
-    }
+
+  # ---- at = grid, by = all ----
   } else if (identical(at, "grid") && identical(by, "all")) {
-    # ---- at = grid, by = all ----
-    result[["Grid_Total"]] <- agg_mort(
-      x,
-      at_val = c("x", "y"),
-      by_val = "Total"
-    )
-    result[["Grid_by_endpoint"]] <- agg_mort(
-      x,
-      at_val = c("x", "y"),
-      by_val = "endpoint"
-    )
-    result[["Grid_by_agegroup"]] <- agg_mort(
-      x,
-      at_val = c("x", "y"),
-      by_val = "agegroup"
-    )
+    result[["Grid_Total"]]       <- agg_mort(x, at_val = G, by_val = "Total", write = write)
+    result[["Grid_by_endpoint"]] <- agg_mort(x, at_val = G, by_val = "endpoint", write = write)
+    result[["Grid_by_agegroup"]] <- agg_mort(x, at_val = G, by_val = "agegroup", write = write)
+
+  # ---- at = grid ----
   } else if (identical(at, "grid")) {
-    # ---- at = grid ----
     b <- if (is.null(by)) "Total" else by
-    result[[str_c("Grid_", b)]] <- agg_mort(x, at_val = c("x", "y"), by_val = b)
+    result[[str_c("Grid_", b)]] <- agg_mort(x, at_val = G, by_val = b, write = write)
+
+  # ---- by = all ----
   } else if (identical(by, "all")) {
-    # ---- by = all ----
     for (a in at) {
-      result[[str_c(a, "_Total")]] <- agg_mort(x, at_val = a, by_val = "Total", write = write)
-      result[[str_c(a, "_by_endpoint")]] <- agg_mort(
-        x,
-        at_val = a,
-        by_val = "endpoint"
-      )
-      result[[str_c(a, "_by_agegroup")]] <- agg_mort(
-        x,
-        at_val = a,
-        by_val = "agegroup"
-      )
+      result[[str_c(a, "_Total")]]       <- agg_mort(x, at_val = a, by_val = "Total", write = write)
+      result[[str_c(a, "_by_endpoint")]] <- agg_mort(x, at_val = a, by_val = "endpoint", write = write)
+      result[[str_c(a, "_by_agegroup")]] <- agg_mort(x, at_val = a, by_val = "agegroup", write = write)
     }
+
+  # ---- specific at + by ----
   } else {
-    # ---- specific at + by ----
     b <- if (is.null(by)) "Total" else by
-    for (a in at) {
+    for (a in at)
       result[[str_c(a, "_", b)]] <- agg_mort(x, at_val = a, by_val = b, write = write)
-    }
   }
 
   return(result)
