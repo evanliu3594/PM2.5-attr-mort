@@ -308,7 +308,7 @@ aggregate_mort <- function(
   scenarios <- names(x)
   if (is.null(scenarios)) scenarios <- seq_along(x)
 
-  # ---- 1. Auto-detect CI branch columns ----
+  # ---- 1. Auto-detect CI branch columns, pivot+parse ONCE ----
   sample_nm <- names(x[[1]])
   suffixed   <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
   unsuffixed <- str_subset(sample_nm, '_[1-9]?(0|5)$') |>
@@ -316,40 +316,13 @@ aggregate_mort <- function(
 
   if (length(suffixed) > 0) {
     mort_cols <- suffixed
+    is_suffixed <- TRUE
   } else if (length(unsuffixed) > 0) {
     mort_cols <- unsuffixed
+    is_suffixed <- FALSE
   } else {
     stop("No mortality columns found. Expected patterns like 'copd_25' or 'copd_25_MEAN'.")
   }
-
-  # ---- 2. Resolve 'at' ----
-  if (identical(at, "geo")) {
-    at_levels <- c(list(Grid = character(0)), as.list(names(Grid_info)))
-  } else if (identical(at, "grid")) {
-    at_levels <- list(character(0))
-  } else {
-    at_levels <- lapply(at, function(a) {
-      if (!a %in% names(Grid_info))
-        stop("Column \"", a, "\" not found in Grid_info. Available: ",
-             paste(names(Grid_info), collapse = ", "))
-      a
-    })
-  }
-  names(at_levels) <- if (identical(at, "grid")) "Grid"
-    else sapply(at_levels, function(a) if (length(a)) a else "Grid")
-
-  # ---- 3. Resolve 'by' ----
-  is_all <- identical(by, "all")
-  if (is.null(by) || any(str_to_lower(by) == "total")) {
-    by <- character(0)
-  } else if (is_all) {
-    by <- c("endpoint", "agegroup")
-  }
-  if (length(by) > 0)
-    by <- match.arg(by, several.ok = TRUE, choices = c("endpoint", "agegroup", "total"))
-
-  # ---- 4. Pivot each scenario to long ONCE (pivot + parse done here, reused by all combos) ----
-  is_suffixed <- length(suffixed) > 0
 
   long_list <- x |> imap(function(df, scen) {
     df <- df |>
@@ -365,25 +338,51 @@ aggregate_mort <- function(
     }
   })
 
-  # ---- 5. Aggregate: per-scenario summarise (small) → bind_rows ----
+  # ---- 2. Resolve 'at' → expand, then recurse for each ----
+  if (identical(at, "geo")) {
+    at <- c("grid", names(Grid_info))
+  }
+  if (identical(at, "grid")) {
+    at <- list(character(0))
+  }
+  at <- as.list(at)
+  names(at) <- sapply(at, function(a) if (length(a)) a else "Grid")
+
+  # ---- 3. Resolve 'by' → expand, then iterate for each ----
+  if (identical(by, "all")) {
+    by <- c("endpoint", "agegroup")
+  }
+  if (!is.null(by) && !identical(by, "all")) {
+    valid_by <- c("endpoint", "agegroup", "total")
+    unknown <- setdiff(by, valid_by)
+    if (length(unknown) > 0)
+      stop("Invalid by value(s): ", paste(unknown, collapse = ", "),
+           ". Use 'total', 'all', 'endpoint', or 'agegroup'.")
+  }
+  if (is.null(by) || any(str_to_lower(by) == "total")) {
+    by <- list(character(0))
+    names(by) <- "Total"
+  } else {
+    by <- as.list(by)
+    names(by) <- str_c("by_", by)
+  }
+
+  # ---- 4. For each at×by, aggregate and collect ----
   result <- list()
 
-  for (lv_name in names(at_levels)) {
-    gv_geo <- at_levels[[lv_name]]
+  for (at_name in names(at)) {
+    gv_geo <- at[[at_name]]
 
-    breakdown_keys <- if (length(by) == 0 || is_all)
-      c("Total", if (length(by) > 0) str_c("by_", by))
-      else str_c("by_", by)
+    for (by_name in names(by)) {
+      by_dim <- by[[by_name]]
 
-    for (br_key in breakdown_keys) {
-      gv <- if (br_key == "Total") {
+      gv <- if (length(by_dim) == 0) {
         gv_geo
       } else {
-        c(if (length(gv_geo) == 0) c("x", "y") else gv_geo,
-          str_remove(br_key, "^by_"))
+        c(if (length(gv_geo) == 0) c("x", "y") else gv_geo, by_dim)
       }
 
-      # Per-scenario: summarise (small), then bind_rows
+      # Per-scenario: group_by+summarise → tiny → bind_rows
       agg <- long_list |>
         map(~ .x |>
           group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
@@ -393,12 +392,12 @@ aggregate_mort <- function(
         unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
         pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
 
-      sheet_name <- str_c(lv_name, "_", br_key)
+      sheet_name <- str_c(at_name, "_", by_name)
       result[[sheet_name]] <- agg
     }
   }
 
-  # ---- 6. Write ----
+  # ---- 5. Write ----
   if (!isFALSE(write)) {
     out_dir <- if (isTRUE(write)) "./Result" else write
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
