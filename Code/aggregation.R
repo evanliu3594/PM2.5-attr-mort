@@ -297,64 +297,53 @@ Mort_Aggregate <- function(
 #' @examples
 #' grid_ci <- Mortality_at(at = "base2015", CI = "RANGE", domain = "Country")
 #' all <- aggregate_mort(grid_ci, at = "Country", by = "all")
-# Self-contained worker: takes raw wide data, pivots, aggregates ONE at×by combo.
-# at_val: grouping columns, e.g. c("x","y") for grid, "Country", c("Country","endpoint")
-# by_val: "Total" (no extra dim), "endpoint", or "agegroup"
+# Pure worker: per-scenario pivot by_val → group_by → bind → spread.
+# Flow: 1) pivot only the by dimension from column names
+#       2) group_by(at + by + branch) per scenario
+#       3) bind all scenarios, pivot_wider scenario+branch into columns
 agg_mort <- function(x, at_val, by_val, write = FALSE) {
-  sample_nm <- names(x[[1]])
-  suffixed <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
-  unsuffixed <- str_subset(sample_nm, '_[1-9]?(0|5)$') |>
-    str_subset('_(MEAN|UP|LOW)$', negate = TRUE)
+  mort_cols <- str_subset(names(x[[1]]), '_[0-9]+_(MEAN|UP|LOW)$')
+  if (length(mort_cols) == 0) stop("No mortality columns found.")
 
-  if (length(suffixed) > 0) {
-    mort_cols <- suffixed
-    is_suffixed <- TRUE
-  } else if (length(unsuffixed) > 0) {
-    mort_cols <- unsuffixed
-    is_suffixed <- FALSE
+  # Pivot pattern: only extract by_val + branch, collapse the rest
+  if (by_val == "Total") {
+    ptrn <- ".*_(MEAN|UP|LOW)$"
+    to_cols <- "branch"
+  } else if (by_val == "endpoint") {
+    ptrn <- "(.+)_[0-9]+_(MEAN|UP|LOW)$"
+    to_cols <- c("endpoint", "branch")
   } else {
-    stop("No mortality columns found.")
+    ptrn <- ".+_([0-9]+)_(MEAN|UP|LOW)$"
+    to_cols <- c("agegroup", "branch")
   }
 
-  gv <- if (by_val == "Total") at_val else c(at_val, by_val)
+  gv <- c(at_val, if (by_val != "Total") by_val, "scenario", "branch")
 
   agg <- x |>
     imap(function(df, scen) {
-      df <- df |>
+      df |>
         left_join(Grid_info, by = c("x", "y")) |>
-        pivot_longer(
-          cols = any_of(mort_cols),
-          names_to = ".col",
-          values_to = "value"
-        ) |>
-        mutate(scenario = scen)
-      if (is_suffixed) {
-        df |> separate(".col", c("endpoint", "agegroup", "branch"), sep = "_")
-      } else {
-        df |>
-          separate(".col", c("endpoint", "agegroup"), sep = "_") |>
-          mutate(branch = "value")
-      }
-    }) |>
-    map(
-      ~ .x |>
-        group_by(pick(all_of(c(gv, "scenario", "branch")))) |>
+        pivot_longer(cols = any_of(mort_cols),
+                     names_pattern = ptrn,
+                     names_to = to_cols,
+                     values_drop_na = TRUE) |>
+        mutate(scenario = scen) |>
+        group_by(pick(all_of(gv))) |>
         summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
-    ) |>
-    bind_rows() |>
-    unite(".key", any_of(c("scenario", "branch")), sep = "_") |>
-    pivot_wider(names_from = ".key", values_from = "value", values_fill = 0)
+    }) |>
+    bind_rows()
+
+  # Spread: scenario + branch → columns; by_val stays as row id
+  agg <- agg |>
+    pivot_wider(names_from = c("scenario", "branch"),
+                names_sep = "_", values_from = "value", values_fill = 0)
 
   if (!isFALSE(write)) {
     out_dir <- if (isTRUE(write)) "./Result" else write
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-    outpath <- file.path(
-      out_dir,
-      str_glue(
-        "{tell_Model()}_{str_c(at_val, collapse='+')}_{by_val}_",
-        "Build{format(Sys.Date(), '%y%m%d')}.xlsx"
-      )
-    )
+    outpath <- file.path(out_dir,
+      str_glue("{tell_Model()}_{str_c(at_val, collapse='+')}_{by_val}_",
+               "Build{format(Sys.Date(), '%y%m%d')}.xlsx"))
     write_xlsx(list(result = agg), outpath)
     log_msg(INFO, "Written: ", outpath)
   }
