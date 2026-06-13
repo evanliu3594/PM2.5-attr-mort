@@ -340,13 +340,13 @@ aggregate_mort <- function(
 
   # ---- 2. Resolve 'at' → expand, then recurse for each ----
   if (identical(at, "geo")) {
-    at <- c("grid", names(Grid_info))
+    at <- c(list(Grid = character(0)), as.list(names(Grid_info)))
+  } else if (identical(at, "grid")) {
+    at <- list(Grid = character(0))
+  } else {
+    at <- as.list(at)
+    names(at) <- at
   }
-  if (identical(at, "grid")) {
-    at <- list(character(0))
-  }
-  at <- as.list(at)
-  names(at) <- sapply(at, function(a) if (length(a)) a else "Grid")
 
   # ---- 3. Resolve 'by' → expand, then iterate for each ----
   if (identical(by, "all")) {
