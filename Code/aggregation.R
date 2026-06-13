@@ -165,11 +165,9 @@ Mort_Aggregate <- function(
           br_cols <- str_subset(names(df_out), str_c("_", br, "$"))
           total_name <- str_c("Total_", br)
           df_out <- df_out |>
-            rowwise() |>
             mutate(
-              !!total_name := sum(c_across(any_of(br_cols)), na.rm = TRUE)
-            ) |>
-            ungroup()
+              !!total_name := rowSums(pick(any_of(br_cols)), na.rm = TRUE)
+            )
         }
         df_out |>
           relocate(
@@ -182,20 +180,16 @@ Mort_Aggregate <- function(
       map(
         if (domain == 'Grid') {
           ~ .x |>
-            rowwise() |>
             mutate(
-              Total = sum(c_across(any_of(mort_cols)), na.rm = TRUE),
+              Total = rowSums(pick(any_of(mort_cols)), na.rm = TRUE),
               .after = x:y
-            ) |>
-            ungroup()
+            )
         } else {
           ~ .x |>
-            rowwise() |>
             mutate(
-              Total = sum(c_across(-all_of(!!domain)), na.rm = TRUE),
+              Total = rowSums(pick(-all_of(!!domain)), na.rm = TRUE),
               .after = !!domain
-            ) |>
-            ungroup()
+            )
         }
       )
   }
@@ -389,22 +383,18 @@ aggregate_mort <- function(
           br_cols <- str_subset(names(df), str_c("_", br, "$"))
           total_nm <- br
           df <- df |>
-            rowwise() |>
             mutate(
-              !!total_nm := sum(c_across(any_of(br_cols)), na.rm = TRUE)
-            ) |>
-            ungroup()
+              !!total_nm := rowSums(pick(any_of(br_cols)), na.rm = TRUE)
+            )
         }
         df |>
           select(x, y, any_of(branches))
       } else {
         df |>
-          rowwise() |>
           mutate(
-            Total = sum(c_across(any_of(mort_cols)), na.rm = TRUE),
+            Total = rowSums(pick(any_of(mort_cols)), na.rm = TRUE),
             .after = y
-          ) |>
-          ungroup()
+          )
       }
     } else if (length(branches) > 0) {
       # Suffixed columns: pivot with endpoint/agegroup/branch
@@ -424,9 +414,7 @@ aggregate_mort <- function(
     } else {
       # Legacy unsuffixed: aggregate Total by group_vars
       df |>
-        rowwise() |>
-        mutate(Total = sum(c_across(any_of(mort_cols)), na.rm = TRUE)) |>
-        ungroup() |>
+        mutate(Total = rowSums(pick(any_of(mort_cols)), na.rm = TRUE)) |>
         select(all_of(c(group_vars, "Total"))) |>
         group_by(pick(all_of(group_vars))) |>
         summarise(Total = sum(Total, na.rm = TRUE), .groups = "drop")
