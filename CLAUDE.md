@@ -190,23 +190,23 @@ group_by 键：at_val +（如果by_val != "Total"则为by_val）+ scenario/year 
 
 - `at = "geo"` → 展开为`c("grid", "x", "y", Country, Province, Region, ...)`
 - `at = "grid"` → 映射为`at_val = c("x", "y")`
-- `by = "all"` → 展开为`c("Total", "endpoint", "agegroup")`
+- `by = "all"` → 同时按 endpoint + agegroup 分解（一次调用，两维共同分组）
 - `by = NULL`或`"total"` → 映射为`by_val = "Total"`
 
 调度情况示例（为清晰起见硬编码）：
 ```
-at=geo  + by=all  → 对每个geo列：Total, endpoint, agegroup
-at=geo  + by=Total  → 对每个geo列：Total
-at=geo  + by=endpoint  → 对每个geo列：endpoint
-at=geo  + by=agegroup  → 对每个geo列：agegroup
+at=geo  + by=all       → 对每个 geo 列：endpoint + agegroup（一次调用，两维共同分组）
+at=geo  + by=Total     → 对每个 geo 列：Total
+at=geo  + by=endpoint  → 对每个 geo 列：endpoint
+at=geo  + by=agegroup  → 对每个 geo 列：agegroup
 
-at=grid + by=all  → 对每个grid(即c("x","y"))：Total, endpoint, agegroup
-at=grid + by=Total  → 对每个grid(即c("x","y"))：Total
-at=grid + by=endpoint  → 对每个grid(即c("x","y"))：endpoint
-at=grid + by=agegroup  → 对每个grid(即c("x","y"))：agegroup
+at=grid + by=all       → grid(c("x","y"))：endpoint + agegroup
+at=grid + by=Total     → grid(c("x","y"))：Total
+at=grid + by=endpoint  → grid(c("x","y"))：endpoint
+at=grid + by=agegroup  → grid(c("x","y"))：agegroup
 
-at=X    + by=all  → 对每个 X：Total, endpoint, agegroup
-at=X    + by=Y    → X × Y
+at=X    + by=all       → 对每个 X：endpoint + agegroup
+at=X    + by=Y         → X × Y
 ```
 
 ## Common commands

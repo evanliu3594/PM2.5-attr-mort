@@ -307,33 +307,45 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
     stop("No mortality columns found.")
   }
 
-  # Pivot pattern: only extract by_val + CI, collapse the rest
-  if (by_val == "Total") {
+  # Pivot pattern: extract by dimensions + CI; .value keeps collapsed dims as cols
+  if (identical(by_val, "Total")) {
     ptrn <- "(.+)_(MEAN|UP|LOW)"
     to_cols <- c(".value", "CI")
-  } else if (by_val == "endpoint") {
+    group_vals <- c(at_val, "scenario", "CI")
+  } else if (identical(by_val, "endpoint")) {
     ptrn <- "(.+)_([0-9]+)_(MEAN|UP|LOW)$"
     to_cols <- c("endpoint", ".value", "CI")
-  } else if (by_val == "agegroup") {
+    group_vals <- c(at_val, "endpoint", "scenario", "CI")
+  } else if (identical(by_val, "agegroup")) {
     ptrn <- "(.+)_([0-9]+)_(MEAN|UP|LOW)$"
     to_cols <- c(".value", "agegroup", "CI")
+    group_vals <- c(at_val, "agegroup", "scenario", "CI")
+  } else {
+    # by_val = c("endpoint", "agegroup") — both to rows, no .value
+    ptrn <- "(.+)_([0-9]+)_(MEAN|UP|LOW)$"
+    to_cols <- c("endpoint", "agegroup", "CI")
+    group_vals <- c(at_val, "endpoint", "agegroup", "scenario", "CI")
   }
-
-  group_vals <- c(at_val, if (by_val != "Total") by_val, "scenario", "CI")
 
   agg <- x |>
     imap(function(df, scen) {
-      df |>
+      df <- df |>
         left_join(Grid_info, by = c("x", "y")) |>
         pivot_longer(
           cols = any_of(mort_cols),
           names_pattern = ptrn,
           names_to = to_cols
         ) |>
-        mutate(
-          scenario = scen,
-          mort = rowSums(pick(-all_of(group_vals)))
-        ) |>
+        mutate(scenario = scen)
+
+      # .value cols → rowSums; no .value → rename value column
+      if ("value" %in% names(df)) {
+        df <- df |> rename(mort = value)
+      } else {
+        df <- df |> mutate(mort = rowSums(pick(-all_of(group_vals))))
+      }
+
+      df |>
         select(all_of(group_vals), mort) |>
         group_by(pick(all_of(group_vals))) |>
         summarise(mort = sum(mort, na.rm = TRUE)) |>
@@ -377,24 +389,12 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
 
   # ---- at = geo, by = all ----
   if (identical(at, "geo") && identical(by, "all")) {
-    cat("grid_Total\n")
-    agg_mort(x, at_val = grid_col, by_val = "Total", write = write)
-
-    cat("grid_endpoint\n")
-    agg_mort(x, at_val = grid_col, by_val = "endpoint", write = write)
-
-    cat("grid_agegroup\n")
-    agg_mort(x, at_val = grid_col, by_val = "agegroup", write = write)
+    cat("grid_by_endpoint+agegroup\n")
+    agg_mort(x, at_val = grid_col, by_val = c("endpoint", "agegroup"), write = write)
 
     for (g in geo_cols) {
-      cat(str_c(g, "_Total\n"))
-      agg_mort(x, at_val = g, by_val = "Total", write = write)
-
-      cat(str_c(g, "_endpoint\n"))
-      agg_mort(x, at_val = g, by_val = "endpoint", write = write)
-
-      cat(str_c(g, "_agegroup\n"))
-      agg_mort(x, at_val = g, by_val = "agegroup", write = write)
+      cat(str_c(g, "_by_endpoint+agegroup\n"))
+      agg_mort(x, at_val = g, by_val = c("endpoint", "agegroup"), write = write)
     }
 
     # ---- at = geo ----
@@ -411,14 +411,8 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
 
     # ---- at = grid, by = all ----
   } else if (identical(at, "grid") && identical(by, "all")) {
-    cat(str_c("grid", "_", "Total", "\n"))
-    agg_mort(x, at_val = grid_col, by_val = "Total", write = write)
-
-    cat(str_c("grid", "_", "endpoint", "\n"))
-    agg_mort(x, at_val = grid_col, by_val = "endpoint", write = write)
-
-    cat(str_c("grid", "_", "agegroup", "\n"))
-    agg_mort(x, at_val = grid_col, by_val = "agegroup", write = write)
+    cat("grid_by_endpoint+agegroup\n")
+    agg_mort(x, at_val = grid_col, by_val = c("endpoint", "agegroup"), write = write)
 
     # ---- at = grid ----
   } else if (identical(at, "grid")) {
@@ -430,14 +424,8 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
     # ---- by = all ----
   } else if (identical(by, "all")) {
     for (a in at) {
-      cat(str_c(a, "_", "Total", "\n"))
-      agg_mort(x, at_val = a, by_val = "Total", write = write)
-
-      cat(str_c(a, "_", "endpoint", "\n"))
-      agg_mort(x, at_val = a, by_val = "endpoint", write = write)
-
-      cat(str_c(a, "_", "agegroup", "\n"))
-      agg_mort(x, at_val = a, by_val = "agegroup", write = write)
+      cat(str_c(a, "_by_endpoint+agegroup\n"))
+      agg_mort(x, at_val = a, by_val = c("endpoint", "agegroup"), write = write)
     }
 
     # ---- specific at + by ----
