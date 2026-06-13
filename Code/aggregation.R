@@ -340,7 +340,7 @@ aggregate_mort <- function(
 
   # ---- 2. Resolve 'at' → expand, then recurse for each ----
   if (identical(at, "geo")) {
-    at <- c("grid", setdiff(names(Grid_info), c("x", "y")))
+    at <- c("grid", names(Grid_info))
   }
   if (identical(at, "grid")) {
     at <- list(character(0))
