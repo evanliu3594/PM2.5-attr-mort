@@ -165,6 +165,7 @@ PA changes `AgeStruc`; ORF changes `MortRate`. In reality, population aging shif
 - `aggregate_mort`仅进行调度和写入；不进行数据处理。
 - 每个`at×by`组合都是一个显式的`agg_mort()`调用——循环仅用于用户提供的、代码时长度未知的列向量（例如`geo_cols`）。
 
+- geo聚合层级包括：grid (c("x","y") 双键)、所有存在于grid_info中的column key（可能包括：x经度，y纬度，Country，Continent，region，province）
 
 ### `agg_mort(x, at_val, by_val)` — 纯工作函数
 
