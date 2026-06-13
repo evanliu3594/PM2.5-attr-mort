@@ -6,6 +6,23 @@
 #     Conc_RMSE from absolute to percentage-based, fix includeConc forwarding
 #     and concentration perturbation join logic.
 
+#' Uncertainties Calculation
+#'
+#' Analytic error propagation combining CR uncertainty (RR UP/LOW branches)
+#' with optional concentration uncertainty via domain-level PWE perturbation.
+#'
+#' @param PWE population-weighted exposure by domain
+#' @param aggr_pop aggregated population by domain
+#' @param age_struc age structure by domain
+#' @param m_Rate baseline mortality rate data
+#' @param includeConc whether to include concentration uncertainty, default \code{FALSE}
+#' @param Conc_ERR relative concentration uncertainty in percent, default \code{12} (±12%)
+#' @param verbose whether to print detailed logs, default \code{FALSE}
+#'
+#' @return aggregated uncertainty ranges by endpoint and domain (data.frame)
+#' @export
+#'
+#' @examples
 Uncertainty <- function(
   PWE,
   aggr_pop,

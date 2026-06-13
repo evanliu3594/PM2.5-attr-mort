@@ -382,7 +382,7 @@ read_files <- function(
 
 #' format CR look-up table
 #'
-#' @param RR_index string, specifying whitch rr table to use, by default the "MEAN" RR
+#' @param RR_index string, specifying which RR table to use, by default the "MEAN" RR
 #'
 #' @return a formatted RR table
 #' @export
@@ -514,7 +514,7 @@ RR_std <- function(RR_index = "MEAN") {
 #'
 #' @param at the year/scenario name to choose
 #'
-#' @return data.frame, contains domain, endpoint name
+#' @return data.frame with columns: domain, endpoint, agegroup, MortRate
 #'
 #' @examples
 getMortRate <- function(at) {
@@ -622,7 +622,7 @@ getPop <- function(at) {
 #'
 #' @param at the year/scenario name to choose
 #'
-#' @return data.frame, contains x-y and the population
+#' @return data.frame with columns: domain, agegroup, and age structure proportion
 #'
 #' @examples
 getAgeGroup <- function(at) {

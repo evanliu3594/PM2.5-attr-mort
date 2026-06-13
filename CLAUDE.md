@@ -30,7 +30,7 @@ The computation pipeline works in four layers:
 4. **Application scripts** that source `Core.R` and run specific analyses:
    - `Code/HealthBurdenCalc.R` — the main user-facing workflow. Set model, load data, compute gridded mortality for all scenarios, aggregate.
    - `Code/DrivingFactors.R` — decomposition analysis attributing mortality changes between two time periods to Population Growth (PG), Population Aging (PA), Exposure change (EXP), and Other Risk Factors (ORF). Runs all 24 possible step-order permutations and averages them.
-   - `Code/Core_MonteCarlo.R` — Monte Carlo uncertainty analysis using `furrr` for parallel draws. **Warning: extremely time-consuming.** Separate from `Core.R` because it reimplements the mortality calculation with random RR and concentration draws rather than wrapping the main pipeline.
+   - `Code/experimental/Core_MonteCarlo.R` — Monte Carlo uncertainty analysis using `furrr` for parallel draws. **Warning: extremely time-consuming.** Separate from `Core.R` because it reimplements the mortality calculation with random RR and concentration draws rather than wrapping the main pipeline.
 
 ## Key design patterns
 

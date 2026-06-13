@@ -53,7 +53,6 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
     ```
 
     All model configuration is driven by `Data/RR_std_config.json` — labels, RR lookup paths, endpoint lists, and age groups. Adding a model only requires editing this file.
-`by = "all"` breaks down by endpoint **and** agegroup together (not three separate runs).
 
 4. Compute and aggregate:
 
@@ -63,13 +62,16 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
       set_names() |>
       map(~ Mortality_at(at = .x, CI = "RANGE"))
 
+    # `by` must be one of: "total" (Total only), "endpoint", "agegroup",
+    # or "all" (endpoint and agegroup together in a single pass).
+
     # One-shot aggregation: geo=all levels, by=endpoint×agegroup simultaneously
     aggregate_mort(grid_ci, at = "geo", by = "all", write = FALSE)
 
     # Or pick specific levels:
     # aggregate_mort(grid_ci, at = "Country",   by = "endpoint", write = TRUE)
     # aggregate_mort(grid_ci, at = "Province",  by = "agegroup", write = TRUE)
-    # aggregate_mort(grid_ci, at = c("x","y"),  by = "Total",    write = TRUE)  # grid-level
+    # aggregate_mort(grid_ci, at = c("x","y"),  by = "total",    write = TRUE)  # grid-level
     ```
 
 # Release notes

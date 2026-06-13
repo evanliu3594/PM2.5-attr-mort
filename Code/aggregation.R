@@ -283,14 +283,14 @@ Mort_Aggregate <- function(
 #' @param at Aggregation level. \code{"grid"} keeps grid-level (adds total columns).
 #'   \code{"geo"} aggregates to all geographic columns in Grid_info.
 #'   A specific column name (e.g. \code{"Country"}) or vector of names.
-#' @param by Breakdown dimension. \code{NULL} for total only (no breakdown).
-#'   \code{"all"} for both endpoint and agegroup. \code{"endpoint"} or
-#'   \code{"agegroup"} for a single dimension.
+#' @param by Breakdown dimension. Must be one of \code{"total"}
+#'   (total only, no breakdown), \code{"endpoint"}, \code{"agegroup"},
+#'   or \code{"all"} (both endpoint and agegroup).
 #' @param write If \code{FALSE}, no output written. If \code{TRUE}, writes to
-#'   \code{./Result/}. If a character string, writes to that directory.
+#'   \code{./Result/}.
 #'
-#' @return A nested list: result[[level]][[breakdown]][[scenario]].
-#'   Each leaf is a data frame with branch-specific value columns.
+#' @return A data frame with one row per \code{at} × \code{by} combination,
+#'   and one column per scenario × CI branch.
 #'
 #' @export
 #'

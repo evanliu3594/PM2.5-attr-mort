@@ -312,16 +312,6 @@ Mortality <- function(
 }
 
 
-#' Calculate Attributable Mortality at a certain year/scenario
-#'
-#' @param at year/scenario
-#' @param CI RR branch: "MEAN" (default), "UP", "LOW", or "RANGE"
-#' @param domain grid domain
-#'
-#' @return data frame of grid-level mortality estimates
-#' @export
-#'
-#' @examples
 # Auto-detect the PWRR domain by matching MortRate domain values against
 # Grid_info columns. Returns the Grid_info column with the best overlap.
 detect_domain <- function() {
@@ -382,6 +372,21 @@ detect_domain <- function() {
   best_geo
 }
 
+#' Calculate Attributable Mortality at a certain year/scenario
+#'
+#' Convenience wrapper that auto-detects the PWRR domain and calls
+#' \code{Mortality()} with the currently loaded global data.
+#'
+#' @param at year/scenario
+#' @param CI RR branch: \code{"MEAN"} (default), \code{"UP"}, \code{"LOW"}, or \code{"RANGE"}
+#' @param domain grid domain. Auto-detected from Grid_info and MortRate
+#'   overlap when \code{NULL} (default).
+#'
+#' @return data frame of grid-level mortality estimates
+#' @export
+#'
+#' @examples
+#' grid_me <- Mortality_at(at = "base2015", CI = "MEAN")
 Mortality_at <- function(at, CI = "MEAN", domain = NULL) {
   if (is.null(domain)) {
     domain <- detect_domain()
@@ -397,18 +402,3 @@ Mortality_at <- function(at, CI = "MEAN", domain = NULL) {
     domain = domain
   )
 }
-
-#' Uncertainties Calculation
-#'
-#' @param m_Rate 死亡率数据
-#' @param PWE 分地区人口加权浓度
-#' @param aggr_pop 分区汇总人口
-#' @param age_struc 分区年龄结构
-#' @param includeConc 浓度不确定性开关
-#' @param Conc_ERR 浓度数据相对不确定性（百分比），默认 12 表示 +/-12%
-#'
-#' @export
-#'
-#' @return 返回对应模式不同终端的汇总不确定性范围
-#'
-#' @examples
