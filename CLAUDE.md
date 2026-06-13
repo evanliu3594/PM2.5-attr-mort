@@ -157,6 +157,52 @@ The decomposition is designed to answer "which driving factors explain the obser
 
 PA changes `AgeStruc`; ORF changes `MortRate`. In reality, population aging shifts the disease spectrum, which in turn changes age-specific mortality rates. This PA×ORF interaction has no independent term in the 4-factor decomposition — it is distributed between PA and ORF through the 24-permutation average. This preserves additive completeness but means neither PA nor ORF can be interpreted as "pure" effects when the age structure and disease spectrum are shifting simultaneously.
 
+## Aggregation design (`aggregate_mort` / `agg_mort`)
+
+The aggregation layer uses a two-function split:
+
+### `agg_mort(x, at_val, by_val)` — pure worker
+
+Takes raw wide-format mortality data, pivots to long, and aggregates for **one** `at×by` combination. No dispatch logic, no write capability.
+
+- `at_val`: grouping columns that remain as **rows** in the output. For grid-level this is `c("x", "y")`; for national this is `"Country"`.
+- `by_val`: `"Total"` (no extra dimension), `"endpoint"`, or `"agegroup"`. These are grouped alongside `at`, then **spread into column names** together with `scenario` and `branch`.
+
+```
+group_by keys: at_val + (by_val if != "Total") + scenario + branch
+column names:  (by_val if != "Total") + scenario + branch
+```
+
+Output columns examples:
+- `by = "Total"` → `base2015_MEAN`, `base2015_UP`, `SSP1_2030_MEAN`, ...
+- `by = "endpoint"` → `copd_base2015_MEAN`, `copd_SSP1_2030_UP`, `ihd_base2015_MEAN`, ...
+- `by = "agegroup"` → `25_base2015_MEAN`, `80_SSP1_2030_UP`, ...
+
+### `aggregate_mort(x, at, by, write)` — dispatcher
+
+A Given-When-Then router. Expands shorthand values and calls `agg_mort` for each concrete combination, collecting results into a named list. Optionally writes one xlsx with all combos as sheets.
+
+- `at = "geo"` → expands to `c("x", "y", Country, Province, Region, ...)`
+- `at = "grid"` → maps to `at_val = c("x", "y")`
+- `by = "all"` → expands to `c("Total", "endpoint", "agegroup")`
+- `by = NULL` or `"total"` → maps to `by_val = "Total"`
+
+Dispatch cases (hardcoded for clarity):
+```
+at=geo  + by=all  → for each geo column: Total, endpoint, agegroup
+at=geo  + by=X    → for each geo column: X
+at=grid + by=all  → c("x","y") × Total, endpoint, agegroup
+at=grid + by=X    → c("x","y") × X
+at=X    + by=all  → X × Total, endpoint, agegroup
+at=X    + by=Y    → X × Y
+```
+
+### Design principles
+
+- `agg_mort` is a pure function: zero I/O, zero branching on magic values, always the same pipeline.
+- `aggregate_mort` only dispatches and writes; no data manipulation.
+- Each `at×by` combo is an explicit `agg_mort()` call — loops are only used for user-provided column vectors whose length is unknown at code time (e.g. `geo_cols`).
+
 ## Common commands
 
 ```r
