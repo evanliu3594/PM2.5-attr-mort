@@ -327,34 +327,31 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
     group_vals <- c(at_val, "endpoint", "agegroup", "scenario", "CI")
   }
 
-  agg <- x |>
-    imap(function(df, scen) {
-      df <- df |>
-        left_join(Grid_info, by = c("x", "y")) |>
-        pivot_longer(
-          cols = any_of(mort_cols),
-          names_pattern = ptrn,
-          names_to = to_cols
-        ) |>
-        mutate(scenario = scen)
+  agg <- imap(x, \(df, scen) {
+    df <- df |>
+      left_join(Grid_info, by = c("x", "y")) |>
+      pivot_longer(
+        cols = any_of(mort_cols),
+        names_pattern = ptrn,
+        names_to = to_cols
+      ) |>
+      mutate(scenario = scen)
 
-      # .value cols → rowSums; no .value → rename value column
-      if ("value" %in% names(df)) {
-        df <- df |> rename(mort = value)
-      } else {
-        df <- df |> mutate(mort = rowSums(pick(-all_of(group_vals))))
-      }
+    # .value cols → rowSums; no .value → rename value column
+    if ("value" %in% names(df)) {
+      df <- df |> rename(mort = value)
+    } else {
+      df <- df |> mutate(mort = rowSums(pick(where(is.numeric))))
+    }
 
-      df |>
-        select(all_of(group_vals), mort) |>
-        group_by(pick(all_of(group_vals))) |>
-        summarise(mort = sum(mort, na.rm = TRUE)) |>
-        ungroup()
-    }) |>
-    bind_rows()
-
-  # Spread: scenario + branch → columns; by_val stays as row id
-  agg <- agg |>
+    df |>
+      select(all_of(group_vals), mort) |>
+      group_by(pick(all_of(group_vals))) |>
+      summarise(mort = sum(mort, na.rm = TRUE)) |>
+      ungroup()
+  }) |>
+    bind_rows() |>
+    # Spread: scenario + branch → columns; by_val stays as row id
     pivot_wider(
       names_from = c("scenario", "CI"),
       names_sep = "_",
@@ -362,8 +359,8 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
       values_fill = NA
     )
 
-  if (!isFALSE(write)) {
-    out_dir <- if (isTRUE(write)) "./Result" else write
+  if (write) {
+    out_dir <- "./Result"
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
     outpath <- file.path(
       out_dir,
@@ -372,10 +369,11 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
         "Build{format(Sys.Date(), '%y%m%d')}.xlsx"
       )
     )
-    write_xlsx(list(result = agg), outpath)
+    writexl::write_xlsx(agg, outpath)
     log_msg(INFO, "Written: ", outpath)
   }
 
+  print(agg)
   agg
 }
 
@@ -390,7 +388,12 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
   # ---- at = geo, by = all ----
   if (identical(at, "geo") && identical(by, "all")) {
     cat("grid_by_endpoint+agegroup\n")
-    agg_mort(x, at_val = grid_col, by_val = c("endpoint", "agegroup"), write = write)
+    agg_mort(
+      x,
+      at_val = grid_col,
+      by_val = c("endpoint", "agegroup"),
+      write = write
+    )
 
     for (g in geo_cols) {
       cat(str_c(g, "_by_endpoint+agegroup\n"))
@@ -412,7 +415,12 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
     # ---- at = grid, by = all ----
   } else if (identical(at, "grid") && identical(by, "all")) {
     cat("grid_by_endpoint+agegroup\n")
-    agg_mort(x, at_val = grid_col, by_val = c("endpoint", "agegroup"), write = write)
+    agg_mort(
+      x,
+      at_val = grid_col,
+      by_val = c("endpoint", "agegroup"),
+      write = write
+    )
 
     # ---- at = grid ----
   } else if (identical(at, "grid")) {

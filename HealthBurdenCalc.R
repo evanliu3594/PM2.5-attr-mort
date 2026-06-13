@@ -67,29 +67,32 @@ grid_ci <- set_names(scenarios) |>
 # write = FALSE | TRUE (-> ./Result/) | "./my/path"
 
 ## Grid-level ----
-# aggregate_mort(grid_ci, at = "grid", by = NULL,       write = FALSE)
-# aggregate_mort(grid_ci, at = "grid", by = "endpoint", write = FALSE)
-# aggregate_mort(grid_ci, at = "grid", by = "agegroup", write = FALSE)
-# aggregate_mort(grid_ci, at = "grid", by = "all",      write = FALSE)
+# aggregate_mort(grid_ci, at = "grid", by = NULL,       write = FALSE) # by Total
+# aggregate_mort(grid_ci, at = "grid", by = "endpoint", write = FALSE) # by endpoint
+# aggregate_mort(grid_ci, at = "grid", by = "agegroup", write = FALSE) # by agegroup
+# aggregate_mort(grid_ci, at = "grid", by = "all",      write = FALSE) # by endpoint and agegroup
 
 ## Zonal / Meridional ----
-# aggregate_mort(grid_ci, at = "x", write = FALSE)   # sum along latitude bands -> by longitude
-# aggregate_mort(grid_ci, at = "y", write = FALSE)   # sum along longitude bands -> by latitude
+# aggregate_mort(grid_ci, at = "x", write = FALSE)
+# aggregate_mort(grid_ci, at = "y", write = FALSE)
 
 ## National ----
-# aggregate_mort(grid_ci, at = "Country", by = NULL,       write = FALSE) # Total
-# aggregate_mort(grid_ci, at = "Country", by = "endpoint", write = FALSE) # x endpoint
-# aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = FALSE) # x agegroup
-# aggregate_mort(grid_ci, at = "Country", by = "all",      write = FALSE) # all above
+# aggregate_mort(grid_ci, at = "Country", by = NULL,       write = FALSE) # by Total
+# aggregate_mort(grid_ci, at = "Country", by = "endpoint", write = FALSE) # by endpoint
+# aggregate_mort(grid_ci, at = "Country", by = "agegroup", write = FALSE) # by agegroup
+# aggregate_mort(grid_ci, at = "Country", by = "all",      write = FALSE) # by endpoint and agegroup
 
 ## Provincial (if available)----
 # aggregate_mort(grid_ci, at = "Province", by = NULL,       write = FALSE) # Total
-# aggregate_mort(grid_ci, at = "Province", by = "endpoint", write = FALSE) # x endpoint
-# aggregate_mort(grid_ci, at = "Province", by = "agegroup", write = FALSE) # x agegroup
-# aggregate_mort(grid_ci, at = "Province", by = "all",      write = FALSE) # all above
+# aggregate_mort(grid_ci, at = "Province", by = "endpoint", write = FALSE) # endpoint
+# aggregate_mort(grid_ci, at = "Province", by = "agegroup", write = FALSE) # agegroup
+# aggregate_mort(grid_ci, at = "Province", by = "all",      write = FALSE) # by endpoint and agegroup
 
 ## Regional (if available)----
-# aggregate_mort(grid_ci, at = "Region", by = "all", write = FALSE)
+# aggregate_mort(grid_ci, at = "Region", by = NULL,       write = FALSE) # Total
+# aggregate_mort(grid_ci, at = "Region", by = "endpoint", write = FALSE) # endpoint
+# aggregate_mort(grid_ci, at = "Region", by = "agegroup", write = FALSE) # agegroup
+# aggregate_mort(grid_ci, at = "Region", by = "all",      write = FALSE) # by endpoint and agegroup
 
 ##  All geo levels and all group field at once ----
 aggregate_mort(grid_ci, at = "geo", by = "all", write = FALSE)
