@@ -300,7 +300,7 @@ Mort_Aggregate <- function(
 # Self-contained worker: takes raw wide data, pivots, aggregates ONE at×by combo.
 # at_val: grouping columns, e.g. c("x","y") for grid, "Country", c("Country","endpoint")
 # by_val: "Total" (no extra dim), "endpoint", or "agegroup"
-agg_mort <- function(x, at_val, by_val, write = FALSE) {
+agg_mort <- function(x, at_val, by_val, write = write) {
   sample_nm <- names(x[[1]])
   suffixed <- str_subset(sample_nm, '_[0-9]+_(MEAN|UP|LOW)$')
   unsuffixed <- str_subset(sample_nm, '_[1-9]?(0|5)$') |>
@@ -359,7 +359,7 @@ agg_mort <- function(x, at_val, by_val, write = FALSE) {
 }
 
 # Dispatch: Given-When-Then by at + by, calls agg_mort for each combo.
-aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
+aggregate_mort <- function(x, at = "Country", by = NULL, write = write) {
   if (is.data.frame(x)) {
     x <- list(scenario = x)
   }
@@ -369,7 +369,7 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
   # ---- at = geo, by = all ----
   if (identical(at, "geo") && identical(by, "all")) {
     for (g in geo_cols) {
-      result[[str_c(g, "_Total")]] <- agg_mort(x, at_val = g, by_val = "Total", write = FALSE)
+      result[[str_c(g, "_Total")]] <- agg_mort(x, at_val = g, by_val = "Total", write = write)
       result[[str_c(g, "_by_endpoint")]] <- agg_mort(
         x,
         at_val = g,
@@ -385,7 +385,7 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
     # ---- at = geo ----
     b <- if (is.null(by)) "Total" else by
     for (g in c("x", "y", geo_cols)) {
-      result[[str_c(g, "_", b)]] <- agg_mort(x, at_val = g, by_val = b, write = FALSE)
+      result[[str_c(g, "_", b)]] <- agg_mort(x, at_val = g, by_val = b, write = write)
     }
   } else if (identical(at, "grid") && identical(by, "all")) {
     # ---- at = grid, by = all ----
@@ -411,7 +411,7 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
   } else if (identical(by, "all")) {
     # ---- by = all ----
     for (a in at) {
-      result[[str_c(a, "_Total")]] <- agg_mort(x, at_val = a, by_val = "Total", write = FALSE)
+      result[[str_c(a, "_Total")]] <- agg_mort(x, at_val = a, by_val = "Total", write = write)
       result[[str_c(a, "_by_endpoint")]] <- agg_mort(
         x,
         at_val = a,
@@ -427,19 +427,8 @@ aggregate_mort <- function(x, at = "Country", by = NULL, write = FALSE) {
     # ---- specific at + by ----
     b <- if (is.null(by)) "Total" else by
     for (a in at) {
-      result[[str_c(a, "_", b)]] <- agg_mort(x, at_val = a, by_val = b, write = FALSE)
+      result[[str_c(a, "_", b)]] <- agg_mort(x, at_val = a, by_val = b, write = write)
     }
-  }
-
-  if (!isFALSE(write)) {
-    out_dir <- if (isTRUE(write)) "./Result" else write
-    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-    outpath <- file.path(
-      out_dir,
-      str_glue("{tell_Model()}_Build{format(Sys.Date(), '%y%m%d')}.xlsx")
-    )
-    result |> write_xlsx(outpath)
-    log_msg(INFO, "Written: ", outpath)
   }
 
   return(result)
