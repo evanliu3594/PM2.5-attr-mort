@@ -197,7 +197,7 @@ Uncertainty <- function(
       group_by(domain, item) |>
       summarise(contrib = sqrt(sum(Sensi^2)), .groups = "drop") |>
       pivot_wider(names_from = item, values_from = contrib, values_fill = 0)
-    cat("\n--- Uncertainty diagnostics (UP side) ---\n")
+    log_msg(INFO, "Uncertainty diagnostics (UP side):")
     print(ci_debug, n = Inf)
     if (includeConc && "Pollu" %in% names(Sensi_up$item)) {
       ci_with <- Sensi_up |>
@@ -213,7 +213,7 @@ Uncertainty <- function(
         by = "domain",
         suffix = c("_withConc", "_CRonly")
       )
-      cat("\n--- includeConc impact ---\n")
+      log_msg(INFO, "includeConc impact:")
       print(ci_compare, n = Inf)
     }
   }
