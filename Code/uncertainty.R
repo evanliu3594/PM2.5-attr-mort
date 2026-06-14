@@ -100,7 +100,7 @@ Uncertainty <- function(
       mutate(
         concentration = matchable(concentration * (1 + Conc_ERR / 100), 1)
       ) |>
-      left_join(RR_std_tbl |> filter(CI == "MEAN") |> select(-CI), by = "concentration") |>
+      left_join(RR_std_tbl |> filter(CI == "MEAN") |> select(-CI), by = "concentration", relationship = "many-to-many") |>
       mutate(PAF_test = 1 - 1 / RR) |>
       select(domain, endpoint, agegroup, PAF_test)
 
@@ -122,7 +122,7 @@ Uncertainty <- function(
       mutate(
         concentration = matchable(concentration * (1 - Conc_ERR / 100), 1)
       ) |>
-      left_join(RR_std_tbl |> filter(CI == "MEAN") |> select(-CI), by = "concentration") |>
+      left_join(RR_std_tbl |> filter(CI == "MEAN") |> select(-CI), by = "concentration", relationship = "many-to-many") |>
       mutate(PAF_test = 1 - 1 / RR) |>
       select(domain, endpoint, agegroup, PAF_test)
 
