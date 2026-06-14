@@ -43,10 +43,9 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
       │  matchable(dgt_grid)    │  matchable(dgt_grid)    │  matchable(dgt_conc)
       │  → "113.25"             │  → "113.25"             │  → "36.8"
       │                         │                         │
-      │  getPop(at)             │  getConc_real(at)       │
-      │  select(x, y,           │  select(x, y,           │
-      │         Pop = base2015) │         concentration   │
-      │                         │            = base2015)  │
+      │                         │  getPop(at)             │  getConc_real(at)
+      │                         │  select(x, y,           │  select(x, y, 
+      │                         │         Pop = base2015) │         concentration = base2015)
       │                         │                         │
       ▼                         ▼                         ▼
  ┌──────────────────────────────────────────────────────────────────┐
@@ -62,45 +61,44 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
                 │
                 │  by = concentration   (both sides: matchable(dgt=1), e.g. "36.8")
                 ▼
- ┌──────────────────────────────────────────────────────────────────┐
- │ STEP 2 — RR match  (by = concentration, endpoint, agegroup)      │
- │                                                                  │
- │   RR_index.xlsx          .RR_std_tbl  (built by set_Model())    │
- │   ┌─────────────┐        ┌────────────────────────────────────┐  │
- │   │ MEAN sheet  │        │ concentration │ endpoint │ age │ CI│  │
- │   │ LOW  sheet  │───→    │               │          │     │RR │  │
- │   │ UP   sheet  │ RR_std │    36.8       │ ncd+lri  │ 25  │..│  │
- │   └─────────────┘  ()    │    36.8       │ ncd+lri  │ 30  │..│  │
- │                          └────────────────────────────────────┘  │
- │                                                                  │
- │   conc_col config → read from xlsx; output always "concentration"│
-│   CI column ∈ {MEAN, UP, LOW}; Mortality() pivots/filters as need │
- └────────────────────────────┬─────────────────────────────────────┘
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │ STEP 2 — RR match  (by = concentration, endpoint, agegroup)           │
+ │                                                                       │
+ │   RR_index.xlsx          .RR_std_tbl  (built by set_Model())          │
+ │   ┌─────────────┐        ┌──────────────────────────────────────────┐ │
+ │   │ MEAN sheet  │        │ concentration │ endpoint │ age │ CI │ RR │ │
+ │   │ LOW  sheet  │──────→ │    36.8       │ ncd+lri  │ 25  │ .. │ .. │ │
+ │   │ UP   sheet  │RR_std()│    36.8       │ ncd+lri  │ 30  │ .. │ .. │ │
+ │   └─────────────┘        └──────────────────────────────────────────┘ │
+ │                                                                       │
+ │   conc_col config → read from xlsx; output always "concentration"     │
+ │   CI column ∈ {MEAN, UP, LOW}; Mortality() pivots/filters as need     │
+ └────────────────────────────┬──────────────────────────────────────────┘
                               │
      PWRR = weighted.mean(RR, Pop)  ←── grouped by domain (Country)
      Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5
                               │
                               ▼
- ┌──────────────────────────────────────────────────────────────────┐
- │ STEP 3 — Domain join  (by = domain, endpoint, agegroup)          │
- │                                                                  │
- │   GBD_mortality          GBD_agestructure                        │
- │   getMortRate(at)        getAgeGroup(at)                         │
- │   ┌───────────────────┐   ┌──────────────────────────┐           │
- │   │ domain │ endpoint │   │ domain │ agegroup        │           │
- │   │        │ agegroup │   │        │ AgeStruc=base   │           │
- │   │        │ MortRate │   └───────────┬──────────────┘           │
- │   └────────┬──────────┘               │                          │
- │            │                          │                          │
- │   by = domain, endpoint,    by = domain, agegroup                │
- │          agegroup                                                │
- │            │                          │                          │
- │            ▼                          ▼                          │
- │   ┌───────────────────────────────────────────────────────────┐  │
- │   │ x │ y │ Country │ conc │ endpoint │ age │ RR │ Pop │      │  │
- │   │   │   │         │      │          │     │    │     │ ...  │  │
- │   └───────────────────────────────────────────────────────────┘  │
- └──────────────────────────────────────────────────────────────────┘
+ ┌────────────────────────────────────────────────────────────────────┐
+ │ STEP 3 — Domain join  (by = domain, endpoint, agegroup)            │
+ │                                                                    │
+ │   GBD_mortality                 GBD_agestructure                   │
+ │   getMortRate(at)               getAgeGroup(at)                    │
+ │   ┌───────────────────┐         ┌──────────────────────────┐       │
+ │   │ domain │ endpoint │         │ domain │ agegroup        │       │
+ │   │        │ agegroup │         │        │ AgeStruc=base   │       │
+ │   │        │ MortRate │         └───────────┬──────────────┘       │
+ │   └────────┬──────────┘                     │                      │
+ │            │                                │                      │
+ │   by = domain, endpoint,          by = domain, agegroup            │
+ │          agegroup                           |                      │
+ │            │                                │                      │
+ │            ▼                                ▼                      │
+ │ ┌───────────────────────────────────────────────────────────────┐  │
+ │ │ x │ y │ Country │ conc │ endpoint │ age │ RR │ Pop │ MortRate │  │
+ │ │ . │ . │   ...   │  ..  │    ...   │ ... │ .. │ ... │   ...    │  │
+ │ └───────────────────────────────────────────────────────────────┘  │
+ └────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
  ┌──────────────────────────────────────────────────────────────────┐
@@ -109,7 +107,7 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
  │   x │ y │ copd_25_MEAN │ copd_25_UP │ copd_25_LOW │ ... │ Total  │
  │   ──┼───┼──────────────┼────────────┼─────────────┼─────┼─────── │
  │                                                                  │
- │   Then aggregated by aggregate_range(at, by) → ./Result/          │
+ │   Then aggregated by aggregate_range(at, by) → ./Result/         │
  └──────────────────────────────────────────────────────────────────┘
 ```
 
