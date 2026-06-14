@@ -7,7 +7,7 @@
 #                         writes single-xlsx output with all scenarios as columns
 #   Modified 260610-260613: single-sheet xlsx output, scenario-combining with
 #     imap+rename_with, at='geo'/'grid'/'x'/'y' support, by='total' alias,
-#     auto-detect CI branch suffixes, summarise_ci→aggregate_range rename.
+#     auto-detect CI branch suffixes, Mort_Aggregate→aggregate_sigma rename.
 
 aggregate_sigma <- function(
   full_result,

@@ -1,7 +1,7 @@
 # C-R Model configuration module
 #   - tell_Model() — format the active C-R model name for output filenames
 #   - set_Model()  — set the global .CR_Model and cache the standardised RR table
-#   - RR_std()     — retrieve the cached standardised RR table (long format)
+#   - RR_std()     — build the standardised RR table from the lookup xlsx
 
 library(tidyverse)
 library(writexl)

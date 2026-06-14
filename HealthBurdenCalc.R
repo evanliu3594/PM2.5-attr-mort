@@ -18,7 +18,7 @@
 #       update 220602: simplify code                                                   #
 #       *Add GEMM model support                                                        #
 #       *Add better uncertainty assessments and improved the result return             #
-#       update 260610: add costume CRF support                                         #
+#       update 260610: add custom CRF support                                         #
 #                                                                                      #
 #======================================================================================#
 
@@ -66,23 +66,23 @@ grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
 # Uncomment the level(s) and breakdown(s) you need.
 # at  = "grid" | "geo" | "x" | "y" | "Country" | or any column in Grid_info
 # by  = "total" (Total only) | "all" | "endpoint" | "agegroup"
-# write = FALSE | TRUE (-> ./Result/) | "./my/path"
+# write = FALSE | TRUE (write to ./Result/xxx)
 
 ## Grid-level ----
-aggregate_range(grid_ci, at = "grid", by = "total", write = FALSE) # by Total
+# aggregate_range(grid_ci, at = "grid", by = "total", write = FALSE) # by Total
 # aggregate_range(grid_ci, at = "grid", by = "endpoint", write = FALSE) # by endpoint
 # aggregate_range(grid_ci, at = "grid", by = "agegroup", write = FALSE) # by agegroup
 # aggregate_range(grid_ci, at = "grid", by = "all", write = FALSE) # by endpoint and agegroup
 
 ## Zonal / Meridional ----
 # aggregate_range(grid_ci, at = "x", by = "total", write = FALSE) # by Total
-aggregate_range(grid_ci, at = "x", by = "endpoint", write = FALSE) # by endpoint
+# aggregate_range(grid_ci, at = "x", by = "endpoint", write = FALSE) # by endpoint
 # aggregate_range(grid_ci, at = "x", by = "agegroup", write = FALSE) # by agegroup
 # aggregate_range(grid_ci, at = "x", by = "all", write = FALSE) # by endpoint and agegroup
 
 # aggregate_range(grid_ci, at = "y", by = "total", write = FALSE) # by Total
 # aggregate_range(grid_ci, at = "y", by = "endpoint", write = FALSE) # by endpoint
-aggregate_range(grid_ci, at = "y", by = "agegroup", write = FALSE) # by agegroup
+# aggregate_range(grid_ci, at = "y", by = "agegroup", write = FALSE) # by agegroup
 # aggregate_range(grid_ci, at = "y", by = "all", write = FALSE) # by endpoint and agegroup
 
 ## National ----
@@ -104,9 +104,9 @@ aggregate_range(grid_ci, at = "y", by = "agegroup", write = FALSE) # by agegroup
 # aggregate_range(grid_ci, at = "Region", by = "all",      write = FALSE) # by endpoint and agegroup
 
 ##  All geo levels and all group field at once ----
-aggregate_range(grid_ci, at = "geo", by = "total", write = TRUE)
+# aggregate_range(grid_ci, at = "geo", by = "total", write = TRUE)
 # aggregate_range(grid_ci, at = "geo", by = "all", write = TRUE)
 
 # Uncertainty propagation algorithm ====
-grid_mean <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "MEAN"))
-aggregate_sigma(grid_mean, at = "Country", write = FALSE)
+# grid_mean <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "MEAN"))
+# aggregate_sigma(grid_mean, at = "Country", write = FALSE)

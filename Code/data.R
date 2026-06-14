@@ -5,7 +5,7 @@
 #   Modified 260610-260613: concentration clamping, auto-detect PWRR domain,
 #     coordinate overlap checks, GEMM lookup table update, fix scoping issues.
 
-# Standardised RR lookup table (populated by set_Model(), consumed by RR_std())
+# Standardised RR lookup table (built by set_Model() via RR_std(), read by Mortality/Uncertainty)
 .RR_std_tbl <- NULL
 
 #' format numbers to a string at a specified digit

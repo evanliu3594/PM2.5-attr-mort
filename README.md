@@ -175,9 +175,10 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 ## v5.0 (current)
 - **RR-substitution CI95**: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass; `CI = "MEAN"/"UP"/"LOW"` for single branches, all with column suffixes
 - **JSON-driven CR configuration**: `Data/RR_std_config.json` defines concentration column name (`conc_col`), endpoints, age groups, lookup paths, and output labels per model; `RR_std()` auto-reads it
-- **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table and appends to the JSON file; `read_files(RR_table_path = "...")` for custom tables
+- **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table and appends to the JSON file
 - **Auto PWRR domain detection**: `detect_domain()` matches mortality data domains against Grid_info columns
-- **`aggregate_range()`**: one-shot multi-level aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/endpoint/agegroup/all — all = endpoint+agegroup simultaneously); `.value`-based pivot keeps non-by dimensions as columns to reduce memory; writes single xlsx with all scenarios as columns
+- **`aggregate_range()`**: RR-substitution CI aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/endpoint/agegroup/all); writes single xlsx with all scenarios as columns
+- **`aggregate_sigma()`**: error-propagation CI aggregation via `Uncertainty()`; takes `Mortality(CI="MEAN")` output, aggregates by domain, derives CI bounds analytically
 - **Modular code structure**: model / data / mortality / uncertainty / aggregation
 - **Unified coordinate handling**: `normalize_coords()` accepts x/lon/long/longitude and y/lat/latitude variants
 - **Concentration clamping**: values beyond CR lookup range are capped to nearest boundary instead of dropped
