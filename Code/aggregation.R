@@ -16,6 +16,11 @@ aggregate_sigma <- function(
   write = TRUE,
   ...
 ) {
+  log_msg(
+    INFO,
+    "aggregate_sigma: at = \"{at}\", by = \"{by}\", {length(full_result)} scenario(s)"
+  )
+
   #  Auto-detect: character vector = scenario names, compute internally
   if (is.character(full_result)) {
     scenarios <- full_result
@@ -106,6 +111,7 @@ aggregate_sigma <- function(
     mort_cols <- old_style
     ci_branches <- character(0)
   }
+  log_msg(INFO, "  {length(mort_cols)} mortality columns detected")
 
   #  Aggregate
   pre_aggr <- if (is_grid & is.null(by_val)) {
@@ -215,6 +221,8 @@ aggregate_sigma <- function(
       )
   }
 
+  log_msg(INFO, "  Aggregated to {nrow(pre_aggr[[1]])} rows")
+
   #  CI: error propagation (Uncertainty) or grid metadata
   extra_args <- list(...)
   inc_conc <- extra_args[["includeConc"]] %||% FALSE
@@ -222,11 +230,13 @@ aggregate_sigma <- function(
   verb_flag <- extra_args[["verbose"]] %||% FALSE
 
   CI <- if (is_grid) {
+    log_msg(INFO, "  Grid-level: skipping uncertainty (use aggregate_range for CI)")
     full_result |>
       map(
         ~ Grid_info |> select(x:y, any_of(c("Country", "Region", "Province")))
       )
   } else {
+    log_msg(INFO, "  Computing error-propagation uncertainty...")
     scenarios |>
       set_names() |>
       map(
@@ -279,7 +289,7 @@ aggregate_sigma <- function(
     )
     dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
     aggr_result |> write_xlsx(outpath)
-    log_msg(INFO, "Result written to: ", outpath)
+    log_msg(INFO, "  Written: ", outpath)
   }
 
   return(aggr_result)
@@ -318,6 +328,11 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
   if (is.data.frame(x)) {
     x <- list(scenario = x)
   }
+
+  log_msg(
+    INFO,
+    "aggregate_range: at = \"{at}\", by = \"{by}\", {length(x)} scenario(s)"
+  )
 
   # Normalize and validate `by`
   valid_by <- c("total", "endpoint", "agegroup", "all")

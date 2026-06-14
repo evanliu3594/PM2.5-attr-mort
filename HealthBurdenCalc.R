@@ -104,7 +104,7 @@ aggregate_range(grid_ci, at = "y", by = "agegroup", write = FALSE) # by agegroup
 # aggregate_range(grid_ci, at = "Region", by = "all",      write = FALSE) # by endpoint and agegroup
 
 ##  All geo levels and all group field at once ----
-# aggregate_range(grid_ci, at = "geo", by = "total", write = TRUE)
+aggregate_range(grid_ci, at = "geo", by = "total", write = TRUE)
 # aggregate_range(grid_ci, at = "geo", by = "all", write = TRUE)
 
 # Uncertainty propagation algorithm ====
