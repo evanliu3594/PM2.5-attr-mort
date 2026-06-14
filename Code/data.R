@@ -1,10 +1,12 @@
 # Data loading & RR lookup module
 #   - matchable(), normalize_coords()  — coordinate & numeric normalisation
 #   - read_files()                     — load all input data to global env
-#   - RR_std()                         — reshape CR lookup table
 #   - getMortRate(), getConc_real(), getConc_cf(), getPop(), getAgeGroup() — accessors
 #   Modified 260610-260613: concentration clamping, auto-detect PWRR domain,
 #     coordinate overlap checks, GEMM lookup table update, fix scoping issues.
+
+# Standardised RR lookup table (populated by set_Model(), consumed by RR_std())
+.RR_std_tbl <- NULL
 
 #' format numbers to a string at a specified digit
 #'
@@ -106,8 +108,6 @@ normalize_coords <- function(df) {
 #' @param Conc_cf path to counter-fact concentration
 #' @param MortRate path to mortality rate
 #' @param AgeGroup path to population age structure
-#' @param RR_table_path optional path to a custom RR lookup table (xlsx with
-#'   MEAN/LOW/UP sheets). Overrides automatic detection from .CR_Model.
 #' @param dgt_grid int, digit of map grids
 #' @param dgt_conc int, digit of concentrations, by default `1`
 #'
@@ -122,7 +122,6 @@ read_files <- function(
   Conc_cf,
   MortRate,
   AgeGroup,
-  RR_table_path = NULL,
   dgt_grid = 2,
   dgt_conc = 1
 ) {
@@ -264,78 +263,6 @@ read_files <- function(
     )
   }
 
-  #  Resolve RR table path
-  if (!is.null(RR_table_path)) {
-    CR_file <- RR_table_path
-    log_msg(INFO, "Using custom RR lookup table: {CR_file}")
-  } else {
-    cfg_path <- './Data/RR_std_config.json'
-    if (!file.exists(cfg_path)) {
-      stop("RR_std config file not found: ", cfg_path)
-    }
-
-    cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
-
-    # Try exact model name, then IER prefix
-    model_entry <- cfg_all[[.CR_Model]]
-    if (is.null(model_entry) && str_detect(.CR_Model, '^IER')) {
-      model_entry <- cfg_all[["IER"]]
-    }
-
-    if (is.null(model_entry) || is.null(model_entry$lookup)) {
-      stop(
-        "No lookup table path configured for model \"",
-        .CR_Model,
-        "\" in ",
-        cfg_path,
-        ". ",
-        "Available: ",
-        paste(names(cfg_all), collapse = ", ")
-      )
-    }
-
-    CR_file <- model_entry$lookup
-  }
-
-  if (!file.exists(CR_file)) {
-    stop(
-      "RR lookup table file not found: \"",
-      CR_file,
-      "\". ",
-      "Check that the file exists and the C-R model name is correct."
-    )
-  }
-
-  assign(
-    "RR_table",
-    envir = globalenv(),
-    expand_grid(excel_sheets(CR_file), CR_file) |>
-    deframe() |>
-      imap(
-        ~ read_excel(.x, sheet = .y) |>
-          mutate(
-            across(
-              where(is.numeric) & concentration,
-              ~ matchable(.x, dgt = dgt_conc)
-            )
-          )
-      )
-  )
-
-  #  Guard: RR_table has expected sheets
-  expected_sheets <- c("MEAN", "LOW", "UP")
-  missing_sheets <- setdiff(expected_sheets, names(RR_table))
-  if (length(missing_sheets) > 0) {
-    log_msg(
-      WARN,
-      "RR lookup table is missing expected sheet(s): ",
-      paste(missing_sheets, collapse = ", "),
-      ". Available: ",
-      paste(names(RR_table), collapse = ", "),
-      ". Uncertainty calculation will fail if these are needed."
-    )
-  }
-
   #  Guard: coordinate consistency summary
   n_grid <- nrow(grid_df)
   n_conc <- nrow(conc_real_df)
@@ -378,136 +305,6 @@ read_files <- function(
       "and cover the same geographic domain."
     )
   }
-}
-
-#' format CR look-up table
-#'
-#' @param RR_index string, specifying which RR table to use, by default the "MEAN" RR
-#'
-#' @return a formatted RR table
-#' @export
-#'
-#' @examples
-RR_std <- function(RR_index = "MEAN") {
-  #  Guard: CR model must be set
-  if (!exists('.CR_Model', envir = globalenv())) {
-    stop("C-R model not set. Call set_Model() before using RR_std().")
-  }
-
-  CR <- tryCatch(
-    get(".CR_Model", envir = globalenv()),
-    error = function(e) stop("Cannot access .CR_Model from global environment.")
-  )
-
-  #  Guard: RR_table is loaded
-  if (!exists('RR_table', envir = globalenv())) {
-    stop("RR_table not found in global environment. Run read_files() first.")
-  }
-
-  if (!is.list(RR_table)) {
-    stop(
-      "RR_table is not a list (found: ",
-      class(RR_table),
-      "). Run read_files() to reload. If using a custom RR function, ",
-      "set .CR_Model to a supported model or provide a manually constructed RR_table."
-    )
-  }
-
-  #  Guard: requested RR_index exists
-  if (!RR_index %in% names(RR_table)) {
-    stop(
-      "RR_index \"",
-      RR_index,
-      "\" not found in RR_table. ",
-      "Available indices: ",
-      paste(names(RR_table), collapse = ", ")
-    )
-  }
-
-  RR_tbl <- RR_table[[RR_index]] |>
-    pivot_longer(
-      cols = -concentration,
-      values_to = "RR",
-      names_to = c("endpoint", "agegroup"),
-      names_sep = '_'
-    ) |>
-    mutate(endpoint = tolower(endpoint))
-
-  #  Guard: RR_tbl has data after pivot
-  if (nrow(RR_tbl) == 0) {
-    stop(
-      "RR_table[[\"",
-      RR_index,
-      "\"]] is empty after pivot_longer. ",
-      "Check that the sheet has columns beyond 'concentration' with names like 'copd_25'."
-    )
-  }
-
-  #  Read standardisation config from JSON
-  cfg_path <- './Data/RR_std_config.json'
-  if (!file.exists(cfg_path)) {
-    stop("RR_std config file not found: ", cfg_path)
-  }
-  cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
-  cfg <- cfg_all[[CR]]
-  if (is.null(cfg)) {
-    stop(
-      "No RR_std configuration for model \"",
-      CR,
-      "\". Add it to ",
-      cfg_path,
-      ". ",
-      "Available: ",
-      paste(names(cfg_all), collapse = ", ")
-    )
-  }
-
-  # Build the standardised grid: each endpoint defines its own age groups
-  conc_vals <- RR_table[[RR_index]] |> pull(concentration)
-
-  ep_grids <- lapply(cfg$endpoints, function(ep) {
-    ages <- c('ALL', matchable(unlist(ep$ages), 0))
-    expand_grid(
-      concentration = conc_vals,
-      endpoint = ep$name,
-      agegroup = ages
-    )
-  })
-
-  RR_reshape <- bind_rows(ep_grids) |>
-    left_join(RR_tbl, by = c("concentration", "endpoint", "agegroup")) |>
-    group_by(concentration, endpoint) |>
-    fill(RR) |>
-    ungroup() |>
-    filter(agegroup != 'ALL')
-
-  #  Guard: RR_reshape has data after reshape
-  if (nrow(RR_reshape) == 0) {
-    stop(
-      "RR_reshape is empty for model \"",
-      CR,
-      "\" with index \"",
-      RR_index,
-      "\". This should not happen for built-in models. Check the RR lookup table."
-    )
-  }
-
-  #  Guard: no remaining NA in RR after fill
-  na_rr <- RR_reshape |> filter(is.na(RR))
-  if (nrow(na_rr) > 0) {
-    log_msg(
-      WARN,
-      nrow(na_rr),
-      " NA values remain in RR_reshape after fill. ",
-      "Common causes: (1) RR lookup table is missing endpoint/agegroup combinations ",
-      "at certain concentrations; (2) the 'ALL' fill row is missing for some endpoints. ",
-      "These rows will be dropped downstream. ",
-      "First few: concentration=",
-      paste(head(unique(na_rr$concentration), 3), collapse = ", ")
-    )
-  }
-
-  return(RR_reshape)
 }
 
 #' format mortality rate data

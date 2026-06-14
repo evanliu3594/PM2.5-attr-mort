@@ -48,21 +48,32 @@ Uncertainty <- function(
     na.omit() |>
     rename_with(~'domain', where(is.character))
 
+  RR_std_tbl <- .RR_std_tbl
+
   RR_base <- PWE |>
     mutate(concentration = matchable(concentration, 1)) |>
-    left_join(RR_std('MEAN')) |>
+    left_join(
+      RR_std_tbl |> filter(CI == "MEAN") |> select(-CI),
+      by = "concentration"
+    ) |>
     mutate(PAF_base = 1 - 1 / RR) |>
     select(-concentration, -RR)
 
   RR_test_up <- PWE |>
     mutate(concentration = matchable(concentration, 1)) |>
-    left_join(RR_std('UP')) |>
+    left_join(
+      RR_std_tbl |> filter(CI == "UP") |> select(-CI),
+      by = "concentration"
+    ) |>
     mutate(PAF_test = 1 - 1 / RR) |>
     select(-concentration, -RR)
 
   RR_test_low <- PWE |>
     mutate(concentration = matchable(concentration, 1)) |>
-    left_join(RR_std('LOW')) |>
+    left_join(
+      RR_std_tbl |> filter(CI == "LOW") |> select(-CI),
+      by = "concentration"
+    ) |>
     mutate(PAF_test = 1 - 1 / RR) |>
     select(-concentration, -RR)
 
@@ -89,7 +100,7 @@ Uncertainty <- function(
       mutate(
         concentration = matchable(concentration * (1 + Conc_ERR / 100), 1)
       ) |>
-      left_join(RR_std('MEAN'), by = "concentration") |>
+      left_join(RR_std_tbl |> filter(CI == "MEAN") |> select(-CI), by = "concentration") |>
       mutate(PAF_test = 1 - 1 / RR) |>
       select(domain, endpoint, agegroup, PAF_test)
 
@@ -111,7 +122,7 @@ Uncertainty <- function(
       mutate(
         concentration = matchable(concentration * (1 - Conc_ERR / 100), 1)
       ) |>
-      left_join(RR_std('MEAN'), by = "concentration") |>
+      left_join(RR_std_tbl |> filter(CI == "MEAN") |> select(-CI), by = "concentration") |>
       mutate(PAF_test = 1 - 1 / RR) |>
       select(domain, endpoint, agegroup, PAF_test)
 

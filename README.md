@@ -26,9 +26,103 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 | **GridPM25_cf** _(optional)_ | same as GridPM25 | Counterfactual PM<sub>2.5</sub> for policy scenario; if absent, falls back to GridPM25 |
 | **GBD_mortality** | `domain`, `endpoint`, `agegroup`, plus year/scenario columns | Baseline mortality rate (deaths per 100,000) by region, disease, and age group |
 | **GBD_agestructure** | `domain`, `agegroup`, plus year/scenario columns | Proportion of population in each age group by region |
-| **RR_index** | sheets `MEAN`, `LOW`, `UP`; columns `concentration` + `{endpoint}_{agegroup}` (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. See `Code/DataPrepare/Concentration_Response.R` to regenerate. |
+| **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. See `Code/DataPrepare/Concentration_Response.R` to regenerate. |
 
 All gridded files must share the same `(x, y)` precision (controlled by `dgt_grid` in `read_files()`). Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`.
+
+### Data flow — how sources are joined inside `Mortality()`
+
+```
+ ┌─────────────────────────────────────────────────────────────────────────────┐
+ │                         INPUT DATA (6 sources)                              │
+ ├─────────────────────────┬─────────────────────────┬─────────────────────────┤
+ │  GRID_information       │  GridPop                │  GridPM25               │
+ │  x │ y │ Country │ ...  │  x │ y │ base2015 │ ... │  x │ y │ base2015 │ ... │
+ └────┬────────────────────┴────┬────────────────────┴────┬────────────────────┘
+      │                         │                         │
+      │  matchable(dgt_grid)    │  matchable(dgt_grid)    │  matchable(dgt_conc)
+      │  → "113.25"             │  → "113.25"             │  → "36.8"
+      │                         │                         │
+      │  getPop(at)             │  getConc_real(at)       │
+      │  select(x, y,           │  select(x, y,           │
+      │         Pop = base2015) │         concentration   │
+      │                         │            = base2015)  │
+      │                         │                         │
+      ▼                         ▼                         ▼
+ ┌──────────────────────────────────────────────────────────────────┐
+ │ STEP 1 — Grid-level join  (by = x, y)                            │
+ │                                                                  │
+ │   Grid_info ─┬─ Conc_r ─── Conc_c                                │
+ │              ├─ Pop                                              │
+ │              │   ↓  reduce(left_join)                            │
+ │              │   ┌───────────────────────────────────────────┐   │
+ │              │   │ x │ y │ Country │ concentration │ Pop │ ..│   │
+ │              │   └───────────────────────────────────────────┘   │
+ └──────────────┼───────────────────────────────────────────────────┘
+                │
+                │  by = concentration   (both sides: matchable(dgt=1), e.g. "36.8")
+                ▼
+ ┌──────────────────────────────────────────────────────────────────┐
+ │ STEP 2 — RR match  (by = concentration, endpoint, agegroup)      │
+ │                                                                  │
+ │   RR_index.xlsx          .RR_std_tbl  (built by set_Model())    │
+ │   ┌─────────────┐        ┌────────────────────────────────────┐  │
+ │   │ MEAN sheet  │        │ concentration │ endpoint │ age │ CI│  │
+ │   │ LOW  sheet  │───→    │               │          │     │RR │  │
+ │   │ UP   sheet  │ RR_std │    36.8       │ ncd+lri  │ 25  │..│  │
+ │   └─────────────┘  ()    │    36.8       │ ncd+lri  │ 30  │..│  │
+ │                          └────────────────────────────────────┘  │
+ │                                                                  │
+ │   conc_col config → read from xlsx; output always "concentration"│
+│   CI column ∈ {MEAN, UP, LOW}; Mortality() pivots/filters as need │
+ └────────────────────────────┬─────────────────────────────────────┘
+                              │
+     PWRR = weighted.mean(RR, Pop)  ←── grouped by domain (Country)
+     Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5
+                              │
+                              ▼
+ ┌──────────────────────────────────────────────────────────────────┐
+ │ STEP 3 — Domain join  (by = domain, endpoint, agegroup)          │
+ │                                                                  │
+ │   GBD_mortality          GBD_agestructure                        │
+ │   getMortRate(at)        getAgeGroup(at)                         │
+ │   ┌───────────────────┐   ┌──────────────────────────┐           │
+ │   │ domain │ endpoint │   │ domain │ agegroup        │           │
+ │   │        │ agegroup │   │        │ AgeStruc=base   │           │
+ │   │        │ MortRate │   └───────────┬──────────────┘           │
+ │   └────────┬──────────┘               │                          │
+ │            │                          │                          │
+ │   by = domain, endpoint,    by = domain, agegroup                │
+ │          agegroup                                                │
+ │            │                          │                          │
+ │            ▼                          ▼                          │
+ │   ┌───────────────────────────────────────────────────────────┐  │
+ │   │ x │ y │ Country │ conc │ endpoint │ age │ RR │ Pop │      │  │
+ │   │   │   │         │      │          │     │    │     │ ...  │  │
+ │   └───────────────────────────────────────────────────────────┘  │
+ └──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+ ┌──────────────────────────────────────────────────────────────────┐
+ │ OUTPUT — wide-format gridded mortality                           │
+ │                                                                  │
+ │   x │ y │ copd_25_MEAN │ copd_25_UP │ copd_25_LOW │ ... │ Total  │
+ │   ──┼───┼──────────────┼────────────┼─────────────┼─────┼─────── │
+ │                                                                  │
+ │   Then aggregated by aggregate_range(at, by) → ./Result/          │
+ └──────────────────────────────────────────────────────────────────┘
+```
+
+**Key matching rules:**
+
+| Join | Keys | Precision | Where it happens |
+|------|------|-----------|------------------|
+| Grids ↔ Conc ↔ Pop | `x`, `y` | `matchable(dgt_grid)` — default 2 decimal places | `read_files()` |
+| Conc ↔ RR lookup | `concentration` | `matchable(dgt_conc)` — default 1 decimal place, string type | `set_Model()` (build), `Mortality()` (join) |
+| RR ↔ Mortality rates | `endpoint`, `agegroup` | endpoint = lowercase string, agegroup = `matchable(dgt=0)` | `Mortality()` |
+| All ↔ Domain stats | `domain` (e.g. `Country`) | string, must match Grid_info column names | `Mortality()`, `Uncertainty()` |
+
+All join keys are **strings** (not floats) to avoid floating-point mismatch. The `matchable()` helper does `round(dgt) |> as.character()`.
 
 Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 
@@ -45,14 +139,16 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
 
     # Custom RR lookup table — auto-generates endpoint/agegroup config and appends to JSON
     set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")
+    
     # → previews config, auto-appends to Data/RR_std_config.json
     # → if only {endpoint}_ALL columns exist, auto-generates default ages 0–95
+    # → open "./Data/RR_std_config.json" and manually configure if needed.
 
     # Then load data
     read_files(Grids = "...", Pop = "...", Conc_real = "...", ...)
     ```
 
-    All model configuration is driven by `Data/RR_std_config.json` — labels, RR lookup paths, endpoint lists, and age groups. Adding a model only requires editing this file.
+    All model configuration is driven by `Data/RR_std_config.json` — concentration column name, labels, RR lookup paths, endpoint lists, and age groups. Adding a model only requires editing this file.
 
 4. Compute and aggregate:
 
@@ -66,22 +162,22 @@ Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
     # or "all" (endpoint and agegroup together in a single pass).
 
     # One-shot aggregation: geo=all levels, by=endpoint×agegroup simultaneously
-    aggregate_mort(grid_ci, at = "geo", by = "all", write = FALSE)
+    aggregate_range(grid_ci, at = "geo", by = "all", write = FALSE)
 
     # Or pick specific levels:
-    # aggregate_mort(grid_ci, at = "Country",   by = "endpoint", write = TRUE)
-    # aggregate_mort(grid_ci, at = "Province",  by = "agegroup", write = TRUE)
-    # aggregate_mort(grid_ci, at = c("x","y"),  by = "total",    write = TRUE)  # grid-level
+    # aggregate_range(grid_ci, at = "Country",   by = "endpoint", write = TRUE)
+    # aggregate_range(grid_ci, at = "Province",  by = "agegroup", write = TRUE)
+    # aggregate_range(grid_ci, at = c("x","y"),  by = "total",    write = TRUE)  # grid-level
     ```
 
 # Release notes
 
 ## v5.0 (current)
 - **RR-substitution CI95**: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass; `CI = "MEAN"/"UP"/"LOW"` for single branches, all with column suffixes
-- **JSON-driven CR configuration**: `Data/RR_std_config.json` defines endpoints, age groups, lookup paths, and output labels per model; `RR_std()` auto-reads it
+- **JSON-driven CR configuration**: `Data/RR_std_config.json` defines concentration column name (`conc_col`), endpoints, age groups, lookup paths, and output labels per model; `RR_std()` auto-reads it
 - **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table and appends to the JSON file; `read_files(RR_table_path = "...")` for custom tables
 - **Auto PWRR domain detection**: `detect_domain()` matches mortality data domains against Grid_info columns
-- **`aggregate_mort()`**: one-shot multi-level aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/endpoint/agegroup/all — all = endpoint+agegroup simultaneously); `.value`-based pivot keeps non-by dimensions as columns to reduce memory; writes single xlsx with all scenarios as columns
+- **`aggregate_range()`**: one-shot multi-level aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/endpoint/agegroup/all — all = endpoint+agegroup simultaneously); `.value`-based pivot keeps non-by dimensions as columns to reduce memory; writes single xlsx with all scenarios as columns
 - **Modular code structure**: model / data / mortality / uncertainty / aggregation
 - **Unified coordinate handling**: `normalize_coords()` accepts x/lon/long/longitude and y/lat/latitude variants
 - **Concentration clamping**: values beyond CR lookup range are capped to nearest boundary instead of dropped

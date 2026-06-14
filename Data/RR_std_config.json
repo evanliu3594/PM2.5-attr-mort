@@ -1,5 +1,6 @@
 {
   "NCD+LRI": {
+    "conc_col": "concentration",
     "label": "PM2.5_GEMM_NCD+LRI",
     "lookup": "./Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx",
     "endpoints": [
@@ -7,6 +8,7 @@
     ]
   },
   "5COD": {
+    "conc_col": "concentration",
     "label": "PM2.5_GEMM_5COD",
     "lookup": "./Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx",
     "endpoints": [
@@ -18,6 +20,7 @@
     ]
   },
   "IER": {
+    "conc_col": "concentration",
     "label": "PM2.5_IER2017",
     "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -29,6 +32,7 @@
     ]
   },
   "IER2010": {
+    "conc_col": "concentration",
     "label": "PM2.5_IER2010",
     "lookup": "./Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -40,6 +44,7 @@
     ]
   },
   "IER2013": {
+    "conc_col": "concentration",
     "label": "PM2.5_IER2013",
     "lookup": "./Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -51,6 +56,7 @@
     ]
   },
   "IER2015": {
+    "conc_col": "concentration",
     "label": "PM2.5_IER2015",
     "lookup": "./Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -62,6 +68,7 @@
     ]
   },
   "IER2017": {
+    "conc_col": "concentration",
     "label": "PM2.5_IER2017",
     "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -73,6 +80,7 @@
     ]
   },
   "MRBRT": {
+    "conc_col": "concentration",
     "label": "PM2.5_MRBRT",
     "lookup": "./Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx",
     "endpoints": [
@@ -83,16 +91,16 @@
       { "name": "stroke", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
       { "name": "lri",    "ages": [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
     ]
-  }
-,
+  },
   "O3": {
+    "conc_col": "concentration",
     "lookup": "./Data/RR_index/O3_CR_Lookup_Table.xlsx",
     "endpoints": [
       { "name": "copd", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
     ]
-  }
-,
+  },
   "NO2": {
+    "conc_col": "concentration",
     "lookup": "./Data/RR_index/NO2_CR_Lookup_Table.xlsx",
     "endpoints": [
       { "name": "allcause", "ages": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }

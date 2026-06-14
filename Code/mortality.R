@@ -70,41 +70,26 @@ Mortality <- function(
     )
   }
 
-  # ---- Build RR table(s) ----
+  # ---- Get standardised RR table ----
+  # .RR_std_tbl: concentration, endpoint, agegroup, CI, RR (built by set_Model())
+  RR_all <- .RR_std_tbl
+
+  if (nrow(RR_all) == 0) {
+    stop("RR lookup table is empty.")
+  }
+
+  rr_conc_range <- range(as.numeric(RR_all$concentration), na.rm = TRUE)
+
   if (CI == "RANGE") {
-    # Pre-combine MEAN/UP/LOW into one table for a single join pass.
-    # PWRR is always computed from MEAN RR.
-    RR_all <- RR_std("MEAN") |>
-      rename(RR = RR) |>
-      left_join(
-        RR_std("UP") |> rename(RR_UP = RR),
-        by = c("concentration", "endpoint", "agegroup")
-      ) |>
-      left_join(
-        RR_std("LOW") |> rename(RR_LOW = RR),
-        by = c("concentration", "endpoint", "agegroup")
-      )
-
-    if (nrow(RR_all) == 0) {
-      stop("Combined RR lookup table (MEAN+UP+LOW) is empty.")
-    }
-
-    rr_conc_range <- range(as.numeric(RR_all$concentration), na.rm = TRUE)
+    # Pivot CI branches to columns: RR, RR_UP, RR_LOW
+    RR_all <- RR_all |>
+      pivot_wider(names_from = CI, values_from = RR) |>
+      rename(RR = MEAN, RR_UP = UP, RR_LOW = LOW)
   } else {
-    # Single RR branch
-    RR_tbl <- RR_std(CI)
-
-    if (nrow(RR_tbl) == 0) {
-      stop(
-        "RR lookup table is empty for index \"",
-        CI,
-        "\". Check that RR_table[[\"",
-        CI,
-        "\"]] exists and contains data."
-      )
-    }
-
-    rr_conc_range <- range(as.numeric(RR_tbl$concentration), na.rm = TRUE)
+    # Filter to single CI branch, drop CI column
+    RR_all <- RR_all |>
+      filter(CI == !!CI) |>
+      select(-CI)
   }
 
   # ---- Clamp concentrations to RR lookup table range ----
@@ -182,11 +167,7 @@ Mortality <- function(
   }
 
   # ---- PWRR calculation (always uses MEAN RR) ----
-  rr_for_pwr <- if (CI == "RANGE") {
-    RR_all |> select(concentration, endpoint, agegroup, RR)
-  } else {
-    RR_tbl
-  }
+  rr_for_pwr <- RR_all |> select(concentration, endpoint, agegroup, RR)
 
   PWRR_pre <- list(Grids, Conc_r, pop, rr_for_pwr) |> reduce(left_join)
   n_before <- nrow(PWRR_pre)
@@ -245,8 +226,7 @@ Mortality <- function(
   }
 
   # ---- Main mortality calculation ----
-  # RR table to use: combined (RANGE) or single branch
-  rr_table <- if (CI == "RANGE") RR_all else RR_tbl
+  rr_table <- RR_all
 
   mort_data <- list(
     Grids,

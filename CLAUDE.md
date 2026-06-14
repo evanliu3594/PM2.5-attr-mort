@@ -17,16 +17,17 @@ PM2.5-attr-mort is an R project that estimates PM2.5-attributable mortality acro
 The computation pipeline works in four layers:
 
 1. **Raw data ingestion** (`Code/Rawdata Process.R`) — converts NetCDF PM2.5 data, GeoTIFF population rasters, IHME CSV mortality/age-structure files, and natural-earth shapefiles into the standardized Excel instance files consumed by the main calculation.
-2. **C-R lookup table generation** (`Code/Concentration_Response.R`) — takes CRF coefficient CSVs from `Data/CRF_coefficients/` and produces RR lookup tables (MEAN/LOW/UP) for every 0.1 µg/m³ step, written to `Data/RR_index/`.
-3. **Core calculation engine** (`Code/Core.R`) — the heart of the project. All other analysis scripts source this file. It provides:
-   - `set_Model()` / `tell_Model()` — select and name the C-R model (stored in global `.CR_Model`).
-   - `read_files()` — load all input Excel files into global variables (`Grid_info`, `Pop`, `Conc_real`, `Conc_cf`, `MortRate`, `AgeGroup`, `RR_table`). The function auto-selects the correct RR lookup table based on `.CR_Model`.
-   - `matchable()` — round-and-stringify helper used pervasively as a join key normalizer.
-   - `getConc_real()`, `getPop()`, `getAgeGroup()`, `getMortRate()` — column extractors that select the column matching a given year/scenario name.
-   - `RR_std()` — reshape the raw RR lookup table into a long-form `(concentration, endpoint, agegroup, RR)` table tailored to the active C-R model. Each model has different endpoint/age-group sets and fill rules.
-   - `Mortality()` / `Mortality_at()` — the core attribution formula. Joins grid info, concentration, population, RR table, mortality rate, and age structure; computes PWRR (population-weighted relative risk) per domain; then calculates `Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5`. Returns a wide table with one column per endpoint–agegroup combination per grid cell.
-   - `Uncertainty()` — analytic uncertainty propagation combining CR uncertainty (HIGH/LOW RR branches) and optional concentration RMSE uncertainty.
-   - `Mort_Aggregate()` — aggregates gridded results to Grid/Province/Country/Region level, optionally by endpoint or agegroup, computes uncertainty CIs, and writes Excel output to `./Result/`.
+2. **C-R lookup table generation** (`Code/DataPrepare/Concentration_Response.R`) — takes CRF coefficient CSVs from `Data/CRF_coefficients/` and produces RR lookup tables (MEAN/LOW/UP) for every 0.1 µg/m³ step, written to `Data/RR_index/`.
+3. **Core calculation engine** — the project is now split across modular files (`Code/model.R`, `Code/data.R`, `Code/mortality.R`, `Code/uncertainty.R`, `Code/aggregation.R`), all sourced by application scripts. Key functions:
+   - `set_Model()` / `tell_Model()` (model.R) — select and name the C-R model. `set_Model()` calls `RR_std()` to build the standardised long-form RR table (`concentration, endpoint, agegroup, CI, RR`) and stores it in the global `.RR_std_tbl`.
+   - `RR_std()` (model.R) — builder: reads the RR lookup xlsx and `RR_std_config.json`, returns the standardised long-form table. Called by `set_Model()` once; downstream consumers read `.RR_std_tbl` directly.
+   - `read_files()` (data.R) — load gridded and domain input data into global env (`Grid_info`, `Pop`, `Conc_real`, `Conc_cf`, `MortRate`, `AgeGroup`).
+   - `matchable()` (data.R) — round-and-stringify helper used pervasively as a join key normalizer.
+   - `getConc_real()`, `getPop()`, `getAgeGroup()`, `getMortRate()` (data.R) — column extractors that select the column matching a given year/scenario name.
+   - `Mortality()` / `Mortality_at()` (mortality.R) — the core attribution formula. Joins grid info, concentration, population, `.RR_std_tbl`, mortality rate, and age structure; filters/pivots CI column as needed; computes PWRR per domain; then calculates `Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5`. Returns a wide table with one column per endpoint–agegroup–CI combination per grid cell.
+   - `Uncertainty()` (uncertainty.R) — analytic uncertainty propagation combining CR uncertainty (RR UP/LOW branches) and optional concentration RMSE uncertainty.
+   - `aggregate_range()` (aggregation.R) — RR-substitution CI aggregation: takes `Mortality(CI="RANGE")` output, aggregates by `at` and `by`, keeps MEAN/UP/LOW branches as columns. Uses internal closure `aggregate_one()` for each `at×by` combo.
+   - `aggregate_sigma()` (aggregation.R) — error-propagation CI aggregation: takes `Mortality(CI="MEAN")` output, aggregates by `at` and `by`, derives CI bounds via `Uncertainty()`.
 4. **Application scripts** that source `Core.R` and run specific analyses:
    - `Code/HealthBurdenCalc.R` — the main user-facing workflow. Set model, load data, compute gridded mortality for all scenarios, aggregate.
    - `Code/DrivingFactors.R` — decomposition analysis attributing mortality changes between two time periods to Population Growth (PG), Population Aging (PA), Exposure change (EXP), and Other Risk Factors (ORF). Runs all 24 possible step-order permutations and averages them.
@@ -157,39 +158,23 @@ The decomposition is designed to answer "which driving factors explain the obser
 
 PA changes `AgeStruc`; ORF changes `MortRate`. In reality, population aging shifts the disease spectrum, which in turn changes age-specific mortality rates. This PA×ORF interaction has no independent term in the 4-factor decomposition — it is distributed between PA and ORF through the 24-permutation average. This preserves additive completeness but means neither PA nor ORF can be interpreted as "pure" effects when the age structure and disease spectrum are shifting simultaneously.
 
-## 聚合设计（`aggregate_mort` / `agg_mort`）
+## 聚合设计（`aggregate_range` / `aggregate_sigma`）
 
 ### 设计原则
-聚合层采用双函数拆分：
-- `agg_mort`是一个纯函数：零I/O、零对魔法值的分支、始终使用相同的管道。
-- `aggregate_mort`仅进行调度和写入；不进行数据处理。
-- 每个`at×by`组合都是一个显式的`agg_mort()`调用——循环仅用于用户提供的、代码时长度未知的列向量（例如`geo_cols`）。
+两种聚合函数，对应两种 CI 计算方法：
+- `aggregate_range`：RR 替换法。接受 `Mortality(CI="RANGE")` 的三分支输出（MEAN/UP/LOW），
+  逐分支聚合后保留为列，写入 xlsx。
+- `aggregate_sigma`：误差传播法。接受 `Mortality(CI="MEAN")` 的均值输出，
+  聚合后通过 `Uncertainty()` 计算 CI 边界。
 
-- geo聚合层级包括：grid (c("x","y") 双键)、所有存在于grid_info中的column key（可能包括：x经度，y纬度，Country，Continent，region，province）
+### `aggregate_range(x, at, by, write)`
 
-### `agg_mort(x, at_val, by_val)` — 纯工作函数
+内部闭包 `aggregate_one(at_val, by_val)` 负责单个 `at×by` 组合的
+pivot → group → bind → spread。调度层将 `at` 展开为列向量列表后 `for` 循环调用。
 
-接收原始宽格式死亡率数据，转换为长格式，并为**一个**`at×by`组合进行聚合并写根据write参数判断是否写出到xlsx。没有含调度逻辑。
-
-- `at_val`：在输出中保留的分组列。对于网格级别为`c("x", "y")`；对于经度为`"x"`，对于纬度为`"y"`，对于国家级别为`"Country"`。
-- `by_val`：`"Total"`（无额外维度）、`"endpoint"`或`"agegroup"`。这些与`at`一起在`group_by`运算中分组。
-
-```
-group_by 键：at_val +（如果by_val != "Total"则为by_val）+ scenario/year + CI
-列名：at_val + by_val（by_val == "Total"则没有这一列）+ scenario/year + CI
-```
-
-输出列示例：
-- `at = "grid"` + `by = "Total"` → `x`、`y`、`base2015_MEAN`、`base2015_UP`、`SSP1_2030_MEAN`...
-- `at = "y"` + `by = "endpoint"` → `y`、`endpoint`、`base2015_MEAN`、`SSP1_2030_UP`、`base2015_MEAN`...
-- `at = "Country"` + `by = "agegroup"` → `Country`、`agegroup`、`base2015_MEAN`、`SSP1_2030_UP`...
-
-### `aggregate_mort(x, at, by, write)` — 调度函数
-
-一个Given-When-Then路由。展开缩写值并对每个具体组合调用`agg_mort`，将结果收集到命名列表中。并将write参数传输给agg_mort。
-
-- `at = "geo"` → 展开为`c("grid", "x", "y", Country, Province, Region, ...)`
-- `at = "grid"` → 映射为`at_val = c("x", "y")`
+- `at = "geo"`  → 展开为 grid (c("x","y")) + 所有 `Grid_info` 中的列名
+- `at = "grid"` → 映射为 `at_val = c("x", "y")`
+- `by` 限制为 `"total"` / `"endpoint"` / `"agegroup"` / `"all"`
 - `by = "all"` → 同时按 endpoint + agegroup 分解（一次调用，两维共同分组）
 - `by = NULL`或`"total"` → 映射为`by_val = "Total"`
 
