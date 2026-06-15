@@ -221,6 +221,15 @@ aggregate_sigma <- function(
       )
   }
 
+  #  When by = "total", drop per-endpoint/agegroup columns — keep only totals
+  if (by == "total") {
+    pre_aggr <- pre_aggr |> map(~ {
+      keep <- c(if (is_grid) c("x", "y") else domain,
+                str_subset(names(.x), "^total(_MEAN)?$"))
+      .x |> select(any_of(keep))
+    })
+  }
+
   log_msg(INFO, "  Aggregated to {nrow(pre_aggr[[1]])} rows")
 
   #  CI: error propagation (Uncertainty) or grid metadata
@@ -267,7 +276,17 @@ aggregate_sigma <- function(
   aggr_result <- if (is_grid) {
     map2(CI, pre_aggr, ~ left_join(.x, .y))
   } else {
-    map2(CI, pre_aggr, ~ left_join(.x, .y, by = domain))
+    map2(CI, pre_aggr, ~ left_join(.x, .y, by = domain)) |>
+      map(~ {
+        total_col <- if ("total_MEAN" %in% names(.x)) "total_MEAN" else "total"
+        .x |>
+          mutate(
+            total_UP  = .data[[total_col]] + CI_UP,
+            total_LOW = .data[[total_col]] - CI_LOW,
+            .after = all_of(total_col)
+          ) |>
+          select(-CI_UP, -CI_LOW)
+      })
   }
 
   if (!is_grid) {

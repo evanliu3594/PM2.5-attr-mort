@@ -23,7 +23,7 @@
 #======================================================================================#
 
 # Install dependencies (run once) ----
-# install.packages(c("tidyverse", "jsonlite", "writexl", "readxl"))
+# install.packages(c("tidyverse", "jsonlite", "writexl", "readxl", "stars"))
 
 # Core functions load ----
 
@@ -38,9 +38,12 @@ source('./Code/aggregation.R', encoding = 'UTF8')
 
 # C-R Model setting ----
 # this section used to choose C-R Model for Health Impact Calculation.
-# Supported C-R functions:
-#     'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'O3', 'NO2'
-set_Model('MRBRT2021')
+# Supported C-R functions: 'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'O3', 'NO2'
+
+# set_Model('MRBRT')
+set_Model('NCD+LRI')
+# set_Model('5COD')
+# set_Model('IER')
 
 # Data load ----
 
@@ -69,43 +72,43 @@ grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
 # write = FALSE | TRUE (write to ./Result/xxx)
 
 ## Grid-level ----
-# aggregate_range(grid_ci, at = "grid", by = "total", write = FALSE) # by Total
-# aggregate_range(grid_ci, at = "grid", by = "endpoint", write = FALSE) # by endpoint
-# aggregate_range(grid_ci, at = "grid", by = "agegroup", write = FALSE) # by agegroup
-# aggregate_range(grid_ci, at = "grid", by = "all", write = FALSE) # by endpoint and agegroup
+# aggregate_range(grid_ci, at = "grid", by = "total", write = FALSE)
+# aggregate_range(grid_ci, at = "grid", by = "endpoint", write = FALSE)
+# aggregate_range(grid_ci, at = "grid", by = "agegroup", write = FALSE)
+# aggregate_range(grid_ci, at = "grid", by = "all", write = FALSE)
 
 ## Zonal / Meridional ----
-# aggregate_range(grid_ci, at = "x", by = "total", write = FALSE) # by Total
-# aggregate_range(grid_ci, at = "x", by = "endpoint", write = FALSE) # by endpoint
-# aggregate_range(grid_ci, at = "x", by = "agegroup", write = FALSE) # by agegroup
-# aggregate_range(grid_ci, at = "x", by = "all", write = FALSE) # by endpoint and agegroup
+# aggregate_range(grid_ci, at = "x", by = "total", write = FALSE)
+# aggregate_range(grid_ci, at = "x", by = "endpoint", write = FALSE)
+# aggregate_range(grid_ci, at = "x", by = "agegroup", write = FALSE)
+# aggregate_range(grid_ci, at = "x", by = "all", write = FALSE)
 
-# aggregate_range(grid_ci, at = "y", by = "total", write = FALSE) # by Total
-# aggregate_range(grid_ci, at = "y", by = "endpoint", write = FALSE) # by endpoint
-# aggregate_range(grid_ci, at = "y", by = "agegroup", write = FALSE) # by agegroup
-# aggregate_range(grid_ci, at = "y", by = "all", write = FALSE) # by endpoint and agegroup
+# aggregate_range(grid_ci, at = "y", by = "total", write = FALSE)
+# aggregate_range(grid_ci, at = "y", by = "endpoint", write = FALSE)
+# aggregate_range(grid_ci, at = "y", by = "agegroup", write = FALSE)
+# aggregate_range(grid_ci, at = "y", by = "all", write = FALSE)
 
 ## National ----
-# aggregate_range(grid_ci, at = "Country", by = "total",    write = FALSE) # by Total
-# aggregate_range(grid_ci, at = "Country", by = "endpoint", write = FALSE) # by endpoint
-# aggregate_range(grid_ci, at = "Country", by = "agegroup", write = FALSE) # by agegroup
-# aggregate_range(grid_ci, at = "Country", by = "all", write = FALSE) # by endpoint and agegroup
+# aggregate_range(grid_ci, at = "Country", by = "total", write = FALSE)
+# aggregate_range(grid_ci, at = "Country", by = "endpoint", write = FALSE)
+# aggregate_range(grid_ci, at = "Country", by = "agegroup", write = FALSE)
+# aggregate_range(grid_ci, at = "Country", by = "all", write = FALSE)
 
 ## Provincial (if available)----
-# aggregate_range(grid_ci, at = "Province", by = "total",    write = FALSE) # Total
-# aggregate_range(grid_ci, at = "Province", by = "endpoint", write = FALSE) # endpoint
-# aggregate_range(grid_ci, at = "Province", by = "agegroup", write = FALSE) # agegroup
-# aggregate_range(grid_ci, at = "Province", by = "all",      write = FALSE) # by endpoint and agegroup
+# aggregate_range(grid_ci, at = "Province", by = "total", write = FALSE)
+# aggregate_range(grid_ci, at = "Province", by = "endpoint", write = FALSE)
+# aggregate_range(grid_ci, at = "Province", by = "agegroup", write = FALSE)
+# aggregate_range(grid_ci, at = "Province", by = "all", write = FALSE)
 
-## Regional (if available)----
-# aggregate_range(grid_ci, at = "Region", by = "total",    write = FALSE) # Total
-# aggregate_range(grid_ci, at = "Region", by = "endpoint", write = FALSE) # endpoint
-# aggregate_range(grid_ci, at = "Region", by = "agegroup", write = FALSE) # agegroup
-# aggregate_range(grid_ci, at = "Region", by = "all",      write = FALSE) # by endpoint and agegroup
+# # Regional (if available)----
+# aggregate_range(grid_ci, at = "Region", by = "total", write = FALSE)
+# aggregate_range(grid_ci, at = "Region", by = "endpoint", write = FALSE)
+# aggregate_range(grid_ci, at = "Region", by = "agegroup", write = FALSE)
+# aggregate_range(grid_ci, at = "Region", by = "all", write = FALSE)
 
 ##  All geo levels and all group field at once ----
-# aggregate_range(grid_ci, at = "geo", by = "total", write = TRUE)
-# aggregate_range(grid_ci, at = "geo", by = "all", write = TRUE)
+# aggregate_range(grid_ci, at = "geo", by = "total", write = FALSE)
+# aggregate_range(grid_ci, at = "geo", by = "all", write = FALSE)
 
 # Uncertainty propagation algorithm ====
 # grid_mean <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "MEAN"))
