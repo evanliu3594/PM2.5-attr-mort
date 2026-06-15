@@ -4,7 +4,65 @@
 #   - detect_domain()  — auto-detect PWRR domain from MortRate × Grid_info overlap
 #   Modified 260610-260613: CI=RANGE mode (single-pass MEAN+UP+LOW), _MEAN/_UP/_LOW
 #     column suffixes, RR→CI rename, concentration clamping, auto domain detection,
-#     unified mort_data construction with pivot_branch().
+#     join_report() diagnostics with hierarchical NA reporting.
+
+# ── helpers ─────────────────────────────────────────────────────────────────────
+trunc_fmt <- function(x, n = 5) {
+  str_c(str_c(head(x, n), collapse = ", "), if (length(x) > n) " ..." else "")
+}
+
+# ── join_report ────────────────────────────────────────────────────────────────
+# left_join + hierarchical NA report.  breakdown = c(domain, endpoint, agegroup).
+# Reports: L1 = domain entirely missing → L2 = domain/endpoint missing → L3 = rest.
+join_report <- function(x, y, label, breakdown = NULL, relationship = NULL) {
+  by <- intersect(names(x), names(y))
+  new_cols <- setdiff(names(y), names(x))
+  x <- x |> mutate(.key_ok = rowSums(across(all_of(by), is.na)) == 0)
+  result <- left_join(x, y, by = by, relationship = relationship)
+  for (col in new_cols) {
+    na_rows <- result |> filter(.key_ok, is.na(.data[[col]]))
+    n_na <- nrow(na_rows)
+    if (n_na == 0) next
+    if (is.null(breakdown) || length(breakdown) < 2) {
+      log_msg(WARN, "{n_na} row(s) with NA in \"{col}\" after joining {label}. These rows will be dropped by na.omit.")
+      next
+    }
+    bd <- breakdown
+    matched <- result |> filter(.key_ok, !is.na(.data[[col]]))
+    # L1 — domains with zero matches
+    na_dom <- na_rows |> distinct(across(all_of(bd[1]))) |> pull(1)
+    ok_dom <- matched  |> distinct(across(all_of(bd[1]))) |> pull(1)
+    l1 <- setdiff(na_dom, ok_dom)
+    # L2 / L3 — partially-matching domains
+    partial <- intersect(na_dom, ok_dom)
+    if (length(partial) > 0 && length(bd) >= 3) {
+      ok_ep <- matched |> filter(.data[[bd[1]]] %in% partial) |> distinct(across(all_of(bd[1:2])))
+      na_ep <- na_rows |> filter(.data[[bd[1]]] %in% partial) |> distinct(across(all_of(bd)))
+      na_ep2 <- na_ep |> distinct(across(all_of(bd[1:2])))
+      l2 <- anti_join(na_ep2, ok_ep, by = bd[1:2])
+      l3 <- semi_join(na_ep, ok_ep, by = bd[1:2])
+    } else {
+      l2 <- tibble()
+      l3 <- na_rows |> filter(.data[[bd[1]]] %in% partial) |> distinct(across(all_of(bd)))
+    }
+    # format
+    l2_label <- str_c(str_c(bd[1:2], collapse = "/"), "(s) entirely missing")
+    l3_label <- str_c(str_c(bd, collapse = "/"), "(s) missing")
+    parts <- character()
+    if (length(l1) > 0)
+      parts <- c(parts, str_c(length(l1), " ", bd[1], "(s) entirely missing: ", trunc_fmt(l1)))
+    if (nrow(l2) > 0) {
+      s <- apply(l2, 1, str_c, collapse = "/")
+      parts <- c(parts, str_c(nrow(l2), " ", l2_label, ": ", trunc_fmt(s)))
+    }
+    if (nrow(l3) > 0) {
+      s <- apply(l3, 1, str_c, collapse = "/")
+      parts <- c(parts, str_c(nrow(l3), " ", l3_label, ": ", trunc_fmt(s)))
+    }
+    log_msg(WARN, "{n_na} row(s) with NA in \"{col}\" after joining {label}. ", str_c(parts, collapse = "; "))
+  }
+  result |> select(-.key_ok)
+}
 
 #' Calculate gridded PM2.5 attributed mortality
 #'
@@ -51,7 +109,6 @@ Mortality <- function(
   CI = "MEAN",
   domain = NULL
 ) {
-  # ---- Guard: input presence ----
   if (is.null(Conc_c)) {
     Conc_c <- Conc_r
   }
@@ -148,28 +205,43 @@ Mortality <- function(
 
   orphan_grids <- grid_xy |> anti_join(conc_xy, by = c("x", "y"))
   if (nrow(orphan_grids) > 0) {
+    orphan_conc_dom <- orphan_grids |>
+      left_join(Grids, by = c("x", "y")) |>
+      distinct(across(all_of(domain))) |>
+      pull(1)
     log_msg(
       WARN,
       nrow(orphan_grids),
-      " grid(s) in Grid_info have no matching concentration in Conc_r. ",
-      "They will be dropped by na.omit."
+      " grid(s) in Grid_info have no matching concentration in Conc_r ",
+      "({length(orphan_conc_dom)} domain(s): ", trunc_fmt(orphan_conc_dom),
+      "). They will be dropped by na.omit."
     )
   }
 
   orphan_pop <- grid_xy |> anti_join(pop_xy, by = c("x", "y"))
   if (nrow(orphan_pop) > 0) {
+    orphan_pop_dom <- orphan_pop |>
+      left_join(Grids, by = c("x", "y")) |>
+      distinct(across(all_of(domain))) |>
+      pull(1)
     log_msg(
       WARN,
       nrow(orphan_pop),
-      " grid(s) in Grid_info have no matching population in pop. ",
-      "They will be dropped by na.omit."
+      " grid(s) in Grid_info have no matching population in pop ",
+      "({length(orphan_pop_dom)} domain(s): ", trunc_fmt(orphan_pop_dom),
+      "). They will be dropped by na.omit."
     )
   }
 
   # ---- PWRR calculation (always uses MEAN RR) ----
   rr_for_pwr <- RR_all |> select(concentration, endpoint, agegroup, RR)
 
-  PWRR_pre <- list(Grids, Conc_r, pop, rr_for_pwr) |> reduce(left_join)
+  PWRR_pre <- Grids |>
+    left_join(Conc_r, by = c("x", "y")) |>
+    left_join(pop, by = c("x", "y")) |>
+    join_report(rr_for_pwr, "RR table (PWRR)",
+                breakdown = c(domain, "concentration"),
+                relationship = "many-to-many")
   n_before <- nrow(PWRR_pre)
   PWRR_data <- PWRR_pre |> na.omit()
   n_after <- nrow(PWRR_data)
@@ -203,9 +275,8 @@ Mortality <- function(
     summarise(PWRR = weighted.mean(RR, Pop, na.rm = TRUE), .groups = "drop")
 
   # ---- Guard: PWRR validity ----
-  if (
-    any(is.na(PWRR$PWRR)) || any(is.infinite(PWRR$PWRR)) || any(PWRR$PWRR < 1)
-  ) {
+  bad_pwrr <- is.na(PWRR$PWRR) | is.infinite(PWRR$PWRR) | PWRR$PWRR < 1
+  if (any(bad_pwrr)) {
     stop(
       "Invalid PWRR detected. ",
       if (any(is.na(PWRR$PWRR))) {
@@ -216,28 +287,29 @@ Mortality <- function(
         "Some domains have PWRR < 1 (RR cannot be < 1 for PM2.5). "
       },
       "Check concentration and population data for these domains: ",
-      paste(
-        PWRR[[domain]][
-          is.na(PWRR$PWRR) | is.infinite(PWRR$PWRR) | PWRR$PWRR < 1
-        ],
-        collapse = ", "
-      )
+      paste(PWRR[[domain]][bad_pwrr], collapse = ", ")
     )
   }
 
   # ---- Main mortality calculation ----
   rr_table <- RR_all
 
-  mort_data <- list(
-    Grids,
-    Conc_c,
-    pop,
-    rr_table,
-    mRate |> rename({{ domain }} := domain),
-    ag |> rename({{ domain }} := domain),
-    PWRR
-  ) |>
-    reduce(left_join) |>
+  mort_data <- Grids |>
+    left_join(Conc_c, by = c("x", "y")) |>
+    left_join(pop, by = c("x", "y")) |>
+    join_report(rr_table, "RR table", relationship = "many-to-many") |>
+    join_report(
+      mRate |> rename({{ domain }} := domain),
+      "mortality rate",
+      breakdown = c(domain, "endpoint", "agegroup")
+    ) |>
+    join_report(
+      ag |> rename({{ domain }} := domain),
+      "age structure",
+      breakdown = c(domain, "agegroup")
+    ) |>
+    join_report(PWRR, "PWRR",
+                breakdown = c(domain, "endpoint")) |>
     na.omit()
 
   if (nrow(mort_data) == 0) {
@@ -366,7 +438,7 @@ detect_domain <- function() {
 #' @export
 #'
 #' @examples
-#' grid_me <- Mortality_at(at = "base2015", CI = "MEAN")
+#' grid_mean <- Mortality_at(at = "base2015", CI = "MEAN")
 Mortality_at <- function(at, CI = "MEAN", domain = NULL) {
   if (is.null(domain)) {
     domain <- detect_domain()

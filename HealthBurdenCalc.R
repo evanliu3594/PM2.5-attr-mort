@@ -18,7 +18,7 @@
 #       update 220602: simplify code                                                   #
 #       *Add GEMM model support                                                        #
 #       *Add better uncertainty assessments and improved the result return             #
-#       update 260610: add custom CRF support                                         #
+#       update 260610: add custom CRF support                                          #
 #                                                                                      #
 #======================================================================================#
 
@@ -40,7 +40,7 @@ source('./Code/aggregation.R', encoding = 'UTF8')
 # this section used to choose C-R Model for Health Impact Calculation.
 # Supported C-R functions:
 #     'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'O3', 'NO2'
-set_Model('NCD+LRI')
+set_Model('MRBRT2021')
 
 # Data load ----
 
@@ -91,7 +91,7 @@ grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
 # aggregate_range(grid_ci, at = "Country", by = "agegroup", write = FALSE) # by agegroup
 # aggregate_range(grid_ci, at = "Country", by = "all", write = FALSE) # by endpoint and agegroup
 
-# Provincial (if available)----
+## Provincial (if available)----
 # aggregate_range(grid_ci, at = "Province", by = "total",    write = FALSE) # Total
 # aggregate_range(grid_ci, at = "Province", by = "endpoint", write = FALSE) # endpoint
 # aggregate_range(grid_ci, at = "Province", by = "agegroup", write = FALSE) # agegroup

@@ -132,6 +132,9 @@ set_Model <- function(Model, path = NULL) {
       '    "conc_col": "',
       conc_col,
       '",\n',
+      '    "lookup": "',
+      path,
+      '",\n',
       '    "endpoints": [\n',
       str_c(ep_entries, collapse = ",\n"),
       '\n',
@@ -198,36 +201,21 @@ set_Model <- function(Model, path = NULL) {
 #' @return A data frame in long format.
 #' @export
 RR_std <- function(custom_path = NULL) {
-  # Resolve lookup path
-  if (!is.null(custom_path)) {
-    lookup <- custom_path
-  } else {
-    cfg_path <- './Data/RR_std_config.json'
-    if (!file.exists(cfg_path)) {
-      stop("RR_std config not found: ", cfg_path)
-    }
-    cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
-    CR <- get(".CR_Model", envir = globalenv())
-    entry <- cfg_all[[CR]]
-    if (is.null(entry) && str_detect(CR, '^IER')) {
-      entry <- cfg_all[["IER"]]
-    }
-    if (is.null(entry) || is.null(entry$lookup)) {
-      stop("No lookup path for model \"", CR, "\" in ", cfg_path)
-    }
-    lookup <- entry$lookup
-  }
-
-  if (!file.exists(lookup)) {
-    stop("RR lookup table not found: ", lookup)
-  }
-
-  # Read standardisation config
+  # Read config once at the top
   cfg_path <- './Data/RR_std_config.json'
+  if (!file.exists(cfg_path)) stop("RR_std config not found: ", cfg_path)
   cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
   CR <- get(".CR_Model", envir = globalenv())
   cfg <- cfg_all[[CR]]
+  if (is.null(cfg) && str_detect(CR, '^IER')) cfg <- cfg_all[["IER"]]
+  if (is.null(cfg)) stop("No RR_std config for model \"", CR, "\" in ", cfg_path)
+
   conc_col <- cfg$conc_col %||% "concentration"
+
+  # Resolve lookup path
+  lookup <- if (!is.null(custom_path)) custom_path else cfg$lookup
+  if (is.null(lookup)) stop("No lookup path for model \"", CR, "\" in ", cfg_path)
+  if (!file.exists(lookup)) stop("RR lookup table not found: ", lookup)
 
   # Load all sheets, convert concentration column to string (matchable) for join
   sheets <- readxl::excel_sheets(lookup)
@@ -260,21 +248,23 @@ RR_std <- function(custom_path = NULL) {
       expand_grid(
         endpoint = ep$name,
         agegroup = ages,
-        concentration = conc_vals
-      )
+        .conc = conc_vals
+      ) |>
+        rename(!!conc_col := .conc)
     }) |>
       bind_rows() |>
-      left_join(RR_one, by = c("concentration", "endpoint", "agegroup")) |>
-      group_by(concentration, endpoint) |>
+      left_join(RR_one, by = c(conc_col, "endpoint", "agegroup")) |>
+      group_by(!!sym(conc_col), endpoint) |>
       fill(RR) |>
       ungroup() |>
       filter(agegroup != 'ALL') |>
       mutate(CI = ci)
   }) |>
     mutate(
-      concentration = matchable(as.numeric(concentration), 1),
+      !!sym(conc_col) := matchable(as.numeric(!!sym(conc_col)), 1),
       agegroup = matchable(as.numeric(agegroup), 0)
     ) |>
+    rename(concentration = !!sym(conc_col)) |>
     select(concentration, endpoint, agegroup, CI, RR)
 
   log_msg(INFO, "RR table built: {lookup} ({nrow(result)} rows)")
