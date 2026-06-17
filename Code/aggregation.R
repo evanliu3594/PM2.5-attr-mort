@@ -454,9 +454,11 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
     print(out)
   }
 
-  for (a in at_list) {
+  result_list <- lapply(at_list, function(a) {
     aggregate_one(at_val = a, by_val = by_val)
-  }
+  })
+  names(result_list) <- sapply(at_list, paste, collapse = "+")
+  invisible(result_list)
 }
 
 # Backward-compatible aliases

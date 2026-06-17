@@ -7,59 +7,104 @@
 #     join_report() diagnostics with hierarchical NA reporting.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
-trunc_fmt <- function(x, n = 5) {
+trunc_fmt <- function(x, n = 6) {
   str_c(str_c(head(x, n), collapse = ", "), if (length(x) > n) " ..." else "")
 }
 
 # ── join_report ────────────────────────────────────────────────────────────────
 # left_join + hierarchical NA report.  breakdown = c(domain, endpoint, agegroup).
 # Reports: L1 = domain entirely missing → L2 = domain/endpoint missing → L3 = rest.
-join_report <- function(x, y, label, breakdown = NULL, relationship = NULL) {
+join_report <- function(
+  x,
+  y,
+  label,
+  breakdown = NULL,
+  relationship = NULL,
+  verbose = FALSE,
+  debug = FALSE
+) {
   by <- intersect(names(x), names(y))
+
+  if (!debug) {
+    return(left_join(x, y, by = by, relationship = relationship))
+  }
+
   new_cols <- setdiff(names(y), names(x))
   x <- x |> mutate(.key_ok = rowSums(across(all_of(by), is.na)) == 0)
   result <- left_join(x, y, by = by, relationship = relationship)
+  show_n <- if (verbose) Inf else 6
   for (col in new_cols) {
     na_rows <- result |> filter(.key_ok, is.na(.data[[col]]))
     n_na <- nrow(na_rows)
-    if (n_na == 0) next
+    if (n_na == 0) {
+      next
+    }
     if (is.null(breakdown) || length(breakdown) < 2) {
-      log_msg(WARN, "{n_na} row(s) with NA in \"{col}\" after joining {label}. These rows will be dropped by na.omit.")
+      log_msg(
+        WARN,
+        "{n_na} row(s) with NA in \"{col}\" after joining {label}. These rows will be dropped by na.omit."
+      )
       next
     }
     bd <- breakdown
     matched <- result |> filter(.key_ok, !is.na(.data[[col]]))
     # L1 — domains with zero matches
     na_dom <- na_rows |> distinct(across(all_of(bd[1]))) |> pull(1)
-    ok_dom <- matched  |> distinct(across(all_of(bd[1]))) |> pull(1)
+    ok_dom <- matched |> distinct(across(all_of(bd[1]))) |> pull(1)
     l1 <- setdiff(na_dom, ok_dom)
     # L2 / L3 — partially-matching domains
     partial <- intersect(na_dom, ok_dom)
     if (length(partial) > 0 && length(bd) >= 3) {
-      ok_ep <- matched |> filter(.data[[bd[1]]] %in% partial) |> distinct(across(all_of(bd[1:2])))
-      na_ep <- na_rows |> filter(.data[[bd[1]]] %in% partial) |> distinct(across(all_of(bd)))
+      ok_ep <- matched |>
+        filter(.data[[bd[1]]] %in% partial) |>
+        distinct(across(all_of(bd[1:2])))
+      na_ep <- na_rows |>
+        filter(.data[[bd[1]]] %in% partial) |>
+        distinct(across(all_of(bd)))
       na_ep2 <- na_ep |> distinct(across(all_of(bd[1:2])))
       l2 <- anti_join(na_ep2, ok_ep, by = bd[1:2])
       l3 <- semi_join(na_ep, ok_ep, by = bd[1:2])
     } else {
       l2 <- tibble()
-      l3 <- na_rows |> filter(.data[[bd[1]]] %in% partial) |> distinct(across(all_of(bd)))
+      l3 <- na_rows |>
+        filter(.data[[bd[1]]] %in% partial) |>
+        distinct(across(all_of(bd)))
     }
     # format
     l2_label <- str_c(str_c(bd[1:2], collapse = "/"), "(s) entirely missing")
     l3_label <- str_c(str_c(bd, collapse = "/"), "(s) missing")
     parts <- character()
-    if (length(l1) > 0)
-      parts <- c(parts, str_c(length(l1), " ", bd[1], "(s) entirely missing: ", trunc_fmt(l1)))
+    if (length(l1) > 0) {
+      parts <- c(
+        parts,
+        str_c(
+          length(l1),
+          " ",
+          bd[1],
+          "(s) entirely missing: ",
+          trunc_fmt(l1, n = show_n)
+        )
+      )
+    }
     if (nrow(l2) > 0) {
       s <- apply(l2, 1, str_c, collapse = "/")
-      parts <- c(parts, str_c(nrow(l2), " ", l2_label, ": ", trunc_fmt(s)))
+      parts <- c(
+        parts,
+        str_c(nrow(l2), " ", l2_label, ": ", trunc_fmt(s, n = show_n))
+      )
     }
     if (nrow(l3) > 0) {
       s <- apply(l3, 1, str_c, collapse = "/")
-      parts <- c(parts, str_c(nrow(l3), " ", l3_label, ": ", trunc_fmt(s)))
+      parts <- c(
+        parts,
+        str_c(nrow(l3), " ", l3_label, ": ", trunc_fmt(s, n = show_n))
+      )
     }
-    log_msg(WARN, "{n_na} row(s) with NA in \"{col}\" after joining {label}. ", str_c(parts, collapse = "; "))
+    log_msg(
+      WARN,
+      "{n_na} row(s) with NA in \"{col}\" after joining {label}. ",
+      str_c(parts, collapse = "; ")
+    )
   }
   result |> select(-.key_ok)
 }
@@ -107,8 +152,11 @@ Mortality <- function(
   mRate,
   pop,
   CI = "MEAN",
-  domain = NULL
+  domain = NULL,
+  verbose = FALSE,
+  debug = FALSE
 ) {
+  show_n <- if (verbose) Inf else 6
   if (is.null(Conc_c)) {
     Conc_c <- Conc_r
   }
@@ -213,7 +261,8 @@ Mortality <- function(
       WARN,
       nrow(orphan_grids),
       " grid(s) in Grid_info have no matching concentration in Conc_r ",
-      "({length(orphan_conc_dom)} domain(s): ", trunc_fmt(orphan_conc_dom),
+      "({length(orphan_conc_dom)} domain(s): ",
+      trunc_fmt(orphan_conc_dom, n = show_n),
       "). They will be dropped by na.omit."
     )
   }
@@ -228,7 +277,8 @@ Mortality <- function(
       WARN,
       nrow(orphan_pop),
       " grid(s) in Grid_info have no matching population in pop ",
-      "({length(orphan_pop_dom)} domain(s): ", trunc_fmt(orphan_pop_dom),
+      "({length(orphan_pop_dom)} domain(s): ",
+      trunc_fmt(orphan_pop_dom, n = show_n),
       "). They will be dropped by na.omit."
     )
   }
@@ -239,9 +289,14 @@ Mortality <- function(
   PWRR_pre <- Grids |>
     left_join(Conc_r, by = c("x", "y")) |>
     left_join(pop, by = c("x", "y")) |>
-    join_report(rr_for_pwr, "RR table (PWRR)",
-                breakdown = c(domain, "concentration"),
-                relationship = "many-to-many")
+    join_report(
+      rr_for_pwr,
+      "RR table (PWRR)",
+      breakdown = c(domain, "concentration"),
+      relationship = "many-to-many",
+      verbose = verbose,
+      debug = debug
+    )
   n_before <- nrow(PWRR_pre)
   PWRR_data <- PWRR_pre |> na.omit()
   n_after <- nrow(PWRR_data)
@@ -275,19 +330,42 @@ Mortality <- function(
     summarise(PWRR = weighted.mean(RR, Pop, na.rm = TRUE), .groups = "drop")
 
   # ---- Guard: PWRR validity ----
-  bad_pwrr <- is.na(PWRR$PWRR) | is.infinite(PWRR$PWRR) | PWRR$PWRR < 1
-  if (any(bad_pwrr)) {
+  # Phase 1: hard errors for genuinely invalid PWRR values
+  bad_inf <- is.infinite(PWRR$PWRR)
+  bad_lt1 <- PWRR$PWRR < 1 & !is.na(PWRR$PWRR)
+  if (any(bad_inf) || any(bad_lt1)) {
     stop(
       "Invalid PWRR detected. ",
-      if (any(is.na(PWRR$PWRR))) {
-        "Some domains have NA PWRR (no valid grids after na.omit). "
-      },
-      if (any(is.infinite(PWRR$PWRR))) "Some domains have Inf PWRR. ",
-      if (any(PWRR$PWRR < 1)) {
+      if (any(bad_inf)) "Some domains have Inf PWRR. ",
+      if (any(bad_lt1)) {
         "Some domains have PWRR < 1 (RR cannot be < 1 for PM2.5). "
       },
       "Check concentration and population data for these domains: ",
-      paste(PWRR[[domain]][bad_pwrr], collapse = ", ")
+      paste(PWRR[[domain]][bad_inf | bad_lt1], collapse = ", ")
+    )
+  }
+
+  # Phase 2: domains with NA PWRR have no valid grids after na.omit
+  # (expected for remote territories with no PM2.5/population data).
+  # Warn and remove them so the main calculation can proceed.
+  na_pwrr <- is.na(PWRR$PWRR)
+  if (any(na_pwrr)) {
+    skipped <- PWRR[[domain]][na_pwrr]
+    log_msg(
+      WARN,
+      "{length(skipped)} domain(s) have no valid grids after na.omit ",
+      "(no PM2.5 or population data in these regions). ",
+      "They will be excluded from the calculation: ",
+      trunc_fmt(skipped, n = show_n)
+    )
+    PWRR <- PWRR |> filter(!na_pwrr)
+  }
+
+  if (nrow(PWRR) == 0) {
+    stop(
+      "PWRR step: all domains dropped. ",
+      "Check that concentration values fall within the RR lookup table range, ",
+      "and that Grid_info, Conc_r, and pop share common (x, y) coordinates."
     )
   }
 
@@ -297,19 +375,34 @@ Mortality <- function(
   mort_data <- Grids |>
     left_join(Conc_c, by = c("x", "y")) |>
     left_join(pop, by = c("x", "y")) |>
-    join_report(rr_table, "RR table", relationship = "many-to-many") |>
+    join_report(
+      rr_table,
+      "RR table",
+      relationship = "many-to-many",
+      verbose = verbose,
+      debug = debug
+    ) |>
     join_report(
       mRate |> rename({{ domain }} := domain),
       "mortality rate",
-      breakdown = c(domain, "endpoint", "agegroup")
+      breakdown = c(domain, "endpoint", "agegroup"),
+      verbose = verbose,
+      debug = debug
     ) |>
     join_report(
       ag |> rename({{ domain }} := domain),
       "age structure",
-      breakdown = c(domain, "agegroup")
+      breakdown = c(domain, "agegroup"),
+      verbose = verbose,
+      debug = debug
     ) |>
-    join_report(PWRR, "PWRR",
-                breakdown = c(domain, "endpoint")) |>
+    join_report(
+      PWRR,
+      "PWRR",
+      breakdown = c(domain, "endpoint"),
+      verbose = verbose,
+      debug = debug
+    ) |>
     na.omit()
 
   if (nrow(mort_data) == 0) {
@@ -439,7 +532,7 @@ detect_domain <- function() {
 #'
 #' @examples
 #' grid_mean <- Mortality_at(at = "base2015", CI = "MEAN")
-Mortality_at <- function(at, CI = "MEAN", domain = NULL) {
+Mortality_at <- function(at, CI = "MEAN", domain = NULL, verbose = FALSE, debug = FALSE) {
   if (is.null(domain)) {
     domain <- detect_domain()
   }
@@ -451,6 +544,8 @@ Mortality_at <- function(at, CI = "MEAN", domain = NULL) {
     ag = getAgeGroup(at),
     mRate = getMortRate(at),
     CI = CI,
-    domain = domain
+    domain = domain,
+    verbose = verbose,
+    debug = debug
   )
 }

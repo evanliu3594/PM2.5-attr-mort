@@ -119,7 +119,7 @@ read_files <- function(
   Grids,
   Pop,
   Conc_real,
-  Conc_cf,
+  Conc_cf = NULL,
   MortRate,
   AgeGroup,
   dgt_grid = 2,
@@ -142,6 +142,9 @@ read_files <- function(
     }
   }
 
+  # Accepted column name variants for domain (normalized to "domain" below)
+  domain_candidates <- c("Country", "country", "location", "Location")
+
   fuse_read <- function(filename) {
     if (str_detect(filename, 'csv$')) {
       read_csv(filename)
@@ -152,7 +155,7 @@ read_files <- function(
 
   grid_df <- fuse_read(Grids) |>
     normalize_coords() |>
-    mutate(across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)))
+    mutate(across(any_of(c("x", "y")), ~ matchable(as.numeric(.x), dgt = dgt_grid)))
 
   if (!all(c("x", "y") %in% names(grid_df))) {
     stop(
@@ -166,7 +169,7 @@ read_files <- function(
 
   pop_df <- fuse_read(Pop) |>
     normalize_coords() |>
-    mutate(across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)))
+    mutate(across(any_of(c("x", "y")), ~ matchable(as.numeric(.x), dgt = dgt_grid)))
 
   if (!all(c("x", "y") %in% names(pop_df))) {
     stop(
@@ -181,7 +184,7 @@ read_files <- function(
   conc_real_df <- fuse_read(Conc_real) |>
     normalize_coords() |>
     mutate(
-      across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)),
+      across(any_of(c("x", "y")), ~ matchable(as.numeric(.x), dgt = dgt_grid)),
       across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
     )
 
@@ -197,11 +200,11 @@ read_files <- function(
 
   # Specify UNREAL PM2.5 data, used for only counter-fact scenario.
 
-  if (file.exists(Conc_cf)) {
+  if (!is.null(Conc_cf) && file.exists(Conc_cf)) {
     conc_cf_df <- fuse_read(Conc_cf) |>
       normalize_coords() |>
       mutate(
-        across(where(is.numeric) & x:y, ~ matchable(.x, dgt = dgt_grid)),
+        across(any_of(c("x", "y")), ~ matchable(as.numeric(.x), dgt = dgt_grid)),
         across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
       )
     if (!all(c("x", "y") %in% names(conc_cf_df))) {
@@ -226,6 +229,13 @@ read_files <- function(
   }
 
   mort_rate_raw <- fuse_read(MortRate)
+
+  # Normalize domain column name (see domain_candidates above)
+  found_domain <- intersect(domain_candidates, names(mort_rate_raw))[1]
+  if (!is.na(found_domain) && !"domain" %in% names(mort_rate_raw)) {
+    mort_rate_raw <- mort_rate_raw |> rename(domain = !!found_domain)
+  }
+
   if (!all(c("domain", "endpoint", "agegroup") %in% names(mort_rate_raw))) {
     stop(
       "MortRate must contain columns \"domain\", \"endpoint\", \"agegroup\". Found: ",
@@ -241,6 +251,13 @@ read_files <- function(
   )
 
   age_group_raw <- fuse_read(AgeGroup)
+
+  # Normalize domain column name (same logic as MortRate above)
+  found_domain_ag <- intersect(domain_candidates, names(age_group_raw))[1]
+  if (!is.na(found_domain_ag) && !"domain" %in% names(age_group_raw)) {
+    age_group_raw <- age_group_raw |> rename(domain = !!found_domain_ag)
+  }
+
   if (!all(c("domain", "agegroup") %in% names(age_group_raw))) {
     stop(
       "AgeGroup must contain columns \"domain\", \"agegroup\". Found: ",
