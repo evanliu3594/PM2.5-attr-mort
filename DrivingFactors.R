@@ -1,6 +1,5 @@
 #====================================================#
 # retrieve driving forces to the PM2.5 health burden #
-#                         Depending: Core-V220603    #
 #====================================================#
 
 # Core Module Load ----
@@ -27,7 +26,7 @@ read_files(
   Grids = './Data/Grid_info_instance_260617.xlsx',
   Pop = './Data/GridPop_instance_260617.xlsx',
   Conc_real = './Data/GridPM25_instance_260617.xlsx',
-  Conc_cf = './Data/GridPM25_cf_instance_260325.xlsx', # PM_cf works only in counter-fact scenario
+  Conc_cf = './Data/GridPM25_cf_instance_260325.xlsx', # Conc_cf works only in counter-fact scenario
   MortRate = "./Data/GBD_mortality_instance_260617.xlsx",
   AgeGroup = './Data/GBD_agestructure_instance_260617.xlsx'
 )
@@ -282,19 +281,35 @@ Decomposition <- function(serie, start.y, end.y) {
   {
     cat(str_c('Drivers Between ', start.y, ' and ', end.y, ':\n'))
     cat(
-      str_c(serie.step[1], ':\t', sum(Decomp[[serie.step[1]]] |> sum() |> round())),
+      str_c(
+        serie.step[1],
+        ':\t',
+        sum(Decomp[[serie.step[1]]] |> sum() |> round())
+      ),
       '\n'
     )
     cat(
-      str_c(serie.step[2], ':\t', sum(Decomp[[serie.step[2]]] |> sum() |> round())),
+      str_c(
+        serie.step[2],
+        ':\t',
+        sum(Decomp[[serie.step[2]]] |> sum() |> round())
+      ),
       '\n'
     )
     cat(
-      str_c(serie.step[3], ':\t', sum(Decomp[[serie.step[3]]] |> sum() |> round())),
+      str_c(
+        serie.step[3],
+        ':\t',
+        sum(Decomp[[serie.step[3]]] |> sum() |> round())
+      ),
       '\n'
     )
     cat(
-      str_c(serie.step[4], ':\t', sum(Decomp[[serie.step[4]]] |> sum() |> round())),
+      str_c(
+        serie.step[4],
+        ':\t',
+        sum(Decomp[[serie.step[4]]] |> sum() |> round())
+      ),
       '\n'
     )
   }

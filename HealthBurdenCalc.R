@@ -19,11 +19,12 @@
 #       *Add GEMM model support                                                        #
 #       *Add better uncertainty assessments and improved the result return             #
 #       update 260610: add custom CRF support                                          #
+#       update 260618: modular engine refactor, verbose/debug params                   #
 #                                                                                      #
 #======================================================================================#
 
 # Install dependencies (run once) ----
-# install.packages(c("tidyverse", "jsonlite", "writexl", "readxl", "stars"))
+# install.packages(c("tidyverse", "jsonlite", "writexl", "readxl"))
 
 # Core functions load ----
 

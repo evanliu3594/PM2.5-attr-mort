@@ -2,9 +2,9 @@
 #   - Mortality()      — core formula: Mort = Pop × AgeStruc × MortRate × (RR−1) / PWRR
 #   - Mortality_at()   — convenience wrapper for a given year/scenario
 #   - detect_domain()  — auto-detect PWRR domain from MortRate × Grid_info overlap
-#   Modified 260610-260613: CI=RANGE mode (single-pass MEAN+UP+LOW), _MEAN/_UP/_LOW
-#     column suffixes, RR→CI rename, concentration clamping, auto domain detection,
-#     join_report() diagnostics with hierarchical NA reporting.
+#   - join_report()    — left_join with optional hierarchical NA diagnostic report
+#   Modified 260618: three-phase PWRR guard (Inf/<1→stop, NA→skip, all-dropped→stop),
+#     verbose/debug parameters, trunc_fmt accepts n=Inf for unbounded output.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -131,19 +131,19 @@ join_report <- function(
 #' Compared to the standard grid-level PAF `(RR_g−1)/RR_g`, which implies I_0 = MortRate/RR_g
 #' (varying per grid), the PWRR approach gives a physically consistent I_0 within each domain.
 #'
-#' @param Grids a vector of grid coords
-#' @param Conc_r a 3-column `data.frame` stores real PM2.5 concentration of each grid, used for PWRR calculation
-#' @param Conc_c a 3-column `data.frame` stores counterfactual PM2.5 concentration of each grid, used for the RR numerator. Defaults to Conc_r
-#' @param ag proportions of 20 age-groups inside the population structure
-#' @param mRate the domain-level baseline mortality rates per endpoint and age group
-#' @param pop a 3-column dataframe stores population volume of each grid
-#' @param CI RR branch: "MEAN" (default), "UP", "LOW", or "RANGE"
-#' @param domain the spatial aggregation level (e.g., "Country", "Province") for PWRR computation
+#' @param Grids grid information data frame with x, y, and domain columns
+#' @param Conc_r data frame with columns x, y, concentration — real PM2.5, used for PWRR calculation
+#' @param Conc_c data frame with columns x, y, concentration — counterfactual PM2.5 for the RR numerator. Defaults to \code{Conc_r}.
+#' @param ag age structure proportions by domain and age group
+#' @param mRate baseline mortality rates by domain, endpoint, and age group
+#' @param pop population counts by grid (columns x, y, Pop)
+#' @param CI RR branch: \code{"MEAN"} (default), \code{"UP"}, \code{"LOW"}, or \code{"RANGE"}
+#' @param domain spatial aggregation column name (e.g. \code{"Country"}). Auto-detected when \code{NULL}.
+#' @param verbose when \code{FALSE} (default), truncate domain names in warnings to 6; \code{TRUE} shows all
+#' @param debug when \code{FALSE} (default), use plain \code{left_join}; \code{TRUE} enables \code{join_report()} NA diagnostics
 #'
-#' @return When CI is "MEAN"/"UP"/"LOW", a wide table of death estimates per endpoint-agegroup per grid.
-#'   When CI is "RANGE", the table also includes _UP and _LOW suffixed columns for the 95% CI bounds.
-#'
-#' @examples
+#' @return Wide data frame with one column per endpoint–agegroup–CI combination per grid cell.
+#'   When \code{CI = "RANGE"}, columns are suffixed \verb{_MEAN}, \verb{_UP}, \verb{_LOW}.
 Mortality <- function(
   Grids,
   Conc_r,
@@ -457,8 +457,14 @@ Mortality <- function(
 }
 
 
-# Auto-detect the PWRR domain by matching MortRate domain values against
-# Grid_info columns. Returns the Grid_info column with the best overlap.
+#' Auto-detect the PWRR domain column
+#'
+#' Matches unique values in MortRate domain columns against Grid_info
+#' non-coordinate columns. Returns the Grid_info column with the most
+#' overlapping unique values.
+#'
+#' @return character, the name of the best-matching Grid_info column
+#' @keywords internal
 detect_domain <- function() {
   # Try each MortRate column against each Grid_info non-coordinate column.
   # Pick the pair with the most overlapping unique values.
@@ -524,8 +530,10 @@ detect_domain <- function() {
 #'
 #' @param at year/scenario
 #' @param CI RR branch: \code{"MEAN"} (default), \code{"UP"}, \code{"LOW"}, or \code{"RANGE"}
-#' @param domain grid domain. Auto-detected from Grid_info and MortRate
+#' @param domain grid domain column. Auto-detected from Grid_info and MortRate
 #'   overlap when \code{NULL} (default).
+#' @param verbose when \code{FALSE} (default), truncate domain names in warnings to 6; \code{TRUE} shows all
+#' @param debug when \code{FALSE} (default), use plain \code{left_join}; \code{TRUE} enables \code{join_report()} diagnostics
 #'
 #' @return data frame of grid-level mortality estimates
 #' @export

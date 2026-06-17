@@ -334,14 +334,15 @@ aggregate_sigma <- function(
 #' @param write If \code{FALSE}, no output written. If \code{TRUE}, writes to
 #'   \code{./Result/}.
 #'
-#' @return A data frame with one row per \code{at} × \code{by} combination,
-#'   and one column per scenario × CI branch.
+#' @return A named list of data frames, one per \code{at} value.
+#'   Each data frame has one row per \code{at} × \code{by} combination
+#'   and one column per scenario × CI branch. Use \code{pluck()} to extract.
 #'
 #' @export
 #'
 #' @examples
 #' grid_ci <- Mortality_at(at = "base2015", CI = "RANGE", domain = "Country")
-#' all <- aggregate_range(grid_ci, at = "Country", by = "total")
+#' result <- aggregate_range(grid_ci, at = "Country", by = "total")
 # Dispatch: resolve at → at_list, aggregate each combo.
 aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
   if (is.data.frame(x)) {

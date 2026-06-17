@@ -2,8 +2,8 @@
 #   - matchable(), normalize_coords()  — coordinate & numeric normalisation
 #   - read_files()                     — load all input data to global env
 #   - getMortRate(), getConc_real(), getConc_cf(), getPop(), getAgeGroup() — accessors
-#   Modified 260610-260613: concentration clamping, auto-detect PWRR domain,
-#     coordinate overlap checks, GEMM lookup table update, fix scoping issues.
+#   Modified 260618: type-agnostic coordinate matching (any_of + as.numeric),
+#     Conc_cf defaults to NULL, domain column auto-normalisation (Country→domain).
 
 # Standardised RR lookup table (built by set_Model() via RR_std(), read by Mortality/Uncertainty)
 .RR_std_tbl <- NULL
@@ -100,21 +100,25 @@ normalize_coords <- function(df) {
   return(df)
 }
 
-#' dataload module for calculation
+#' Load all input data into the global environment
 #'
-#' @param Grids path to grid information
-#' @param Pop path to population
-#' @param Conc_real path to real concentration
-#' @param Conc_cf path to counter-fact concentration
-#' @param MortRate path to mortality rate
-#' @param AgeGroup path to population age structure
-#' @param dgt_grid int, digit of map grids
-#' @param dgt_conc int, digit of concentrations, by default `1`
+#' Reads gridded (Grid_info, Pop, Conc_real, Conc_cf) and domain-level
+#' (MortRate, AgeGroup) Excel/CSV files, normalises coordinate and domain
+#' column names, converts join keys to matchable strings, and assigns the
+#' resulting data frames to \code{globalenv()}.
+#'
+#' @param Grids path to grid information (.xlsx or .csv)
+#' @param Pop path to population (.xlsx or .csv)
+#' @param Conc_real path to real concentration (.xlsx or .csv)
+#' @param Conc_cf path to counter-fact concentration (.xlsx or .csv).
+#'   Default \code{NULL} — counterfactual scenarios fall back to Conc_real.
+#' @param MortRate path to mortality rate (.xlsx or .csv)
+#' @param AgeGroup path to population age structure (.xlsx or .csv)
+#' @param dgt_grid int, digit of map grid coordinates (default 2)
+#' @param dgt_conc int, digit of concentrations (default 1)
 #'
 #' @return assign data to global env.
 #' @export
-#'
-#' @examples
 read_files <- function(
   Grids,
   Pop,
@@ -329,8 +333,6 @@ read_files <- function(
 #' @param at the year/scenario name to choose
 #'
 #' @return data.frame with columns: domain, endpoint, agegroup, MortRate
-#'
-#' @examples
 getMortRate <- function(at) {
   #  Guard: MortRate loaded
   if (!exists('MortRate', envir = globalenv())) {
