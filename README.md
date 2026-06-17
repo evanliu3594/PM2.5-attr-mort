@@ -1,5 +1,5 @@
 # Genre
-This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions across China. Theoretically, it also applies to other regions with corresponding population, pollution, and baseline mortality data.
+This project records my up-to-date progress in assessing the PM<sub>2.5</sub> health burden according to PM<sub>2.5</sub> pollutions. The framework is global-scale and applies to any region with corresponding population, pollution, and baseline mortality data.
 
 P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mortality**
 
@@ -14,21 +14,68 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 
 # Usage
 
+## Quick start
+
 1. Clone the repo and open `PM25-attr-mort.Rproj` in RStudio.
 
-2. Replace the sample data in `./Data/` with your own. Each file must follow the column format below. Coordinate columns accept any case variant of `x`/`lon`/`long`/`longitude` and `y`/`lat`/`latitude`.
+2. **Generate instance data** from raw sources (one-time setup):
+
+   Edit the CONFIG section in `build_instance.R`, then source it:
+
+   ```r
+   source('build_instance.R')
+   ```
+
+   This produces five standardised `.xlsx` files under `./Data/`:
+   | Output file | Content |
+   |---|---|
+   | `Grid_info_instance_*.xlsx` | Grid coordinates (`x`, `y`) with `Country` column |
+   | `GridPM25_instance_*.xlsx` | Grid-level annual-average PM<sub>2.5</sub> (µg/m³) per scenario |
+   | `GridPop_instance_*.xlsx` | Grid-level population counts per scenario |
+   | `GBD_mortality_instance_*.xlsx` | Baseline mortality rate (deaths per 100,000) by country, endpoint, and age group |
+   | `GBD_agestructure_instance_*.xlsx` | Proportion of population in each age group by country |
+
+3. Choose a C-R model and run the calculation — open `HealthBurdenCalc.R` and step through:
+
+   ```r
+   set_Model('NCD+LRI')     # or '5COD', 'IER', 'MRBRT', 'O3', 'NO2'
+
+   read_files(
+     Grids     = './Data/Grid_info_instance_260617.xlsx',
+     Pop       = './Data/GridPop_instance_260617.xlsx',
+     Conc_real = './Data/GridPM25_instance_260617.xlsx',
+     # Conc_cf = './Data/GridPM25_cf_instance_*.xlsx',  # omit for absolute burden
+     MortRate  = './Data/GBD_mortality_instance_260617.xlsx',
+     AgeGroup  = './Data/GBD_agestructure_instance_260617.xlsx',
+     dgt_grid  = 2
+   )
+
+   scenarios <- names(Conc_real)[c(-1:-2)]
+
+   # Grid-level mortality with 95% CI (single-pass MEAN + UP + LOW)
+   grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
+
+   # Aggregate by country and endpoint
+   aggregate_range(grid_ci, at = "Country", by = "endpoint", write = TRUE)
+   ```
+
+4. **Decomposition analysis** — `source('DrivingFactors.R')` to attribute mortality changes to Population Growth, Population Aging, Exposure change, and Other Risk Factors.
+
+## Instance file format reference
+
+If you prepare instance files manually (without `build_instance.R`), each file must follow the column format below. Coordinate columns accept any case variant of `x`/`lon`/`long`/`longitude` and `y`/`lat`/`latitude`. Domain columns accept `Country`/`country`/`location`/`Location` (auto-normalised to `domain` internally).
 
 | File | Required columns | Content |
 |------|-----------------|---------|
-| **GRID_information** | `x`, `y`, plus geographic domain columns (e.g. `Country`, `Province`, `Region`) | Coordinate and hierarchical region assignment of each grid cell |
-| **GridPop** | `x`, `y`, plus year/scenario columns (e.g. `base2015`, `SSP1_2030`) | Grid-level population counts |
+| **Grid_info** | `x`, `y`, plus geographic domain columns (e.g. `Country`, `Province`, `Region`) | Coordinate and hierarchical region assignment of each grid cell |
+| **GridPop** | `x`, `y`, plus year/scenario columns (e.g. `base2015`, `SSP1-Baseline_2030`) | Grid-level population counts |
 | **GridPM25** | `x`, `y`, plus year/scenario columns | Grid-level annual-average PM<sub>2.5</sub> concentration (µg/m³) |
-| **GridPM25_cf** _(optional)_ | same as GridPM25 | Counterfactual PM<sub>2.5</sub> for policy scenario; if absent, falls back to GridPM25 |
-| **GBD_mortality** | `domain`, `endpoint`, `agegroup`, plus year/scenario columns | Baseline mortality rate (deaths per 100,000) by region, disease, and age group |
-| **GBD_agestructure** | `domain`, `agegroup`, plus year/scenario columns | Proportion of population in each age group by region |
-| **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. See `Code/DataPrepare/Concentration_Response.R` to regenerate. |
+| **GridPM25_cf** _(optional)_ | same as GridPM25 | Counterfactual PM<sub>2.5</sub>; omit `Conc_cf` argument for absolute burden mode |
+| **GBD_mortality** | `Country` _(or `domain`)_, `endpoint`, `agegroup`, plus year/scenario columns | Baseline mortality rate (deaths per 100,000) by region, disease, and age group |
+| **GBD_agestructure** | `Country` _(or `domain`)_, `agegroup`, plus year/scenario columns | Proportion of population in each age group by region |
+| **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. Regenerate via `Code/build_CR.R`. |
 
-All gridded files must share the same `(x, y)` precision (controlled by `dgt_grid` in `read_files()`). Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`.
+All gridded files must share the same `(x, y)` coordinate system. `read_files()` normalises coordinates to `matchable(dgt_grid)` precision regardless of whether they are stored as numeric or text. Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`.
 
 ### Data flow — how sources are joined inside `Mortality()`
 
@@ -36,7 +83,7 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
  ┌─────────────────────────────────────────────────────────────────────────────┐
  │                         INPUT DATA (6 sources)                              │
  ├─────────────────────────┬─────────────────────────┬─────────────────────────┤
- │  GRID_information       │  GridPop                │  GridPM25               │
+ │  Grid_info              │  GridPop                │  GridPM25               │
  │  x │ y │ Country │ ...  │  x │ y │ base2015 │ ... │  x │ y │ base2015 │ ... │
  └────┬────────────────────┴────┬────────────────────┴────┬────────────────────┘
       │                         │                         │
@@ -44,7 +91,7 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
       │  → "113.25"             │  → "113.25"             │  → "36.8"
       │                         │                         │
       │                         │  getPop(at)             │  getConc_real(at)
-      │                         │  select(x, y,           │  select(x, y, 
+      │                         │  select(x, y,           │  select(x, y,
       │                         │         Pop = base2015) │         concentration = base2015)
       │                         │                         │
       ▼                         ▼                         ▼
@@ -72,7 +119,7 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
  │   └─────────────┘        └──────────────────────────────────────────┘ │
  │                                                                       │
  │   conc_col config → read from xlsx; output always "concentration"     │
- │   CI column ∈ {MEAN, UP, LOW}; Mortality() pivots/filters as need     │
+ │   CI column ∈ {MEAN, UP, LOW}; Mortality() pivots/filters as needed   │
  └────────────────────────────┬──────────────────────────────────────────┘
                               │
      PWRR = weighted.mean(RR, Pop)  ←── grouped by domain (Country)
@@ -122,64 +169,56 @@ All gridded files must share the same `(x, y)` precision (controlled by `dgt_gri
 
 All join keys are **strings** (not floats) to avoid floating-point mismatch. The `matchable()` helper does `round(dgt) |> as.character()`.
 
-Specify filenames in `read_files()` within `HealthBurdenCalc.R`.
+### C-R model configuration
 
-3. Choose the C-R model with `set_Model()` and adjust file paths in `read_files()`:
+```r
+# Built-in models — lookup path and endpoint/agegroup config read from RR_std_config.json
+set_Model('IER')         # IER2017
+set_Model('NCD+LRI')     # GEMM NCD+LRI (composite endpoint)
+set_Model('5COD')        # GEMM 5-COD (individual endpoints)
+set_Model('MRBRT')       # MRBRT 2021
+set_Model('O3')          # Ozone (COPD only)
+set_Model('NO2')         # NO2 (all-cause)
 
-    ```r
-    # Built-in models — lookup path and endpoint/agegroup config read from RR_std_config.json
-    set_Model('IER')
-    set_Model('NCD+LRI')
-    set_Model('5COD')
-    set_Model('MRBRT')
-    set_Model('O3')
-    set_Model('NO2')
+# Custom RR lookup table — auto-generates endpoint/agegroup config and appends to JSON
+set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")
+```
 
-    # Custom RR lookup table — auto-generates endpoint/agegroup config and appends to JSON
-    set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")
-    
-    # → previews config, auto-appends to Data/RR_std_config.json
-    # → if only {endpoint}_ALL columns exist, auto-generates default ages 0–95
-    # → open "./Data/RR_std_config.json" and manually configure if needed.
+All model configuration is driven by `Data/RR_std_config.json`.
 
-    # Then load data
-    read_files(Grids = "...", Pop = "...", Conc_real = "...", ...)
-    ```
+### Diagnostic parameters
 
-    All model configuration is driven by `Data/RR_std_config.json` — concentration column name, labels, RR lookup paths, endpoint lists, and age groups. Adding a model only requires editing this file.
+`Mortality_at()` accepts two optional parameters for debugging:
 
-4. Compute and aggregate:
+```r
+# Default (production): fast path, compact warnings
+Mortality_at(at = "base2015", CI = "RANGE")
 
-    ```r
-    # Grid-level mortality with 95% CI
-    grid_ci <- scenarios |>
-      set_names() |>
-      map(~ Mortality_at(at = .x, CI = "RANGE"))
+# Diagnostic mode: full NA reports + all domain names
+Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
+```
 
-    # `by` must be one of: "total" (Total only), "endpoint", "agegroup",
-    # or "all" (endpoint and agegroup together in a single pass).
-
-    # One-shot aggregation: geo=all levels, by=endpoint×agegroup simultaneously
-    aggregate_range(grid_ci, at = "geo", by = "all", write = FALSE)
-
-    # Or pick specific levels:
-    # aggregate_range(grid_ci, at = "Country",   by = "endpoint", write = TRUE)
-    # aggregate_range(grid_ci, at = "Province",  by = "agegroup", write = TRUE)
-    # aggregate_range(grid_ci, at = c("x","y"),  by = "total",    write = TRUE)  # grid-level
-    ```
+| Parameter | Default | Effect |
+|-----------|---------|--------|
+| `debug` | `FALSE` | `FALSE` = plain `left_join` (fast); `TRUE` = `join_report()` hierarchical NA diagnostics |
+| `verbose` | `FALSE` | `FALSE` = truncate domain names to 6 in warnings; `TRUE` = show all |
 
 # Release notes
 
 ## v5.0 (current)
-- **RR-substitution CI95**: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass; `CI = "MEAN"/"UP"/"LOW"` for single branches, all with column suffixes
-- **JSON-driven CR configuration**: `Data/RR_std_config.json` defines concentration column name (`conc_col`), endpoints, age groups, lookup paths, and output labels per model; `RR_std()` auto-reads it
-- **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table and appends to the JSON file
+- **Automated data preprocessing**: `build_instance.R` resamples all rasters to a common template grid, matches IHME country names via `llmjoin`, and produces five standardised instance files — replacing the old fishnet-based workflow
+- **No fishnet dependency**: grid cells are matched by XY coordinates directly; geographic domains come from `terra::rasterize()` of Natural Earth polygons
+- **PWRR three-phase guard**: Inf / <1 → hard error; NA → warn + auto-skip (remote territories); all-dropped → safeguard stop
+- **`verbose` / `debug` parameters**: control warning verbosity and join diagnostics; both default to `FALSE` for production use
+- **Type-agnostic coordinate matching**: `read_files()` handles both numeric and character `x`/`y` columns uniformly via `as.numeric()` + `any_of()`
+- **Optional `Conc_cf`**: `read_files(Conc_cf)` defaults to `NULL`; omit for absolute burden mode
+- **RR-substitution CI95**: `Mortality(CI = "RANGE")` computes MEAN/UP/LOW in a single pass
+- **JSON-driven CR configuration**: `Data/RR_std_config.json` defines concentration column name, endpoints, age groups, lookup paths, and labels
+- **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table
 - **Auto PWRR domain detection**: `detect_domain()` matches mortality data domains against Grid_info columns
-- **`aggregate_range()`**: RR-substitution CI aggregation with `at` (grid/geo/Country/Province/x/y) and `by` (total/endpoint/agegroup/all); writes single xlsx with all scenarios as columns
-- **`aggregate_sigma()`**: error-propagation CI aggregation via `Uncertainty()`; takes `Mortality(CI="MEAN")` output, aggregates by domain, derives CI bounds analytically
+- **`aggregate_range()`**: RR-substitution CI aggregation, returns named list for pipe-friendly `pluck()` indexing
+- **`aggregate_sigma()`**: error-propagation CI aggregation via `Uncertainty()`
 - **Modular code structure**: model / data / mortality / uncertainty / aggregation
-- **Unified coordinate handling**: `normalize_coords()` accepts x/lon/long/longitude and y/lat/latitude variants
-- **Concentration clamping**: values beyond CR lookup range are capped to nearest boundary instead of dropped
 - **`cli`-based logging**: `log_msg(INFO/WARN/ERROR, ...)` for coloured terminal output
 
 ## v4.0

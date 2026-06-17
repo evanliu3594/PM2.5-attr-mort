@@ -10,35 +10,41 @@ PM2.5-attr-mort is an R project that estimates PM2.5-attributable mortality acro
 
 - Open `PM25-attr-mort.Rproj` in RStudio (the project root).
 - Tab width: 2 spaces, UTF-8 encoding.
-- The `.RData` workspace is saved/restored. All R scripts rely on `./Code/Core.R` being sourced first from the project root.
+- Application scripts (`HealthBurdenCalc.R`, `DrivingFactors.R`) source the five core modules directly from `./Code/`.
 
 ## Architecture
 
 The computation pipeline works in four layers:
 
-1. **Raw data ingestion** (`Code/Rawdata Process.R`) — converts NetCDF PM2.5 data, GeoTIFF population rasters, IHME CSV mortality/age-structure files, and natural-earth shapefiles into the standardized Excel instance files consumed by the main calculation.
-2. **C-R lookup table generation** (`Code/DataPrepare/Concentration_Response.R`) — takes CRF coefficient CSVs from `Data/CRF_coefficients/` and produces RR lookup tables (MEAN/LOW/UP) for every 0.1 µg/m³ step, written to `Data/RR_index/`.
-3. **Core calculation engine** — the project is now split across modular files (`Code/model.R`, `Code/data.R`, `Code/mortality.R`, `Code/uncertainty.R`, `Code/aggregation.R`), all sourced by application scripts. Key functions:
+1. **Raw data ingestion** (`build_instance.R` at project root) — reads NetCDF PM2.5 data, GeoTIFF population rasters, IHME GBD CSV/ZIP mortality and age-structure files, and Natural Earth shapefiles. Resamples all rasters to a common template grid, matches IHME location names to Natural Earth country names via `llmjoin`, and outputs five standardised Excel instance files under `./Data/`.
+2. **C-R lookup table generation** (`Code/build_CR.R`) — takes CRF coefficient CSVs from `Data/CRF_coefficients/` and produces RR lookup tables (MEAN/LOW/UP) for every 0.1 µg/m³ step, written to `Data/RR_index/`.
+3. **Core calculation engine** — five modular files (`Code/model.R`, `Code/data.R`, `Code/mortality.R`, `Code/uncertainty.R`, `Code/aggregation.R`), sourced by application scripts. Key functions:
    - `set_Model()` / `tell_Model()` (model.R) — select and name the C-R model. `set_Model()` calls `RR_std()` to build the standardised long-form RR table (`concentration, endpoint, agegroup, CI, RR`) and stores it in the global `.RR_std_tbl`.
    - `RR_std()` (model.R) — builder: reads the RR lookup xlsx and `RR_std_config.json`, returns the standardised long-form table. Called by `set_Model()` once; downstream consumers read `.RR_std_tbl` directly.
-   - `read_files()` (data.R) — load gridded and domain input data into global env (`Grid_info`, `Pop`, `Conc_real`, `Conc_cf`, `MortRate`, `AgeGroup`).
+   - `read_files()` (data.R) — loads gridded and domain input data into global env (`Grid_info`, `Pop`, `Conc_real`, `Conc_cf`, `MortRate`, `AgeGroup`). `Conc_cf` defaults to `NULL` for absolute-burden mode.
    - `matchable()` (data.R) — round-and-stringify helper used pervasively as a join key normalizer.
+   - `normalize_coords()` (data.R) — renames `lon/lat/long/longitude/latitude` variants to canonical `x`/`y`.
    - `getConc_real()`, `getPop()`, `getAgeGroup()`, `getMortRate()` (data.R) — column extractors that select the column matching a given year/scenario name.
-   - `Mortality()` / `Mortality_at()` (mortality.R) — the core attribution formula. Joins grid info, concentration, population, `.RR_std_tbl`, mortality rate, and age structure; filters/pivots CI column as needed; computes PWRR per domain; then calculates `Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5`. Returns a wide table with one column per endpoint–agegroup–CI combination per grid cell.
+   - `Mortality()` / `Mortality_at()` (mortality.R) — the core attribution formula. Joins grid info, concentration, population, `.RR_std_tbl`, mortality rate, and age structure; filters/pivots CI column as needed; computes PWRR per domain; then calculates `Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5`. Returns a wide table with one column per endpoint–agegroup–CI combination per grid cell. Parameters: `verbose` (truncate domain names in warnings) and `debug` (enable `join_report()` hierarchical NA diagnostics).
+   - `join_report()` (mortality.R) — left_join wrapper with hierarchical NA reporting (L1=domain entirely missing, L2=domain/endpoint, L3=specific). When `debug=FALSE`, short-circuits to a plain `left_join()`.
+   - `detect_domain()` (mortality.R) — auto-detects the PWRR domain column by matching unique values between MortRate and Grid_info.
    - `Uncertainty()` (uncertainty.R) — analytic uncertainty propagation combining CR uncertainty (RR UP/LOW branches) and optional concentration RMSE uncertainty.
-   - `aggregate_range()` (aggregation.R) — RR-substitution CI aggregation: takes `Mortality(CI="RANGE")` output, aggregates by `at` and `by`, keeps MEAN/UP/LOW branches as columns. Uses internal closure `aggregate_one()` for each `at×by` combo.
+   - `aggregate_range()` (aggregation.R) — RR-substitution CI aggregation: takes `Mortality(CI="RANGE")` output, aggregates by `at` and `by`, keeps MEAN/UP/LOW branches as columns. Returns a named list (one element per `at` value).
    - `aggregate_sigma()` (aggregation.R) — error-propagation CI aggregation: takes `Mortality(CI="MEAN")` output, aggregates by `at` and `by`, derives CI bounds via `Uncertainty()`.
-4. **Application scripts** that source `Core.R` and run specific analyses:
-   - `Code/HealthBurdenCalc.R` — the main user-facing workflow. Set model, load data, compute gridded mortality for all scenarios, aggregate.
-   - `Code/DrivingFactors.R` — decomposition analysis attributing mortality changes between two time periods to Population Growth (PG), Population Aging (PA), Exposure change (EXP), and Other Risk Factors (ORF). Runs all 24 possible step-order permutations and averages them.
-   - `Code/experimental/Core_MonteCarlo.R` — Monte Carlo uncertainty analysis using `furrr` for parallel draws. **Warning: extremely time-consuming.** Separate from `Core.R` because it reimplements the mortality calculation with random RR and concentration draws rather than wrapping the main pipeline.
+4. **Application scripts** at project root:
+   - `HealthBurdenCalc.R` — the main user-facing workflow. Set model, load data, compute gridded mortality for all scenarios, aggregate.
+   - `DrivingFactors.R` — decomposition analysis attributing mortality changes between two time periods to Population Growth (PG), Population Aging (PA), Exposure change (EXP), and Other Risk Factors (ORF). Runs all 24 possible step-order permutations and averages them.
+   - `Code/experimental/Core_MonteCarlo.R` — Monte Carlo uncertainty analysis using `furrr` for parallel draws. **Warning: extremely time-consuming.** Reimplements the mortality calculation with random RR and concentration draws.
 
 ## Key design patterns
 
 - **Global mutable state**: `set_Model()` and `read_files()` write to `globalenv()`. Functions like `getPop()` implicitly read from those globals. Do not refactor to pure functions without updating all callers.
 - **`matchable()` join keys**: Numeric join columns (coordinates, concentrations, ages) are rounded to a fixed digit count and converted to strings before joining. This avoids floating-point mismatches. The `dgt_grid` and `dgt_conc` parameters in `read_files()` control the precision.
+- **Coordinate type-agnostic matching**: `read_files()` normalises `x`/`y` columns via `across(any_of(c("x","y")), ~ matchable(as.numeric(.x), dgt = dgt_grid))`, so coordinates stored as either numeric or character in the xlsx will be consistently processed.
+- **Domain column auto-detection**: `read_files()` accepts `Country`/`country`/`location`/`Location` as domain column variants in MortRate and AgeGroup files, normalising them to `domain` internally.
 - **`rlang` tidy-eval**: Column selection in `getConc_real()`, `getPop()`, etc. uses `{at}` and `{{domain}}` tidy-eval syntax. Be careful with quotation/unquotation when adding similar functions.
-- **Counterfactual (`Conc_cf`) is optional**: When `Conc_cf` file does not exist, it's set to `NULL`, and `Mortality()` falls back to using `Conc_r` for both real and counterfactual concentrations (i.e., it computes the actual burden, not a scenario delta).
+- **Counterfactual (`Conc_cf`) is optional**: `Conc_cf` defaults to `NULL`. When absent, `Mortality()` falls back to using `Conc_r` for both real and counterfactual concentrations (computes absolute burden, not a scenario delta).
+- **`verbose` / `debug` parameters**: `Mortality()` and `Mortality_at()` accept `verbose` (controls truncation of domain names in warnings; `FALSE` = max 6, `TRUE` = all) and `debug` (enables `join_report()` hierarchical NA diagnostics; `FALSE` = fast `left_join`). Both default to `FALSE`.
 
 ## CRF parameter files
 
@@ -49,7 +55,7 @@ Located in `Data/CRF_coefficients/`. Each CSV provides per-endpoint/age-group α
 | `IER2010_parameters.csv` through `IER2017_parameters.csv` | IER | `RR = 1 + α × (1 − exp(−β × max(C − tmrel, 0)^γ))` |
 | `GEMM-parameters.csv` | GEMM | `RR = exp(θ × log(1 + z/α) / (1 + exp((μ − z)/γ)))` where `z = max(C − 2.4, 0)` |
 
-The lookup tables in `Data/RR_index/` are pre-built from these coefficients. Regenerate them via `Concentration_Response.R` when coefficients change.
+The lookup tables in `Data/RR_index/` are pre-built from these coefficients. Regenerate them via `Code/build_CR.R` when coefficients change.
 
 ## PWRR methodology in `Mortality()` and decomposition
 
@@ -76,7 +82,15 @@ The attributable mortality formula becomes:
         = Pop_g × AgeStruc × MortRate_domain × (RR_g − 1) / PWRR_domain
 ```
 
-This is implemented in `Mortality()` (see in-code comments at `Code/Core.R:301-320` for the full derivation).
+This is implemented in `Mortality()` (see in-code comments at `Code/mortality.R` for the full derivation).
+
+### PWRR guard logic (three-phase)
+
+`Mortality()` validates PWRR in three phases to distinguish data-coverage gaps from genuine data errors:
+
+- **Phase 1 (hard error)**: Inf PWRR or PWRR < 1 → `stop()`. These indicate corrupted data.
+- **Phase 2 (warn + skip)**: NA PWRR → `log_msg(WARN)` and `filter(!na_pwrr)`. Domains with no valid grids after `na.omit` (remote territories without PM2.5 or population data) are excluded automatically.
+- **Phase 3 (all-dropped safeguard)**: If all domains were removed in Phase 2 → `stop()`.
 
 ### DrivingFactors.R: ORF factor design rationale
 
@@ -163,22 +177,22 @@ PA changes `AgeStruc`; ORF changes `MortRate`. In reality, population aging shif
 ### 设计原则
 两种聚合函数，对应两种 CI 计算方法：
 - `aggregate_range`：RR 替换法。接受 `Mortality(CI="RANGE")` 的三分支输出（MEAN/UP/LOW），
-  逐分支聚合后保留为列，写入 xlsx。
+  逐分支聚合后保留为列，写入 xlsx。返回命名列表（每个 `at` 值一个元素），支持 `pluck()` 管道索引。
 - `aggregate_sigma`：误差传播法。接受 `Mortality(CI="MEAN")` 的均值输出，
   聚合后通过 `Uncertainty()` 计算 CI 边界。
 
 ### `aggregate_range(x, at, by, write)`
 
 内部闭包 `aggregate_one(at_val, by_val)` 负责单个 `at×by` 组合的
-pivot → group → bind → spread。调度层将 `at` 展开为列向量列表后 `for` 循环调用。
+pivot → group → bind → spread。调度层将 `at` 展开为列向量列表后用 `lapply` 调用，结果收集为命名列表返回。
 
 - `at = "geo"`  → 展开为 grid (c("x","y")) + 所有 `Grid_info` 中的列名
 - `at = "grid"` → 映射为 `at_val = c("x", "y")`
 - `by` 限制为 `"total"` / `"endpoint"` / `"agegroup"` / `"all"`
 - `by = "all"` → 同时按 endpoint + agegroup 分解（一次调用，两维共同分组）
-- `by = NULL`或`"total"` → 映射为`by_val = "Total"`
+- `by = NULL`或`"total"` → 仅 Total 列
 
-调度情况示例（为清晰起见硬编码）：
+调度情况示例：
 ```
 at=geo  + by=all       → 对每个 geo 列：endpoint + agegroup（一次调用，两维共同分组）
 at=geo  + by=Total     → 对每个 geo 列：Total
@@ -197,14 +211,16 @@ at=X    + by=Y         → X × Y
 ## Common commands
 
 ```r
-# Main health burden calculation — open HealthBurdenCalc.R in RStudio and run line-by-line.
-# The script sources Core.R automatically.
+# Generate instance files from raw data — edit CONFIG section first
+source('build_instance.R')
 
 # Regenerate RR lookup tables from CRF coefficients:
-source('./Code/Concentration_Response.R')
+source('./Code/build_CR.R')
+
+# Main health burden calculation — open HealthBurdenCalc.R in RStudio and run line-by-line.
 
 # Run decomposition analysis:
-source('./Code/DrivingFactors.R')
+source('./DrivingFactors.R')
 ```
 
 ## Version history
@@ -213,4 +229,4 @@ source('./Code/DrivingFactors.R')
 - v2.0: Added GEMM model support.
 - v3.0: Refactored from matrix algebra to tidyverse joins, improving extensibility.
 - v4.0: Extended to multi-region/international scale; added O3, NO2, and MRBRT support.
-- v5.0 (in progress): Built-in population/mortality data to reduce manual data inputs.
+- v5.0: Unified data preprocessing via `build_instance.R` (resample-to-template, llmjoin country matching). Removed fishnet dependency; all datasets aligned by XY coordinates on a common grid. Modular mortality engine with PWRR three-phase guard, `verbose`/`debug` parameters, type-agnostic coordinate normalisation, and optional `Conc_cf`.
