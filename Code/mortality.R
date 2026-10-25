@@ -1,10 +1,12 @@
 # Mortality calculation module — PWRR-normalised grid-level attributable deaths
-#   - Mortality()      — core formula: Mort = Pop × AgeStruc × MortRate × (RR−1) / PWRR
+#   - Mortality()      — core formula: Mort = Pop × AgeStruc × MortRate × (RR−1) / PWRR_{domain,endpoint,age}
 #   - Mortality_at()   — convenience wrapper for a given year/scenario
 #   - detect_domain()  — auto-detect PWRR domain from MortRate × Grid_info overlap
 #   - join_report()    — left_join with optional hierarchical NA diagnostic report
 #   Modified 260618: three-phase PWRR guard (Inf/<1→stop, NA→skip, all-dropped→stop),
 #     verbose/debug parameters, trunc_fmt accepts n=Inf for unbounded output.
+#   Modified 261026: PWRR per domain × endpoint × agegroup; RANGE branches use
+#     matching PWRR; NA PWRR drops only affected rows, not whole domains.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -116,20 +118,29 @@ join_report <- function(
 #' Baseline mortality rates (`mRate`) are domain-level survey data (e.g., national or
 #' provincial statistics), not grid-specific rates. Under the relative-risk principle:
 #'
-#'   I_g / I_domain = RR(C_g) / PWRR_domain
+#'   I_g / I_domain = RR_e,a(C_g) / PWRR_domain,e,a
 #'
 #' where `I_g` is the mortality rate at grid concentration C_g, and `I_domain` is the
-#' observed domain-average rate. This gives a uniform zero-PM2.5 baseline within each domain:
+#' observed domain-average rate for endpoint e and age group a. This gives a uniform
+#' zero-PM2.5 baseline within each domain × endpoint × age group:
 #'
-#'   I_0 = I_domain / PWRR_domain    (same for all grids in the domain)
+#'   I_0 = I_domain / PWRR_domain,e,a    (same for all grids in the domain)
+#'
+#'   PWRR_domain,e,a = Σ_g Pop_g × RR_e,a(C_g) / Σ_g Pop_g
 #'
 #' Attributable mortality for grid g vs. zero-PM2.5 (TMREL):
 #'
-#'   ΔMort_g = Pop_g × AgeStruc × (I_g − I_0)
-#'           = Pop_g × AgeStruc × MortRate_domain × (RR(C_g) − 1) / PWRR_domain
+#'   ΔMort_g = Pop_g × AgeStruc_a × (I_g − I_0)
+#'           = Pop_g × AgeStruc_a × MortRate_domain,e,a × (RR_e,a(C_g) − 1) / PWRR_domain,e,a
+#'
+#' Age structure is constant within domain × age group, so it cancels from PWRR.
+#' A single PWRR per domain (averaged across endpoints/ages) is invalid: it mixes
+#' curves with different RR levels and biases each endpoint in opposite directions.
+#' For `CI = "RANGE"`, each branch uses its own PWRR (MEAN/UP/LOW).
 #'
 #' Compared to the standard grid-level PAF `(RR_g−1)/RR_g`, which implies I_0 = MortRate/RR_g
-#' (varying per grid), the PWRR approach gives a physically consistent I_0 within each domain.
+#' (varying per grid), the PWRR approach gives a physically consistent I_0 within each
+#' domain × endpoint × age group.
 #'
 #' @param Grids grid information data frame with x, y, and domain columns
 #' @param Conc_r data frame with columns x, y, concentration — real PM2.5, used for PWRR calculation
@@ -283,8 +294,13 @@ Mortality <- function(
     )
   }
 
-  # ---- PWRR calculation (always uses MEAN RR) ----
-  rr_for_pwr <- RR_all |> select(concentration, endpoint, agegroup, RR)
+  # ---- PWRR calculation (per domain × endpoint × agegroup) ----
+  # PWRR must use the same RR curve as the numerator. A single domain-level
+  # scalar mixes endpoints/ages with different RR levels and biases each
+  # endpoint in opposite directions.
+  pwr_cols <- if (CI == "RANGE") c("RR", "RR_UP", "RR_LOW") else "RR"
+  rr_for_pwr <- RR_all |>
+    select(concentration, endpoint, agegroup, all_of(pwr_cols))
 
   PWRR_pre <- Grids |>
     left_join(Conc_r, by = c("x", "y")) |>
@@ -326,44 +342,83 @@ Mortality <- function(
   }
 
   PWRR <- PWRR_data |>
-    group_by(pick(all_of(domain))) |>
-    summarise(PWRR = weighted.mean(RR, Pop, na.rm = TRUE), .groups = "drop")
+    group_by(pick(all_of(c(domain, "endpoint", "agegroup")))) |>
+    summarise(
+      across(
+        all_of(pwr_cols),
+        ~ weighted.mean(.x, Pop, na.rm = TRUE),
+        .names = "PWRR_{.col}"
+      ),
+      .groups = "drop"
+    )
+
+  if (CI == "RANGE") {
+    PWRR <- PWRR |>
+      rename(
+        PWRR_MEAN = PWRR_RR,
+        PWRR_UP = PWRR_RR_UP,
+        PWRR_LOW = PWRR_RR_LOW
+      )
+  } else {
+    PWRR <- PWRR |> rename(PWRR = PWRR_RR)
+  }
 
   # ---- Guard: PWRR validity ----
+  pwr_value_cols <- if (CI == "RANGE") {
+    c("PWRR_MEAN", "PWRR_UP", "PWRR_LOW")
+  } else {
+    "PWRR"
+  }
+  pwr_long <- PWRR |>
+    pivot_longer(
+      all_of(pwr_value_cols),
+      names_to = "branch",
+      values_to = "PWRR_value"
+    )
+  key_cols <- c(domain, "endpoint", "agegroup")
+
   # Phase 1: hard errors for genuinely invalid PWRR values
-  bad_inf <- is.infinite(PWRR$PWRR)
-  bad_lt1 <- PWRR$PWRR < 1 & !is.na(PWRR$PWRR)
+  bad_inf <- is.infinite(pwr_long$PWRR_value)
+  bad_lt1 <- pwr_long$PWRR_value < 1 & !is.na(pwr_long$PWRR_value)
   if (any(bad_inf) || any(bad_lt1)) {
+    bad_keys <- pwr_long |>
+      filter(bad_inf | bad_lt1) |>
+      unite("key", all_of(key_cols), sep = "/") |>
+      pull(key) |>
+      unique()
     stop(
       "Invalid PWRR detected. ",
-      if (any(bad_inf)) "Some domains have Inf PWRR. ",
+      if (any(bad_inf)) "Some domain/endpoint/age combinations have Inf PWRR. ",
       if (any(bad_lt1)) {
-        "Some domains have PWRR < 1 (RR cannot be < 1 for PM2.5). "
+        "Some have PWRR < 1 (RR cannot be < 1 for PM2.5). "
       },
-      "Check concentration and population data for these domains: ",
-      paste(PWRR[[domain]][bad_inf | bad_lt1], collapse = ", ")
+      "Check concentration and population data for: ",
+      trunc_fmt(bad_keys, n = show_n)
     )
   }
 
-  # Phase 2: domains with NA PWRR have no valid grids after na.omit
-  # (expected for remote territories with no PM2.5/population data).
-  # Warn and remove them so the main calculation can proceed.
-  na_pwrr <- is.na(PWRR$PWRR)
+  # Phase 2: combinations with NA PWRR have no valid grids after na.omit.
+  # Keep the rest of the domain; the main join drops only affected rows.
+  na_pwrr <- is.na(pwr_long$PWRR_value)
   if (any(na_pwrr)) {
-    skipped <- PWRR[[domain]][na_pwrr]
+    skipped <- pwr_long |>
+      filter(na_pwrr) |>
+      unite("key", all_of(key_cols), sep = "/") |>
+      pull(key) |>
+      unique()
     log_msg(
       WARN,
-      "{length(skipped)} domain(s) have no valid grids after na.omit ",
-      "(no PM2.5 or population data in these regions). ",
-      "They will be excluded from the calculation: ",
+      "{length(skipped)} domain/endpoint/age combination(s) have no valid ",
+      "grids after na.omit; affected rows will be dropped: ",
       trunc_fmt(skipped, n = show_n)
     )
-    PWRR <- PWRR |> filter(!na_pwrr)
+    PWRR <- PWRR |>
+      filter(if_all(all_of(pwr_value_cols), ~ !is.na(.x)))
   }
 
   if (nrow(PWRR) == 0) {
     stop(
-      "PWRR step: all domains dropped. ",
+      "PWRR step: all domain/endpoint/age combinations dropped. ",
       "Check that concentration values fall within the RR lookup table range, ",
       "and that Grid_info, Conc_r, and pop share common (x, y) coordinates."
     )
@@ -399,7 +454,7 @@ Mortality <- function(
     join_report(
       PWRR,
       "PWRR",
-      breakdown = c(domain, "endpoint"),
+      breakdown = c(domain, "endpoint", "agegroup"),
       verbose = verbose,
       debug = debug
     ) |>
@@ -416,9 +471,9 @@ Mortality <- function(
     # Pivot each branch separately, then join on x, y
     mort_long <- mort_data |>
       mutate(
-        Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5,
-        Mort_UP = Pop * AgeStruc * MortRate * (RR_UP - 1) / PWRR / 1e5,
-        Mort_LOW = Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR / 1e5
+        Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR_MEAN / 1e5,
+        Mort_UP = Pop * AgeStruc * MortRate * (RR_UP - 1) / PWRR_UP / 1e5,
+        Mort_LOW = Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR_LOW / 1e5
       ) |>
       select(x, y, endpoint, agegroup, Mort, Mort_UP, Mort_LOW)
 

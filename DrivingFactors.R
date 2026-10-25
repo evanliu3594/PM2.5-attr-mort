@@ -1,6 +1,8 @@
 #====================================================#
 # retrieve driving forces to the PM2.5 health burden #
 #====================================================#
+# NOTE 261026: PWRR is now computed per domain × endpoint × agegroup.
+# Decomposition outputs produced before this date are invalid; rerun this script.
 
 # Core Module Load ----
 

@@ -43,6 +43,7 @@
 |---|---|---|---|
 | ① | 目录命名 | 保留 `Code/Data/Result`，不迁移 A 型默认契约 | 261026 |
 | ② | GBD 2023 RR 接入 | 下载 GHDx 曲线并编译为项目可用 CR 表 | 261026 |
+| ③ | PWRR 归一化 | 按域 × 终点 × 年龄档计算；CI 分支用对应 PWRR | 261026 |
 
 ### 3.2 代理决策（agent 决定，用户未反对）
 
@@ -55,15 +56,17 @@
 | ⑤ | 插值 | log(RR) 线性插值到 0.1 网格 | 保持正值、平滑 | 261026 |
 | ⑥ | 输出文件名 | `MRBRT2023_Lookup_Table_Build_261026.xlsx` | 固定构建日期，配置稳定 | 261026 |
 | ⑦ | 原始 zip | 放 `Data/`，加入 `.gitignore` | 185 MB，不入库 | 261026 |
+| ⑧ | RANGE 分支 PWRR | 三分支各用对应 PWRR | 与分子 RR 分支一致 | 261026 |
 
 ### 3.3 当前缺口（摘要）
 
 - 未用 `MRBRT2023` 重跑完整健康负担；影响幅度未量化。
+- 旧健康负担结果基于单域 PWRR，已失效；需用 v5.2 重跑 `HealthBurdenCalc.R` 与 `DrivingFactors.R`，并更新结果表、图件与稿件。
 - dementia、birth weight、gestational age 曲线未编译。
 - `Code/README.md`、`Result/README.md` 与目录级 `AGENTS.md` 未建；本次为最小收口。
 - `CLAUDE.md` 已于 261026 删除；详细架构正文仅存于 git 历史（commit `405fd74`）。
 - 研究意图基线、成功标准与服务对象未经用户确认。
-- `Result/` 下有一次性的验证脚本与对比图，未入库。
+- `Result/` 下有未入库的 MRBRT2023 对比图（`MRBRT2023_vs_2021.png`）。
 
 ## 4. 基本规则（全局）
 
@@ -79,7 +82,7 @@
 
 ## 5. 主要假设与当前约束
 
-1. PWRR 归一化：域内零 PM2.5 基线一致；归因死亡与 `RR−1` 成正比。
+1. PWRR 归一化：按域 × 终点 × 年龄档计算；域内零 PM2.5 基线一致；归因死亡与 `RR−1` 成正比。
 2. MR-BRT 曲线只提供全年龄 RR，按 `_ALL` 填到各年龄档；这不是年龄特异曲线。
 3. GBD 2023 与 2021：IHD、Stroke、LRI 更新；COPD、DM2、LC 与 2021 接近，300 µg/m³ 处差异 ≤1.1%。
 4. IHME 免费非商业许可；原始 zip 不入库，重下需 IHME 账号。
@@ -87,7 +90,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT RR 查找表已接入并验证；完整健康负担未重跑。最新交接：`handoff/261026_claude-md-removal.md`。
+GBD 2023 MR-BRT RR 查找表已接入并验证；PWRR 已修正为按域 × 终点 × 年龄档计算（v5.2）。完整健康负担未重跑。最新交接：`handoff/261026_pwrr-fix.md`。
 
 ## 7. 联系与来源
 

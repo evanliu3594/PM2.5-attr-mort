@@ -20,6 +20,8 @@
 #       *Add better uncertainty assessments and improved the result return             #
 #       update 260610: add custom CRF support                                          #
 #       update 260618: modular engine refactor, verbose/debug params                   #
+#       update 261026: PWRR per domain × endpoint × agegroup; CI branches use          #
+#                      matching PWRR; old single-domain PWRR results invalid            #
 #                                                                                      #
 #======================================================================================#
 

@@ -122,7 +122,7 @@ All gridded files must share the same `(x, y)` coordinate system. `read_files()`
  │   CI column ∈ {MEAN, UP, LOW}; Mortality() pivots/filters as needed   │
  └────────────────────────────┬──────────────────────────────────────────┘
                               │
-     PWRR = weighted.mean(RR, Pop)  ←── grouped by domain (Country)
+     PWRR = weighted.mean(RR, Pop)  ←── grouped by domain × endpoint × agegroup
      Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5
                               │
                               ▼
@@ -206,7 +206,13 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.1 (current)
+## v5.2 (current)
+- **PWRR fix**: `PWRR` is now computed per domain × endpoint × agegroup, not as one scalar per domain. The old code averaged RR across diseases and ages, then applied that scalar to every endpoint; this biased each endpoint in opposite directions.
+- **CI branches**: `Mortality(CI = "RANGE")` now uses the matching PWRR branch (`MEAN`/`UP`/`LOW`) for each CI. The old code used the MEAN PWRR denominator for all three branches.
+- **Impact (sample global, MRBRT2021)**: total MEAN −5.23%, UP −17.9%, LOW +6.34%; COPD −20.9%, DM2 +6.88%, IHD −4.95%, LC +9.56%, LRI +1.98%, Stroke +1.29%. Old results are invalid; rerun downstream.
+- **Guard**: NA PWRR now drops only the affected domain × endpoint × agegroup rows; it no longer drops the whole domain.
+
+## v5.1
 - **GBD 2023 MR-BRT CRF**: added the `MRBRT2023` lookup, built from the GHDx GBD 2023 air pollution RR archive. IHD, stroke, and LRI curves are updated; the Y2022 COPD, diabetes, and lung cancer curves are carried forward and differ from GBD 2021 by ≤1.1% at 300 µg/m³.
 - **Reproducible builder**: `Code/build_CR_MRBRT2023.R` extracts the six PM<sub>2.5</sub> mean curves, detects RR vs log(RR), and interpolates to the 0.1 µg/m³ grid.
 - **Backward compatible**: `MRBRT` still points to the GBD 2021 table; select `MRBRT2023` explicitly.
