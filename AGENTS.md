@@ -44,6 +44,7 @@
 | ① | 目录命名 | 保留 `Code/Data/Result`，不迁移 A 型默认契约 | 261026 |
 | ② | GBD 2023 RR 接入 | 下载 GHDx 曲线并编译为项目可用 CR 表 | 261026 |
 | ③ | PWRR 归一化 | 按域 × 终点 × 年龄档计算；CI 分支用对应 PWRR | 261026 |
+| ④ | DrivingFactors 24 序列 | 按注释顺序明文表；state 规则显式；domain 注入 | 261026 |
 
 ### 3.2 代理决策（agent 决定，用户未反对）
 
@@ -61,6 +62,7 @@
 ### 3.3 当前缺口（摘要）
 
 - 未用 `MRBRT2023` 重跑完整健康负担；影响幅度未量化。
+- `DrivingFactors.R` 已重写为 24 序列明文表；完整 24 序列（120 次 `Mortality()`）未跑，仅做状态审计与 200 格真实子集测试。
 - 旧健康负担结果基于单域 PWRR，已失效；需用 v5.2 重跑 `HealthBurdenCalc.R` 与 `DrivingFactors.R`，并更新结果表、图件与稿件。
 - dementia、birth weight、gestational age 曲线未编译。
 - `Code/README.md`、`Result/README.md` 与目录级 `AGENTS.md` 未建；本次为最小收口。
@@ -90,7 +92,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT RR 查找表已接入并验证；PWRR 已修正为按域 × 终点 × 年龄档计算（v5.2）。完整健康负担未重跑。最新交接：`handoff/261026_pwrr-fix.md`。
+GBD 2023 MR-BRT RR 查找表已接入并验证；PWRR 已修正为按域 × 终点 × 年龄档计算（v5.2）；`DrivingFactors.R` 的 24 序列已改为明文表并完成状态审计（v5.3）。完整健康负担未重跑。最新交接：`handoff/261026_drivingfactors-24seq.md`。
 
 ## 7. 联系与来源
 

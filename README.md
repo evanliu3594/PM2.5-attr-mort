@@ -206,7 +206,13 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.2 (current)
+## v5.3 (current)
+- **DrivingFactors 24-sequence rewrite**: `DrivingFactors.R` no longer generates permutations with `expand_grid()` + `slice()`. The 24 sequences are an explicit table in the documented order; factor state is one explicit mapping (`PG` → Pop, `PA` → AgeStruc, `EXP` → Conc_c, `ORF` → Conc_r + MortRate).
+- **Audit result**: 24 sequences × 5 states were checked with a recording `Mortality()` stub; 0 state mismatches. The old `serie` order did not match the 24-line comment order, so per-serie sheets looked mislabeled; the 24-sequence mean was unaffected when the old code could run.
+- **Runtime fixes**: `Mortality()` returns no `Country` column, so the old `Decomposition()` would fail at `pivot_longer(cols = -c(x, y, Country))`. The new code injects the detected domain column. `aggregate_drivers()` now accepts `domain` and writes a `Sequences` sheet for audit.
+- **Validation**: real 200-grid China subset, `Decomposition(serie = 1)` → 3,000 × 10, NA = 0. The full 24-sequence run was not executed (120 `Mortality()` calls).
+
+## v5.2
 - **PWRR fix**: `PWRR` is now computed per domain × endpoint × agegroup, not as one scalar per domain. The old code averaged RR across diseases and ages, then applied that scalar to every endpoint; this biased each endpoint in opposite directions.
 - **CI branches**: `Mortality(CI = "RANGE")` now uses the matching PWRR branch (`MEAN`/`UP`/`LOW`) for each CI. The old code used the MEAN PWRR denominator for all three branches.
 - **Impact (sample global, MRBRT2021)**: total MEAN −5.23%, UP −17.9%, LOW +6.34%; COPD −20.9%, DM2 +6.88%, IHD −4.95%, LC +9.56%, LRI +1.98%, Stroke +1.29%. Old results are invalid; rerun downstream.
