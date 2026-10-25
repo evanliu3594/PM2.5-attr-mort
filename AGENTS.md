@@ -35,7 +35,7 @@
 
 ## 3. 研究方案与计算逻辑（概要）
 
-管线：`build_instance.R` 生成实例表 → `Code/build_CR.R` 或 `Code/build_CR_MRBRT2023.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `DrivingFactors.R` 做 24 排列分解。公式、函数契约与数据流见 `README.md` 与 `Code/*.R` 内注释。
+管线：`build_instance.R` 生成实例表 → `Code/build_CR.R`、`Code/build_CR_MRBRT2023.R` 或 `Code/build_CR_GBD2023_gas.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `DrivingFactors.R` 做 24 排列分解。公式、函数契约与数据流见 `README.md` 与 `Code/*.R` 内注释。
 
 ### 3.1 已拍板口径（用户确认，勿再改）
 
@@ -47,6 +47,7 @@
 | ④ | DrivingFactors 24 序列 | 按注释顺序明文表；state 规则显式；domain 注入 | 261026 |
 | ⑤ | Mortality 计算结构 | 按 endpoint × agegroup 分组遍历；每组 grid 级长表；future-ready | 261026 |
 | ⑥ | MRBRT 默认指向 | `set_Model("MRBRT")` = `MRBRT2023`；`MRBRT2021` 保留 | 261026 |
+| ⑦ | O3/NO2 默认 | `O3` = GBD 2023 COPD；`NO2` = GBD 2023 asthma；`O3_legacy` / `NO2_allcause` 保留 | 261026 |
 
 ### 3.2 代理决策（agent 决定，用户未反对）
 
@@ -60,6 +61,8 @@
 | ⑥ | 输出文件名 | `MRBRT2023_Lookup_Table_Build_261026.xlsx` | 固定构建日期，配置稳定 | 261026 |
 | ⑦ | 原始 zip | 放 `Data/`，加入 `.gitignore` | 185 MB，不入库 | 261026 |
 | ⑧ | RANGE 分支 PWRR | 三分支各用对应 PWRR | 与分子 RR 分支一致 | 261026 |
+| ⑨ | O3/NO2 曲线口径 | GBD 2023；ppb；O3 0–50、NO2 0–100；NO2 为 asthma；NO2 LOW 截到 1；保留 legacy | 与源表一致；PWRR 要求 RR ≥ 1 | 261026 |
+| ⑩ | O3/NO2 CI 分母 | `pwr_branch: "mean"`；其余模型默认 `"branch"` | NO2 UP 极宽，分支 PWRR 会产生 UP < MEAN；共用 MEAN PWRR 保序 | 261026 |
 
 ### 3.3 当前缺口（摘要）
 
@@ -67,6 +70,9 @@
 - `DrivingFactors.R` 已重写为 24 序列明文表；完整 24 序列（120 次 `Mortality()`）未跑，仅做状态审计与 200 格真实子集测试。
 - `Mortality()` 已改为 endpoint × agegroup 分组遍历；未在 0.1° 全球格网压测，`future` 并发未启用；最终宽表仍随 格数 × 组合数 增长。
 - 旧健康负担结果基于单域 PWRR，已失效；需用 v5.2 重跑 `HealthBurdenCalc.R` 与 `DrivingFactors.R`，并更新结果表、图件与稿件。
+- `NO2` 默认用 asthma 终点；当前样本死亡率表无 asthma，`Mortality()` 不能直接用样本跑 NO2。`NO2_allcause` 保留旧 all-cause 口径。
+- O3/NO2 输入浓度必须用 ppb；O3 表只覆盖 0–50 ppb，超过会 clamp。NO2 LOW 分支截到 1，CI 下限退化为无效应。
+- O3/NO2 没有真实浓度数据，未做真实 burden 测试；仅做 `set_Model` 与 200 格合成浓度测试。
 - dementia、birth weight、gestational age 曲线未编译。
 - `Code/README.md`、`Result/README.md` 与目录级 `AGENTS.md` 未建；本次为最小收口。
 - `CLAUDE.md` 已于 261026 删除；详细架构正文仅存于 git 历史（commit `405fd74`）。
@@ -92,10 +98,11 @@
 3. GBD 2023 与 2021：IHD、Stroke、LRI 更新；COPD、DM2、LC 与 2021 接近，300 µg/m³ 处差异 ≤1.1%。
 4. IHME 免费非商业许可；原始 zip 不入库，重下需 IHME 账号。
 5. 查找表覆盖 0–300 µg/m³；超过 300 的格无法匹配（与现有 MRBRT2021 一致）。
+6. O3/NO2 查找表使用 ppb；O3 覆盖 0–50 ppb，NO2 覆盖 0–100 ppb；NO2 LOW 分支截到 1。
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT RR 查找表已接入并验证；PWRR 已修正为按域 × 终点 × 年龄档计算（v5.2）；`DrivingFactors.R` 的 24 序列已改为明文表并完成状态审计（v5.3）；`Mortality()` 已改为 endpoint × agegroup 分组遍历（v5.4）；`MRBRT` 默认指向 `MRBRT2023`（v5.5）。完整健康负担未重跑。最新交接：`handoff/261026_mrbrt-default-2023.md`。
+GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；DrivingFactors 24 序列明文表（v5.3）；Mortality 按 endpoint × agegroup 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）。完整负担未重跑。最新交接：`handoff/261026_o3-no2-gbd2023.md`。
 
 ## 7. 联系与来源
 

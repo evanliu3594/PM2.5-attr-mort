@@ -10,6 +10,8 @@
 #   Modified 261026: Mortality() iterates endpoint × agegroup groups; each group
 #     is a grid-level join, avoiding a grid × endpoint × agegroup long table.
 #     compute_group() is side-effect free and ready for future_map2().
+#   Modified 261026: pwr_branch config ("branch" or "mean") controls whether
+#     RANGE uses branch-specific or common MEAN PWRR.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -317,8 +319,12 @@ Mortality <- function(
     stop("RR lookup table has no endpoint-agegroup groups.")
   }
 
-  pwr_cols <- if (CI == "RANGE") c("RR", "RR_UP", "RR_LOW") else "RR"
-  pwr_value_cols <- if (CI == "RANGE") {
+  pwr_branch <- get0(".PWRR_branch", envir = globalenv(), ifnotfound = "branch")
+  use_branch_pwr <- CI == "RANGE" && identical(pwr_branch, "branch")
+
+  rr_cols <- if (CI == "RANGE") c("RR", "RR_UP", "RR_LOW") else "RR"
+  pwr_cols <- if (use_branch_pwr) c("RR", "RR_UP", "RR_LOW") else "RR"
+  pwr_value_cols <- if (use_branch_pwr) {
     c("PWRR_MEAN", "PWRR_UP", "PWRR_LOW")
   } else {
     "PWRR"
@@ -327,10 +333,14 @@ Mortality <- function(
   compute_group <- function(ep, age) {
     rr_g <- RR_all |>
       filter(endpoint == ep, agegroup == age) |>
+      select(concentration, all_of(rr_cols))
+
+    pwr_rr <- RR_all |>
+      filter(endpoint == ep, agegroup == age) |>
       select(concentration, all_of(pwr_cols))
 
     pwr <- base_r |>
-      left_join(rr_g, by = "concentration", relationship = "many-to-one") |>
+      left_join(pwr_rr, by = "concentration", relationship = "many-to-one") |>
       drop_na() |>
       group_by(domain) |>
       summarise(
@@ -342,7 +352,7 @@ Mortality <- function(
         .groups = "drop"
       )
 
-    if (CI == "RANGE") {
+    if (use_branch_pwr) {
       pwr <- pwr |>
         rename(
           PWRR_MEAN = PWRR_RR,
@@ -447,16 +457,28 @@ Mortality <- function(
     }
 
     if (CI == "RANGE") {
-      mort <- mort |>
-        mutate(
-          !!sym(value_cols[1]) :=
-            Pop * AgeStruc * MortRate * (RR - 1) / PWRR_MEAN / 1e5,
-          !!sym(value_cols[2]) :=
-            Pop * AgeStruc * MortRate * (RR_UP - 1) / PWRR_UP / 1e5,
-          !!sym(value_cols[3]) :=
-            Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR_LOW / 1e5
-        ) |>
-        select(x, y, all_of(value_cols))
+      if (use_branch_pwr) {
+        mort <- mort |>
+          mutate(
+            !!sym(value_cols[1]) :=
+              Pop * AgeStruc * MortRate * (RR - 1) / PWRR_MEAN / 1e5,
+            !!sym(value_cols[2]) :=
+              Pop * AgeStruc * MortRate * (RR_UP - 1) / PWRR_UP / 1e5,
+            !!sym(value_cols[3]) :=
+              Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR_LOW / 1e5
+          )
+      } else {
+        mort <- mort |>
+          mutate(
+            !!sym(value_cols[1]) :=
+              Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5,
+            !!sym(value_cols[2]) :=
+              Pop * AgeStruc * MortRate * (RR_UP - 1) / PWRR / 1e5,
+            !!sym(value_cols[3]) :=
+              Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR / 1e5
+          )
+      }
+      mort <- mort |> select(x, y, all_of(value_cols))
     } else {
       mort <- mort |>
         mutate(

@@ -133,6 +133,17 @@
   },
   "O3": {
     "conc_col": "concentration",
+    "pwr_branch": "mean",
+    "label": "O3_GBD2023",
+    "lookup": "./Data/RR_index/O3_Lookup_Table_GBD2023_Build_261026.xlsx",
+    "endpoints": [
+      { "name": "copd", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
+    ]
+  },
+  "O3_legacy": {
+    "conc_col": "concentration",
+    "pwr_branch": "mean",
+    "label": "O3_legacy",
     "lookup": "./Data/RR_index/O3_CR_Lookup_Table.xlsx",
     "endpoints": [
       { "name": "copd", "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
@@ -140,6 +151,17 @@
   },
   "NO2": {
     "conc_col": "concentration",
+    "pwr_branch": "mean",
+    "label": "NO2_GBD2023_Asthma",
+    "lookup": "./Data/RR_index/NO2_Lookup_Table_GBD2023_Build_261026.xlsx",
+    "endpoints": [
+      { "name": "asthma", "ages": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }
+    ]
+  },
+  "NO2_allcause": {
+    "conc_col": "concentration",
+    "pwr_branch": "mean",
+    "label": "NO2_allcause",
     "lookup": "./Data/RR_index/NO2_CR_Lookup_Table.xlsx",
     "endpoints": [
       { "name": "allcause", "ages": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] }

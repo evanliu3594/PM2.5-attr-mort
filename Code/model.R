@@ -210,6 +210,10 @@ RR_std <- function(custom_path = NULL) {
   if (is.null(cfg) && str_detect(CR, '^IER')) cfg <- cfg_all[["IER"]]
   if (is.null(cfg)) stop("No RR_std config for model \"", CR, "\" in ", cfg_path)
 
+  # PWRR branch mode: "branch" = one PWRR per CI branch; "mean" = common
+  # MEAN PWRR for all branches (keeps CI ordered for very wide curves).
+  assign(".PWRR_branch", cfg$pwr_branch %||% "branch", envir = globalenv())
+
   conc_col <- cfg$conc_col %||% "concentration"
 
   # Resolve lookup path

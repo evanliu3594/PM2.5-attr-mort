@@ -48,6 +48,8 @@ source('./Code/aggregation.R', encoding = 'UTF8')
 set_Model('NCD+LRI')
 # set_Model('5COD')
 # set_Model('IER')
+# set_Model('O3')          # GBD 2023 O3 (COPD)
+# set_Model('NO2')         # GBD 2023 NO2 (asthma)
 
 # Data load ----
 

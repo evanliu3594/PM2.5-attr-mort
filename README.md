@@ -178,8 +178,10 @@ set_Model('NCD+LRI')     # GEMM NCD+LRI (composite endpoint)
 set_Model('5COD')        # GEMM 5-COD (individual endpoints)
 set_Model('MRBRT')       # MR-BRT GBD 2023 (default alias)
 set_Model('MRBRT2023')   # MR-BRT GBD 2023 (explicit)
-set_Model('O3')          # Ozone (COPD only)
-set_Model('NO2')         # NO2 (all-cause)
+set_Model('O3')          # GBD 2023 Ozone (COPD only)
+set_Model('NO2')         # GBD 2023 NO2 (asthma)
+set_Model('O3_legacy')   # legacy O3 lookup (COPD)
+set_Model('NO2_allcause') # legacy NO2 all-cause lookup
 
 # Custom RR lookup table — auto-generates endpoint/agegroup config and appends to JSON
 set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")
@@ -206,7 +208,15 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.5 (current)
+## v5.6 (current)
+- **GBD 2023 O3/NO2 defaults**: `O3` now uses the GBD 2023 ozone–COPD curve; `NO2` now uses the GBD 2023 NO2–asthma curve. Both lookups are built by `Code/build_CR_GBD2023_gas.R`.
+- **Legacy retained**: `O3_legacy` and `NO2_allcause` keep the previous lookups and endpoints.
+- **Units/ranges**: GBD 2023 O3 and NO2 source concentrations are in ppb. O3 covers 0–50 ppb; NO2 covers 0–100 ppb. Input concentration data must use ppb.
+- **NO2 endpoint change**: GBD 2023 NO2 is an asthma curve. The current sample mortality instance has no asthma, so `NO2` can build its RR table but cannot run `Mortality()` on the sample; use `NO2_allcause` for the legacy all-cause endpoint.
+- **CI handling**: the GBD 2023 NO2 lower bound falls below RR = 1; the lookup floors it at 1 so the project's RR ≥ 1 and PWRR guard remain valid. The NO2 LOW branch is therefore flat at 1.
+- **CI denominator**: O3/NO2 entries use `"pwr_branch": "mean"`; all three branches share the MEAN PWRR. This keeps the very wide NO2 UP curve from producing a non-monotonic CI. PM2.5 models keep branch-specific PWRR.
+
+## v5.5
 - **MRBRT default**: `set_Model("MRBRT")` now loads the GBD 2023 lookup (`MRBRT2023`). `MRBRT2021` remains available for legacy runs; `MRBRT2023` remains an explicit alias for the same lookup.
 - Output labels for `MRBRT` now use `PM2.5_MRBRT2023`; files produced with the old alias are labeled `PM2.5_MRBRT2021`.
 
