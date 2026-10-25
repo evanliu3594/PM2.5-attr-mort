@@ -17,7 +17,7 @@ PM2.5-attr-mort is an R project that estimates PM2.5-attributable mortality acro
 The computation pipeline works in four layers:
 
 1. **Raw data ingestion** (`build_instance.R` at project root) — reads NetCDF PM2.5 data, GeoTIFF population rasters, IHME GBD CSV/ZIP mortality and age-structure files, and Natural Earth shapefiles. Resamples all rasters to a common template grid, matches IHME location names to Natural Earth country names via `llmjoin`, and outputs five standardised Excel instance files under `./Data/`.
-2. **C-R lookup table generation** (`Code/build_CR.R`) — takes CRF coefficient CSVs from `Data/CRF_coefficients/` and produces RR lookup tables (MEAN/LOW/UP) for every 0.1 µg/m³ step, written to `Data/RR_index/`.
+2. **C-R lookup table generation** (`Code/build_CR.R`, `Code/build_CR_MRBRT2023.R`) — produces RR lookup tables (MEAN/LOW/UP) at every 0.1 µg/m³ step in `Data/RR_index/`. `build_CR.R` evaluates the IER/GEMM coefficient formulas; `build_CR_MRBRT2023.R` compiles the GBD 2023 PM2.5 curves from the GHDx archive.
 3. **Core calculation engine** — five modular files (`Code/model.R`, `Code/data.R`, `Code/mortality.R`, `Code/uncertainty.R`, `Code/aggregation.R`), sourced by application scripts. Key functions:
    - `set_Model()` / `tell_Model()` (model.R) — select and name the C-R model. `set_Model()` calls `RR_std()` to build the standardised long-form RR table (`concentration, endpoint, agegroup, CI, RR`) and stores it in the global `.RR_std_tbl`.
    - `RR_std()` (model.R) — builder: reads the RR lookup xlsx and `RR_std_config.json`, returns the standardised long-form table. Called by `set_Model()` once; downstream consumers read `.RR_std_tbl` directly.
@@ -56,6 +56,16 @@ Located in `Data/CRF_coefficients/`. Each CSV provides per-endpoint/age-group α
 | `GEMM-parameters.csv` | GEMM | `RR = exp(θ × log(1 + z/α) / (1 + exp((μ − z)/γ)))` where `z = max(C − 2.4, 0)` |
 
 The lookup tables in `Data/RR_index/` are pre-built from these coefficients. Regenerate them via `Code/build_CR.R` when coefficients change.
+
+MR-BRT models use pre-built lookup tables rather than a parametric formula:
+
+| Lookup | Model | Source |
+|--------|-------|--------|
+| `MRBRT2019_Lookup_Table_LYF220601.xlsx` | MR-BRT GBD 2019 | External |
+| `MRBRT2021_Lookup_Table_LYF250716.xlsx` | MR-BRT GBD 2021 | External |
+| `MRBRT2023_Lookup_Table_Build_261026.xlsx` | MR-BRT GBD 2023 | `Data/IHME_GBD_2023_AIR_POLLUTION_1990_2021_RR_CURVES.zip` via `Code/build_CR_MRBRT2023.R` |
+
+`MRBRT2023` compiles the GBD 2023 PM2.5 curves for six mortality endpoints. IHD, stroke, and LRI are updated; COPD, diabetes, and lung cancer come from the archive's Y2022 files and are close to the GBD 2021 curves (≤1.1% difference at 300 µg/m³). The GBD 2023 archive also contains dementia, birth weight, and gestational age curves; these are not included in the six-endpoint table. `MRBRT` remains an alias for the GBD 2021 table; use `set_Model("MRBRT2023")` for the new curves.
 
 ## PWRR methodology in `Mortality()` and decomposition
 
@@ -217,6 +227,9 @@ source('build_instance.R')
 # Regenerate RR lookup tables from CRF coefficients:
 source('./Code/build_CR.R')
 
+# Build the GBD 2023 MR-BRT lookup from the GHDx archive:
+source('./Code/build_CR_MRBRT2023.R')
+
 # Main health burden calculation — open HealthBurdenCalc.R in RStudio and run line-by-line.
 
 # Run decomposition analysis:
@@ -230,3 +243,4 @@ source('./DrivingFactors.R')
 - v3.0: Refactored from matrix algebra to tidyverse joins, improving extensibility.
 - v4.0: Extended to multi-region/international scale; added O3, NO2, and MRBRT support.
 - v5.0: Unified data preprocessing via `build_instance.R` (resample-to-template, llmjoin country matching). Removed fishnet dependency; all datasets aligned by XY coordinates on a common grid. Modular mortality engine with PWRR three-phase guard, `verbose`/`debug` parameters, type-agnostic coordinate normalisation, and optional `Conc_cf`.
+- v5.1: Added the `MRBRT2023` GBD 2023 PM2.5 lookup and `Code/build_CR_MRBRT2023.R`. IHD, stroke, and LRI curves updated; COPD, diabetes, and lung cancer carried forward from GBD 2021. `MRBRT` remains the GBD 2021 alias.

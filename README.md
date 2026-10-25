@@ -38,7 +38,7 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 3. Choose a C-R model and run the calculation — open `HealthBurdenCalc.R` and step through:
 
    ```r
-   set_Model('NCD+LRI')     # or '5COD', 'IER', 'MRBRT', 'O3', 'NO2'
+   set_Model('NCD+LRI')     # or '5COD', 'IER', 'MRBRT', 'MRBRT2023', 'O3', 'NO2'
 
    read_files(
      Grids     = './Data/Grid_info_instance_260617.xlsx',
@@ -73,7 +73,7 @@ If you prepare instance files manually (without `build_instance.R`), each file m
 | **GridPM25_cf** _(optional)_ | same as GridPM25 | Counterfactual PM<sub>2.5</sub>; omit `Conc_cf` argument for absolute burden mode |
 | **GBD_mortality** | `Country` _(or `domain`)_, `endpoint`, `agegroup`, plus year/scenario columns | Baseline mortality rate (deaths per 100,000) by region, disease, and age group |
 | **GBD_agestructure** | `Country` _(or `domain`)_, `agegroup`, plus year/scenario columns | Proportion of population in each age group by region |
-| **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. Regenerate via `Code/build_CR.R`. |
+| **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. Regenerate IER/GEMM via `Code/build_CR.R`; build the GBD 2023 MR-BRT table via `Code/build_CR_MRBRT2023.R`. |
 
 All gridded files must share the same `(x, y)` coordinate system. `read_files()` normalises coordinates to `matchable(dgt_grid)` precision regardless of whether they are stored as numeric or text. Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`.
 
@@ -176,7 +176,8 @@ All join keys are **strings** (not floats) to avoid floating-point mismatch. The
 set_Model('IER')         # IER2017
 set_Model('NCD+LRI')     # GEMM NCD+LRI (composite endpoint)
 set_Model('5COD')        # GEMM 5-COD (individual endpoints)
-set_Model('MRBRT')       # MRBRT 2021
+set_Model('MRBRT')       # MR-BRT GBD 2021
+set_Model('MRBRT2023')   # MR-BRT GBD 2023 (IHD, stroke, LRI updated)
 set_Model('O3')          # Ozone (COPD only)
 set_Model('NO2')         # NO2 (all-cause)
 
@@ -205,7 +206,12 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.0 (current)
+## v5.1 (current)
+- **GBD 2023 MR-BRT CRF**: added the `MRBRT2023` lookup, built from the GHDx GBD 2023 air pollution RR archive. IHD, stroke, and LRI curves are updated; the Y2022 COPD, diabetes, and lung cancer curves are carried forward and differ from GBD 2021 by ≤1.1% at 300 µg/m³.
+- **Reproducible builder**: `Code/build_CR_MRBRT2023.R` extracts the six PM<sub>2.5</sub> mean curves, detects RR vs log(RR), and interpolates to the 0.1 µg/m³ grid.
+- **Backward compatible**: `MRBRT` still points to the GBD 2021 table; select `MRBRT2023` explicitly.
+
+## v5.0
 - **Automated data preprocessing**: `build_instance.R` resamples all rasters to a common template grid, matches IHME country names via `llmjoin`, and produces five standardised instance files — replacing the old fishnet-based workflow
 - **No fishnet dependency**: grid cells are matched by XY coordinates directly; geographic domains come from `terra::rasterize()` of Natural Earth polygons
 - **PWRR three-phase guard**: Inf / <1 → hard error; NA → warn + auto-skip (remote territories); all-dropped → safeguard stop

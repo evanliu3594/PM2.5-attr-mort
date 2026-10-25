@@ -6,14 +6,16 @@ These files are the bridge between raw epidemiological coefficients and the mort
 
 ## File inventory
 
-| File | Model | Source coefficients |
+| File | Model | Source |
 |------|-------|---------------------|
 | `IER2010_Lookup_Table_Build_220601.xlsx` | IER 2010 | `Data/CRF_coefficients/IER2010_parameters.csv` |
 | `IER2013_Lookup_Table_Build_220601.xlsx` | IER 2013 | `Data/CRF_coefficients/IER2013_parameters.csv` |
 | `IER2015_Lookup_Table_Build_220601.xlsx` | IER 2015 | `Data/CRF_coefficients/IER2015_parameters.csv` |
 | `IER2017_Lookup_Table_Build_220601.xlsx` | IER 2017 | `Data/CRF_coefficients/IER2017_parameters.csv` |
 | `GEMM_Lookup_Table_Build_220914.xlsx` | GEMM (NCD+LRI & 5COD) | `Data/CRF_coefficients/GEMM-parameters.csv` |
-| `MRBRT2019_Lookup_Table_LYF220601.xlsx` | MRBRT | External |
+| `MRBRT2019_Lookup_Table_LYF220601.xlsx` | MR-BRT GBD 2019 | External |
+| `MRBRT2021_Lookup_Table_LYF250716.xlsx` | MR-BRT GBD 2021 | External |
+| `MRBRT2023_Lookup_Table_Build_261026.xlsx` | MR-BRT GBD 2023 | GHDx archive, built by `Code/build_CR_MRBRT2023.R` |
 | `O3_CR_Lookup_Table.xlsx` | O<sub>3</sub> | External |
 | `NO2_CR_Lookup_Table.xlsx` | NO<sub>2</sub> | External |
 
@@ -59,14 +61,26 @@ A column named `copd_25` contains RR values for COPD mortality in the 25–29 ag
 
 ### From CRF coefficients (built-in models)
 
-Run `Code/DataPrepare/Concentration_Response.R`:
+Run `Code/build_CR.R`:
 
 ```r
-source('./Code/DataPrepare/Concentration_Response.R')
+source('./Code/build_CR.R')
 compute_RR_index("IER2017", write = TRUE)
 ```
 
 This reads the coefficient CSV, evaluates the RR formula at every concentration step, and writes a new `.xlsx` to this directory. Update `RR_std_config.json` if the filename changes.
+
+### From the GBD 2023 air pollution RR archive
+
+`Code/build_CR_MRBRT2023.R` compiles the six PM<sub>2.5</sub> mortality endpoints from the GHDx GBD 2023 archive:
+
+```r
+source('./Code/build_CR_MRBRT2023.R')
+```
+
+The script reads `Data/IHME_GBD_2023_AIR_POLLUTION_1990_2021_RR_CURVES.zip`, extracts the six `..._MEAN_...` curves, detects whether each curve is on the RR or log(RR) scale, and interpolates log(RR) linearly to 0–300 µg/m³ at 0.1 steps. It writes `MRBRT2023_Lookup_Table_Build_261026.xlsx` and reminds you to add the config entry. Download the archive from [GHDx](https://ghdx.healthdata.org/record/ihme-data/gbd-2023-air-pollution-exposure-estimates-1990-2023) with an IHME account. The 185 MB archive is excluded from git.
+
+`MRBRT2023` uses the GBD 2023 curves for IHD, stroke, and LRI; the archive's Y2022 COPD, diabetes, and lung cancer files are close to the GBD 2021 curves (≤1.1% difference at 300 µg/m³). The archive also contains dementia, birth weight, and gestational age curves; these are not compiled into the six-endpoint mortality table. `MRBRT` remains an alias for the GBD 2021 table.
 
 ### From a custom RR curve
 
@@ -111,7 +125,8 @@ If your lookup table uses a different column name for concentration (e.g., `"pm2
 
 ```
 Data/CRF_coefficients/*.csv          →  Raw epidemiological parameters
-    ↓ (DataPrepare/Concentration_Response.R)
+Data/IHME_..._RR_CURVES.zip          →  Raw GBD 2023 RR curves
+    ↓ (Code/build_CR.R / Code/build_CR_MRBRT2023.R)
 Data/RR_index/*.xlsx                 ←  You are here
     ↓ (set_Model() → RR_std() → .RR_std_tbl)
 Code/*.R                             →  Mortality calculation

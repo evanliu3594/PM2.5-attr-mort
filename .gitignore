@@ -6,3 +6,6 @@ Thumbs.db
 Data/check*/
 Figure/
 Result/
+
+# Large raw IHME downloads (re-download from GHDx; see Data/RR_index/README.md)
+Data/IHME_GBD_2023_AIR_POLLUTION_1990_2021_RR_CURVES.zip
