@@ -1,13 +1,13 @@
 # AGENTS.md — PM2.5-attr-mort（项目总纲）
 
-> 本文件是项目总纲（路标）。详细架构与函数说明见 `CLAUDE.md`；文件清单见各目录 `README.md`；沿革见 `handoff/`。
+> 本文件是项目总纲（路标）。详细架构与函数说明见 `README.md` 与 `Code/*.R` 内注释；文件清单见各目录 `README.md`；沿革见 `handoff/`。
 > 目录契约：本项目沿用 `Code/`、`Data/`、`Result/`，不迁移到 A 型默认的 `R/`、`data/`、`output/`（用户 261026 拍板）。
 
 ## 0. 目录结构
 
 | 目录 / 文件 | 职责 | 明细位置 |
 |---|---|---|
-| `Code/` | 计算引擎、CR 构建脚本 | `Code/README.md`（待补）；函数说明见 `CLAUDE.md` |
+| `Code/` | 计算引擎、CR 构建脚本 | `Code/README.md`（待补）；函数说明见 `README.md` 与代码注释 |
 | `Data/` | 原始数据、实例表、CRF 系数、RR 查找表 | `Data/README.md`、`Data/RR_index/README.md` |
 | `Result/` | 结果表与图件 | `Result/README.md`（待补） |
 | `handoff/` | 会话交接记录；最新一份 = 当前状态入口 | — |
@@ -35,7 +35,7 @@
 
 ## 3. 研究方案与计算逻辑（概要）
 
-管线：`build_instance.R` 生成实例表 → `Code/build_CR.R` 或 `Code/build_CR_MRBRT2023.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `DrivingFactors.R` 做 24 排列分解。公式、函数契约与数据流见 `CLAUDE.md`。
+管线：`build_instance.R` 生成实例表 → `Code/build_CR.R` 或 `Code/build_CR_MRBRT2023.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `DrivingFactors.R` 做 24 排列分解。公式、函数契约与数据流见 `README.md` 与 `Code/*.R` 内注释。
 
 ### 3.1 已拍板口径（用户确认，勿再改）
 
@@ -61,6 +61,7 @@
 - 未用 `MRBRT2023` 重跑完整健康负担；影响幅度未量化。
 - dementia、birth weight、gestational age 曲线未编译。
 - `Code/README.md`、`Result/README.md` 与目录级 `AGENTS.md` 未建；本次为最小收口。
+- `CLAUDE.md` 已于 261026 删除；详细架构正文仅存于 git 历史（commit `405fd74`）。
 - 研究意图基线、成功标准与服务对象未经用户确认。
 - `Result/` 下有一次性的验证脚本与对比图，未入库。
 
@@ -69,7 +70,7 @@
 - **环境**：Windows；R 4.6.1，`C:\Program Files\R\R-4.6.1\bin\Rscript.exe`；从项目根 `source()` 运行。
 - **原始数据只读**：任何脚本不得写 `Data/*_raw/` 或原始 zip。
 - **目录**：脚本写 `Code/`；实例表与查找表写 `Data/`；结果与图写 `Result/`。临时件用完即删；退役件移入根 `deprecated/<原目录>/`，只归档不删除。
-- **文档分层**：本文件只写定位、必守、指向（≤9 KB）；文件清单归各目录 `README.md`；细节归 `CLAUDE.md` 或专门规范；沿革归 `handoff/`。
+- **文档分层**：本文件只写定位、必守、指向（≤9 KB）；文件清单归各目录 `README.md`；细节归专门规范文件或代码注释；沿革归 `handoff/`。
 - **变更必同步**：计算/数据、口径、结论、规划、目标变更后，全项目非归档件同轮同步；未同步项写进当次 handoff。规程用 skill `downstream-sync`。
 - **HDD（强制）**：代码改动先提可证伪假设与验证方式，再动手；改完以验证结果收口。机械改动可简化，但须声明“预期不变/预期值”并核对。
 - **需求确认（先听后问）**：目标或口径有歧义时先开放问，再回放，最后确认；代理决定必须说出口并登记 3.2。
@@ -86,7 +87,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT RR 查找表已接入并验证；完整健康负担未重跑。最新交接：`handoff/261026_gbd2023-mrbrt.md`。
+GBD 2023 MR-BRT RR 查找表已接入并验证；完整健康负担未重跑。最新交接：`handoff/261026_claude-md-removal.md`。
 
 ## 7. 联系与来源
 
