@@ -7,6 +7,9 @@
 #     verbose/debug parameters, trunc_fmt accepts n=Inf for unbounded output.
 #   Modified 261026: PWRR per domain × endpoint × agegroup; RANGE branches use
 #     matching PWRR; NA PWRR drops only affected rows, not whole domains.
+#   Modified 261026: Mortality() iterates endpoint × agegroup groups; each group
+#     is a grid-level join, avoiding a grid × endpoint × agegroup long table.
+#     compute_group() is side-effect free and ready for future_map2().
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -187,7 +190,6 @@ Mortality <- function(
   }
 
   # ---- Get standardised RR table ----
-  # .RR_std_tbl: concentration, endpoint, agegroup, CI, RR (built by set_Model())
   RR_all <- .RR_std_tbl
 
   if (nrow(RR_all) == 0) {
@@ -197,12 +199,10 @@ Mortality <- function(
   rr_conc_range <- range(as.numeric(RR_all$concentration), na.rm = TRUE)
 
   if (CI == "RANGE") {
-    # Pivot CI branches to columns: RR, RR_UP, RR_LOW
     RR_all <- RR_all |>
       pivot_wider(names_from = CI, values_from = RR) |>
       rename(RR = MEAN, RR_UP = UP, RR_LOW = LOW)
   } else {
-    # Filter to single CI branch, drop CI column
     RR_all <- RR_all |>
       filter(CI == !!CI) |>
       select(-CI)
@@ -294,216 +294,200 @@ Mortality <- function(
     )
   }
 
-  # ---- PWRR calculation (per domain × endpoint × agegroup) ----
-  # PWRR must use the same RR curve as the numerator. A single domain-level
-  # scalar mixes endpoints/ages with different RR levels and biases each
-  # endpoint in opposite directions.
-  pwr_cols <- if (CI == "RANGE") c("RR", "RR_UP", "RR_LOW") else "RR"
-  rr_for_pwr <- RR_all |>
-    select(concentration, endpoint, agegroup, all_of(pwr_cols))
+  # ---- Base tables: one row per grid ----
+  # base_c uses the counterfactual/real concentration for the RR numerator;
+  # base_r uses the real concentration for PWRR.
+  base_c <- Grids |>
+    rename(domain = !!sym(domain)) |>
+    left_join(Conc_c, by = c("x", "y")) |>
+    left_join(pop, by = c("x", "y"))
 
-  PWRR_pre <- Grids |>
+  base_r <- Grids |>
+    rename(domain = !!sym(domain)) |>
     left_join(Conc_r, by = c("x", "y")) |>
-    left_join(pop, by = c("x", "y")) |>
-    join_report(
-      rr_for_pwr,
-      "RR table (PWRR)",
-      breakdown = c(domain, "concentration"),
-      relationship = "many-to-many",
-      verbose = verbose,
-      debug = debug
-    )
-  n_before <- nrow(PWRR_pre)
-  PWRR_data <- PWRR_pre |> na.omit()
-  n_after <- nrow(PWRR_data)
+    left_join(pop, by = c("x", "y"))
 
-  if (n_after == 0) {
-    stop(
-      "PWRR step: all ",
-      n_before,
-      " rows dropped by na.omit. ",
-      "Check that concentration values fall within the RR lookup table range, ",
-      "and that Grid_info, Conc_r, and pop share common (x, y) coordinates."
-    )
+  # ---- Per endpoint × agegroup groups ----
+  # One group at a time keeps the long table at grid level (not grid × endpoint
+  # × agegroup). compute_group() is side-effect free; replace map2() with
+  # future_map2() to parallelize one endpoint-agegroup per worker.
+  groups <- RR_all |> distinct(endpoint, agegroup)
+
+  if (nrow(groups) == 0) {
+    stop("RR lookup table has no endpoint-agegroup groups.")
   }
 
-  if (n_after < n_before * 0.5) {
-    log_msg(
-      WARN,
-      "PWRR step: ",
-      n_before - n_after,
-      " of ",
-      n_before,
-      " rows (",
-      round(100 * (1 - n_after / n_before)),
-      "%) dropped by na.omit. ",
-      "Check concentration range vs RR lookup and coordinate consistency."
-    )
-  }
-
-  PWRR <- PWRR_data |>
-    group_by(pick(all_of(c(domain, "endpoint", "agegroup")))) |>
-    summarise(
-      across(
-        all_of(pwr_cols),
-        ~ weighted.mean(.x, Pop, na.rm = TRUE),
-        .names = "PWRR_{.col}"
-      ),
-      .groups = "drop"
-    )
-
-  if (CI == "RANGE") {
-    PWRR <- PWRR |>
-      rename(
-        PWRR_MEAN = PWRR_RR,
-        PWRR_UP = PWRR_RR_UP,
-        PWRR_LOW = PWRR_RR_LOW
-      )
-  } else {
-    PWRR <- PWRR |> rename(PWRR = PWRR_RR)
-  }
-
-  # ---- Guard: PWRR validity ----
+  pwr_cols <- if (CI == "RANGE") c("RR", "RR_UP", "RR_LOW") else "RR"
   pwr_value_cols <- if (CI == "RANGE") {
     c("PWRR_MEAN", "PWRR_UP", "PWRR_LOW")
   } else {
     "PWRR"
   }
-  pwr_long <- PWRR |>
-    pivot_longer(
-      all_of(pwr_value_cols),
-      names_to = "branch",
-      values_to = "PWRR_value"
-    )
-  key_cols <- c(domain, "endpoint", "agegroup")
 
-  # Phase 1: hard errors for genuinely invalid PWRR values
-  bad_inf <- is.infinite(pwr_long$PWRR_value)
-  bad_lt1 <- pwr_long$PWRR_value < 1 & !is.na(pwr_long$PWRR_value)
-  if (any(bad_inf) || any(bad_lt1)) {
-    bad_keys <- pwr_long |>
-      filter(bad_inf | bad_lt1) |>
-      unite("key", all_of(key_cols), sep = "/") |>
-      pull(key) |>
-      unique()
-    stop(
-      "Invalid PWRR detected. ",
-      if (any(bad_inf)) "Some domain/endpoint/age combinations have Inf PWRR. ",
-      if (any(bad_lt1)) {
-        "Some have PWRR < 1 (RR cannot be < 1 for PM2.5). "
-      },
-      "Check concentration and population data for: ",
-      trunc_fmt(bad_keys, n = show_n)
-    )
-  }
+  compute_group <- function(ep, age) {
+    rr_g <- RR_all |>
+      filter(endpoint == ep, agegroup == age) |>
+      select(concentration, all_of(pwr_cols))
 
-  # Phase 2: combinations with NA PWRR have no valid grids after na.omit.
-  # Keep the rest of the domain; the main join drops only affected rows.
-  na_pwrr <- is.na(pwr_long$PWRR_value)
-  if (any(na_pwrr)) {
-    skipped <- pwr_long |>
-      filter(na_pwrr) |>
-      unite("key", all_of(key_cols), sep = "/") |>
-      pull(key) |>
-      unique()
-    log_msg(
-      WARN,
-      "{length(skipped)} domain/endpoint/age combination(s) have no valid ",
-      "grids after na.omit; affected rows will be dropped: ",
-      trunc_fmt(skipped, n = show_n)
-    )
-    PWRR <- PWRR |>
-      filter(if_all(all_of(pwr_value_cols), ~ !is.na(.x)))
-  }
+    pwr <- base_r |>
+      left_join(rr_g, by = "concentration", relationship = "many-to-one") |>
+      drop_na() |>
+      group_by(domain) |>
+      summarise(
+        across(
+          all_of(pwr_cols),
+          ~ weighted.mean(.x, Pop, na.rm = TRUE),
+          .names = "PWRR_{.col}"
+        ),
+        .groups = "drop"
+      )
 
-  if (nrow(PWRR) == 0) {
-    stop(
-      "PWRR step: all domain/endpoint/age combinations dropped. ",
-      "Check that concentration values fall within the RR lookup table range, ",
-      "and that Grid_info, Conc_r, and pop share common (x, y) coordinates."
-    )
-  }
-
-  # ---- Main mortality calculation ----
-  rr_table <- RR_all
-
-  mort_data <- Grids |>
-    left_join(Conc_c, by = c("x", "y")) |>
-    left_join(pop, by = c("x", "y")) |>
-    join_report(
-      rr_table,
-      "RR table",
-      relationship = "many-to-many",
-      verbose = verbose,
-      debug = debug
-    ) |>
-    join_report(
-      mRate |> rename({{ domain }} := domain),
-      "mortality rate",
-      breakdown = c(domain, "endpoint", "agegroup"),
-      verbose = verbose,
-      debug = debug
-    ) |>
-    join_report(
-      ag |> rename({{ domain }} := domain),
-      "age structure",
-      breakdown = c(domain, "agegroup"),
-      verbose = verbose,
-      debug = debug
-    ) |>
-    join_report(
-      PWRR,
-      "PWRR",
-      breakdown = c(domain, "endpoint", "agegroup"),
-      verbose = verbose,
-      debug = debug
-    ) |>
-    na.omit()
-
-  if (nrow(mort_data) == 0) {
-    stop(
-      "Mortality step: all rows dropped by na.omit. ",
-      "Check age groups, endpoint names, and domain values in input data."
-    )
-  }
-
-  if (CI == "RANGE") {
-    # Pivot each branch separately, then join on x, y
-    mort_long <- mort_data |>
-      mutate(
-        Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR_MEAN / 1e5,
-        Mort_UP = Pop * AgeStruc * MortRate * (RR_UP - 1) / PWRR_UP / 1e5,
-        Mort_LOW = Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR_LOW / 1e5
-      ) |>
-      select(x, y, endpoint, agegroup, Mort, Mort_UP, Mort_LOW)
-
-    pivot_branch <- function(data, value_col, suffix) {
-      data |>
-        select(x, y, endpoint, agegroup, {{ value_col }}) |>
-        pivot_wider(
-          names_from = c('endpoint', 'agegroup'),
-          names_sep = '_',
-          values_from = {{ value_col }}
-        ) |>
-        rename_with(~ str_c(.x, suffix), matches('_[0-9]+$'))
+    if (CI == "RANGE") {
+      pwr <- pwr |>
+        rename(
+          PWRR_MEAN = PWRR_RR,
+          PWRR_UP = PWRR_RR_UP,
+          PWRR_LOW = PWRR_RR_LOW
+        )
+    } else {
+      pwr <- pwr |> rename(PWRR = PWRR_RR)
     }
 
-    result <- pivot_branch(mort_long, Mort, "_MEAN") |>
-      left_join(pivot_branch(mort_long, Mort_UP, "_UP"), by = c("x", "y")) |>
-      left_join(pivot_branch(mort_long, Mort_LOW, "_LOW"), by = c("x", "y"))
-  } else {
-    result <- mort_data |>
-      mutate(Mort = Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5) |>
-      select(x, y, endpoint, agegroup, Mort) |>
-      pivot_wider(
-        names_from = c('endpoint', 'agegroup'),
-        names_sep = '_',
-        values_from = 'Mort'
+    pwr_long <- pwr |>
+      pivot_longer(
+        all_of(pwr_value_cols),
+        names_to = "branch",
+        values_to = "PWRR_value"
+      )
+
+    bad_inf <- is.infinite(pwr_long$PWRR_value)
+    bad_lt1 <- pwr_long$PWRR_value < 1 & !is.na(pwr_long$PWRR_value)
+    if (any(bad_inf) || any(bad_lt1)) {
+      bad_keys <- pwr_long |>
+        filter(bad_inf | bad_lt1) |>
+        mutate(key = str_c(domain, ep, age, sep = "/")) |>
+        pull(key) |>
+        unique()
+      stop(
+        "Invalid PWRR detected for endpoint/agegroup ",
+        ep,
+        "/",
+        age,
+        ". ",
+        if (any(bad_inf)) "Some domains have Inf PWRR. ",
+        if (any(bad_lt1)) "Some have PWRR < 1. ",
+        "Check concentration and population for: ",
+        trunc_fmt(bad_keys, n = show_n)
+      )
+    }
+
+    na_pwrr <- is.na(pwr_long$PWRR_value)
+    skipped <- character()
+    if (any(na_pwrr)) {
+      skipped <- pwr_long |>
+        filter(na_pwrr) |>
+        mutate(key = str_c(domain, ep, age, sep = "/")) |>
+        pull(key) |>
+        unique()
+      pwr <- pwr |>
+        filter(if_all(all_of(pwr_value_cols), ~ !is.na(.x)))
+    }
+
+    mrate_g <- mRate |> filter(endpoint == ep, agegroup == age)
+    ag_g <- ag |> filter(agegroup == age)
+
+    value_cols <- if (CI == "RANGE") {
+      c(
+        str_c(ep, age, "MEAN", sep = "_"),
+        str_c(ep, age, "UP", sep = "_"),
+        str_c(ep, age, "LOW", sep = "_")
+      )
+    } else {
+      str_c(ep, age, CI, sep = "_")
+    }
+
+    mort <- base_c |>
+      join_report(
+        rr_g,
+        "RR table",
+        breakdown = c("domain", "concentration"),
+        relationship = "many-to-one",
+        verbose = verbose,
+        debug = debug
       ) |>
-      rename_with(~ str_c(.x, "_", CI), matches('_[0-9]+$'))
+      join_report(
+        mrate_g,
+        "mortality rate",
+        breakdown = c("domain", "endpoint", "agegroup"),
+        verbose = verbose,
+        debug = debug
+      ) |>
+      join_report(
+        ag_g,
+        "age structure",
+        breakdown = c("domain", "agegroup"),
+        verbose = verbose,
+        debug = debug
+      ) |>
+      join_report(
+        pwr,
+        "PWRR",
+        breakdown = c("domain", "endpoint", "agegroup"),
+        verbose = verbose,
+        debug = debug
+      ) |>
+      drop_na()
+
+    if (nrow(mort) == 0) {
+      empty <- tibble(x = character(), y = character())
+      for (col in value_cols) {
+        empty[[col]] <- numeric()
+      }
+      return(list(data = empty, skipped = skipped))
+    }
+
+    if (CI == "RANGE") {
+      mort <- mort |>
+        mutate(
+          !!sym(value_cols[1]) :=
+            Pop * AgeStruc * MortRate * (RR - 1) / PWRR_MEAN / 1e5,
+          !!sym(value_cols[2]) :=
+            Pop * AgeStruc * MortRate * (RR_UP - 1) / PWRR_UP / 1e5,
+          !!sym(value_cols[3]) :=
+            Pop * AgeStruc * MortRate * (RR_LOW - 1) / PWRR_LOW / 1e5
+        ) |>
+        select(x, y, all_of(value_cols))
+    } else {
+      mort <- mort |>
+        mutate(
+          !!sym(value_cols) :=
+            Pop * AgeStruc * MortRate * (RR - 1) / PWRR / 1e5
+        ) |>
+        select(x, y, all_of(value_cols))
+    }
+
+    list(data = mort, skipped = skipped)
   }
 
-  # ---- Guard: result not empty ----
+  group_results <- map2(groups$endpoint, groups$agegroup, compute_group)
+
+  skipped_keys <- group_results |>
+    map("skipped") |>
+    unlist(use.names = FALSE) |>
+    unique()
+
+  if (length(skipped_keys) > 0) {
+    log_msg(
+      WARN,
+      "{length(skipped_keys)} domain/endpoint/age combination(s) have no valid ",
+      "PWRR after na.omit; affected rows will be dropped: ",
+      trunc_fmt(skipped_keys, n = show_n)
+    )
+  }
+
+  data_list <- map(group_results, "data")
+  result <- reduce(data_list, full_join, by = c("x", "y"))
+
   if (nrow(result) == 0) {
     stop("Mortality result has 0 rows. Check pivot_wider inputs.")
   }
@@ -511,15 +495,6 @@ Mortality <- function(
   return(result)
 }
 
-
-#' Auto-detect the PWRR domain column
-#'
-#' Matches unique values in MortRate domain columns against Grid_info
-#' non-coordinate columns. Returns the Grid_info column with the most
-#' overlapping unique values.
-#'
-#' @return character, the name of the best-matching Grid_info column
-#' @keywords internal
 detect_domain <- function() {
   # Try each MortRate column against each Grid_info non-coordinate column.
   # Pick the pair with the most overlapping unique values.
