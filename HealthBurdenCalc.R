@@ -43,8 +43,8 @@ source('./Code/aggregation.R', encoding = 'UTF8')
 # this section used to choose C-R Model for Health Impact Calculation.
 # Supported C-R functions: 'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'MRBRT2023', 'O3', 'NO2'
 
-# set_Model('MRBRT')
-# set_Model('MRBRT2023')   # GBD 2023 MR-BRT
+# set_Model('MRBRT')       # GBD 2023 default alias
+# set_Model('MRBRT2023')   # GBD 2023 MR-BRT (explicit)
 set_Model('NCD+LRI')
 # set_Model('5COD')
 # set_Model('IER')

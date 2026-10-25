@@ -46,12 +46,13 @@
 | ③ | PWRR 归一化 | 按域 × 终点 × 年龄档计算；CI 分支用对应 PWRR | 261026 |
 | ④ | DrivingFactors 24 序列 | 按注释顺序明文表；state 规则显式；domain 注入 | 261026 |
 | ⑤ | Mortality 计算结构 | 按 endpoint × agegroup 分组遍历；每组 grid 级长表；future-ready | 261026 |
+| ⑥ | MRBRT 默认指向 | `set_Model("MRBRT")` = `MRBRT2023`；`MRBRT2021` 保留 | 261026 |
 
 ### 3.2 代理决策（agent 决定，用户未反对）
 
 | # | 选择项 | 取值 | 理由 | 日期 |
 |---|---|---|---|---|
-| ① | 新模型命名 | `MRBRT2023`；`MRBRT` 仍指 2021，`MRBRT2021` 保留 | 保留历史结果可复现，新版显式调用 | 261026 |
+| ① | 新模型命名 | `MRBRT2023` 为显式 2023 别名；`MRBRT2021` 为历史别名 | 默认指向见「已拍板口径」⑥ | 261026 |
 | ② | MRBRT2023 终点 | copd、dm2、ihd、lc、lri、stroke | 与 MRBRT2021 终点集一致；死亡率表无 dementia | 261026 |
 | ③ | MRBRT2023 网格 | 0–300 µg/m³，步长 0.1；全年龄 `_ALL` 填充 | 与现有查找表 join 网格一致；源曲线只给全年龄 | 261026 |
 | ④ | 源文件尺度 | COPD/DM2/LC 按 RR；IHD/Stroke/LRI 按 log(RR) | 压缩包内两批文件尺度不同 | 261026 |
@@ -94,7 +95,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT RR 查找表已接入并验证；PWRR 已修正为按域 × 终点 × 年龄档计算（v5.2）；`DrivingFactors.R` 的 24 序列已改为明文表并完成状态审计（v5.3）；`Mortality()` 已改为 endpoint × agegroup 分组遍历（v5.4）。完整健康负担未重跑。最新交接：`handoff/261026_mortality-grouped.md`。
+GBD 2023 MR-BRT RR 查找表已接入并验证；PWRR 已修正为按域 × 终点 × 年龄档计算（v5.2）；`DrivingFactors.R` 的 24 序列已改为明文表并完成状态审计（v5.3）；`Mortality()` 已改为 endpoint × agegroup 分组遍历（v5.4）；`MRBRT` 默认指向 `MRBRT2023`（v5.5）。完整健康负担未重跑。最新交接：`handoff/261026_mrbrt-default-2023.md`。
 
 ## 7. 联系与来源
 

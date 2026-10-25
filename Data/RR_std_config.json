@@ -81,8 +81,8 @@
   },
   "MRBRT": {
     "conc_col": "dose",
-    "label": "PM2.5_MRBRT2021",
-    "lookup": "./Data/RR_index/MRBRT2021_Lookup_Table_LYF250716.xlsx",
+    "label": "PM2.5_MRBRT2023",
+    "lookup": "./Data/RR_index/MRBRT2023_Lookup_Table_Build_261026.xlsx",
     "endpoints": [
       { "name": "copd",   "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },
       { "name": "dm2",    "ages": [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95] },

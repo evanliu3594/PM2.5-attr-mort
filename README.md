@@ -176,8 +176,8 @@ All join keys are **strings** (not floats) to avoid floating-point mismatch. The
 set_Model('IER')         # IER2017
 set_Model('NCD+LRI')     # GEMM NCD+LRI (composite endpoint)
 set_Model('5COD')        # GEMM 5-COD (individual endpoints)
-set_Model('MRBRT')       # MR-BRT GBD 2021
-set_Model('MRBRT2023')   # MR-BRT GBD 2023 (IHD, stroke, LRI updated)
+set_Model('MRBRT')       # MR-BRT GBD 2023 (default alias)
+set_Model('MRBRT2023')   # MR-BRT GBD 2023 (explicit)
 set_Model('O3')          # Ozone (COPD only)
 set_Model('NO2')         # NO2 (all-cause)
 
@@ -206,7 +206,11 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.4 (current)
+## v5.5 (current)
+- **MRBRT default**: `set_Model("MRBRT")` now loads the GBD 2023 lookup (`MRBRT2023`). `MRBRT2021` remains available for legacy runs; `MRBRT2023` remains an explicit alias for the same lookup.
+- Output labels for `MRBRT` now use `PM2.5_MRBRT2023`; files produced with the old alias are labeled `PM2.5_MRBRT2021`.
+
+## v5.4
 - **Mortality() grouped by endpoint × agegroup**: `Mortality()` now iterates one `{endpoint}-{agegroup}` group at a time. Each group joins at grid level, computes PWRR, and returns one or three value columns. The grid × endpoint × agegroup long table is no longer materialized.
 - **Future-ready**: `compute_group()` is side-effect free; the `map2()` call can be replaced by `future_map2()` to parallelize one group per worker.
 - **Validation**: NCD+LRI MEAN/RANGE outputs are bit-identical to the pre-refactor baseline (max abs diff 0). MRBRT2021 RANGE: 53,713 × 287, NA = 0; totals 6,715,235 / 8,204,761 / 4,892,366; 31.8 s.
@@ -227,7 +231,7 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 ## v5.1
 - **GBD 2023 MR-BRT CRF**: added the `MRBRT2023` lookup, built from the GHDx GBD 2023 air pollution RR archive. IHD, stroke, and LRI curves are updated; the Y2022 COPD, diabetes, and lung cancer curves are carried forward and differ from GBD 2021 by ≤1.1% at 300 µg/m³.
 - **Reproducible builder**: `Code/build_CR_MRBRT2023.R` extracts the six PM<sub>2.5</sub> mean curves, detects RR vs log(RR), and interpolates to the 0.1 µg/m³ grid.
-- **Backward compatible**: `MRBRT` still points to the GBD 2021 table; select `MRBRT2023` explicitly.
+- **Backward compatible (at v5.1)**: `MRBRT` pointed to the GBD 2021 table; v5.5 changes the default to 2023. `MRBRT2021` remains available for legacy runs.
 
 ## v5.0
 - **Automated data preprocessing**: `build_instance.R` resamples all rasters to a common template grid, matches IHME country names via `llmjoin`, and produces five standardised instance files — replacing the old fishnet-based workflow
