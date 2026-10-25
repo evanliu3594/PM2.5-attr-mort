@@ -57,5 +57,5 @@
 - 说明：`README.md`（v5.2）
 - 上一份交接：`handoff/261026_claude-md-removal.md`
 - 删除前的架构正文：`git show 405fd74:CLAUDE.md`（旧文，PWRR 描述已过时；以当前 `README.md` 与 `Code/mortality.R` 为准）
-- 提交：本次收口提交（`git log -1`）
+- 提交：`fba26bc`（主改动）；本次指针更新为紧随其后的独立提交。
 - 注入预算：`AGENTS.md` 7,302 B；与用户级 7,368 B 合计 14,670 B（22.4%），低于 60% 目标线。
