@@ -51,16 +51,27 @@ set_Model('NCD+LRI')
 # set_Model('O3')          # GBD 2023 O3 (COPD)
 # set_Model('NO2')         # GBD 2023 NO2 (asthma)
 
+# Input data ----
+# Edit these paths to point at another instance. Paths are relative to the
+# project root. Leave CONC_CF_FILE as NULL to compute absolute burden from
+# Conc_real; set it to a counterfactual file for scenario calculations.
+
+GRIDS_FILE      <- "./Data/Grid_info_instance_260617.xlsx"
+POP_FILE        <- "./Data/GridPop_instance_260617.xlsx"
+CONC_REAL_FILE  <- "./Data/GridPM25_instance_260617.xlsx"
+CONC_CF_FILE    <- NULL   # e.g. "./Data/GridPM25_cf_instance_260617.xlsx"
+MORT_RATE_FILE  <- "./Data/GBD_mortality_instance_260617.xlsx"
+AGE_GROUP_FILE  <- "./Data/GBD_agestructure_instance_260617.xlsx"
+
 # Data load ----
 
-instance_files <- resolve_instance_files()
 read_files(
-  Grids = instance_files$Grids,
-  Pop = instance_files$Pop,
-  Conc_real = instance_files$Conc_real,
-  Conc_cf = instance_files$Conc_cf,
-  MortRate = instance_files$MortRate,
-  AgeGroup = instance_files$AgeGroup,
+  Grids = GRIDS_FILE,
+  Pop = POP_FILE,
+  Conc_real = CONC_REAL_FILE,
+  Conc_cf = CONC_CF_FILE,
+  MortRate = MORT_RATE_FILE,
+  AgeGroup = AGE_GROUP_FILE,
   dgt_grid = 2,
   conc_unit = "ug/m3"
 )

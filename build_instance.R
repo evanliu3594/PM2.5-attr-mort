@@ -502,7 +502,7 @@ cat(str_glue(
 
 # ══════════════════════════════════════════════════════════════════════════════════════
 
-# Write the instance manifest used by HealthBurdenCalc.R and DrivingFactors.R.
+# Write the instance manifest; resolve_instance_files() reads it.
 instance_files <- list(
   Grids = str_glue("./Data/Grid_info_instance_{OUT_SUFFIX}.xlsx"),
   Pop = str_glue("./Data/GridPop_instance_{OUT_SUFFIX}.xlsx"),

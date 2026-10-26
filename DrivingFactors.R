@@ -40,19 +40,28 @@ RUN_DRIVERS <- tolower(Sys.getenv("PM25_RUN_DRIVERS", unset = "true")) == "true"
 # Worker count for Code/kernel.R; 1 keeps the sequential plan.
 WORKERS <- as.integer(Sys.getenv("PM25_KERNEL_WORKERS", unset = "1"))
 
+# Input data ----
+# Edit these paths to point at another instance. Paths are relative to the
+# project root.
+
+GRIDS_FILE      <- "./Data/Grid_info_instance_260617.xlsx"
+POP_FILE        <- "./Data/GridPop_instance_260617.xlsx"
+CONC_REAL_FILE  <- "./Data/GridPM25_instance_260617.xlsx"
+MORT_RATE_FILE  <- "./Data/GBD_mortality_instance_260617.xlsx"
+AGE_GROUP_FILE  <- "./Data/GBD_agestructure_instance_260617.xlsx"
+
 # C-R function setting ----
 
 set_Model(MODEL)
 
 # Data load ----
 
-instance_files <- resolve_instance_files()
 read_files(
-  Grids = instance_files$Grids,
-  Pop = instance_files$Pop,
-  Conc_real = instance_files$Conc_real,
-  MortRate = instance_files$MortRate,
-  AgeGroup = instance_files$AgeGroup,
+  Grids = GRIDS_FILE,
+  Pop = POP_FILE,
+  Conc_real = CONC_REAL_FILE,
+  MortRate = MORT_RATE_FILE,
+  AgeGroup = AGE_GROUP_FILE,
   conc_unit = "ug/m3"
 )
 
