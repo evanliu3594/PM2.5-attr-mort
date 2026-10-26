@@ -39,6 +39,16 @@ source('./Code/mortality.R', encoding = 'UTF8')
 source('./Code/uncertainty.R', encoding = 'UTF8')
 source('./Code/aggregation.R', encoding = 'UTF8')
 
+# Concurrency (optional) ----
+# Sequential by default. Export PM25_KERNEL_WORKERS = 8 to run Mortality()
+# groups in parallel. The plan stays active for this R session; kernel_off()
+# restores the sequential plan.
+
+worker_n <- as.integer(Sys.getenv("PM25_KERNEL_WORKERS", unset = "1"))
+if (!is.na(worker_n) && worker_n > 1) {
+  kernel_plan(workers = worker_n)
+}
+
 # C-R Model setting ----
 # this section used to choose C-R Model for Health Impact Calculation.
 # Supported C-R functions: 'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'MRBRT2023', 'O3', 'NO2'

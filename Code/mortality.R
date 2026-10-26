@@ -14,6 +14,16 @@
 #     RANGE uses branch-specific or common MEAN PWRR.
 #   Modified 261026b: single branches reuse the RANGE denominator; required
 #     columns only; key guards; dgt_conc and unit checks; missing groups stay NA.
+#   Modified 261027: endpoint × agegroup groups run through kernel_map2() so the
+#     Future kernel can parallelise them; the default plan stays sequential and
+#     every value is unchanged.
+
+# ── kernel core ────────────────────────────────────────────────────────────────
+# The Future kernel lives in Code/kernel.R (owned by kernel-core). Source it when
+# kernel_map2() is not loaded yet; Mortality() needs the function at call time.
+if (!exists("kernel_map2", mode = "function")) {
+  source("./Code/kernel.R", encoding = "UTF8")
+}
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -425,8 +435,8 @@ Mortality <- function(
 
   # ---- Per endpoint × agegroup groups ----
   # One group at a time keeps the long table at grid level (not grid × endpoint
-  # × agegroup). compute_group() is side-effect free; replace map2() with
-  # future_map2() to parallelize one endpoint-agegroup per worker.
+  # × agegroup). compute_group() is side-effect free, so kernel_map2() can run
+  # one endpoint-agegroup per worker when a parallel plan is active.
   groups <- RR_all |> distinct(endpoint, agegroup)
   if (nrow(groups) == 0) {
     stop("RR lookup table has no endpoint-agegroup groups.")
@@ -634,10 +644,17 @@ Mortality <- function(
     list(data = mort, skipped = skipped)
   }
 
-  group_results <- map2(
+  # Task labels keep error messages readable when one group fails. .error is
+  # pinned to "stop" so the returned slots always follow the list(data, skipped)
+  # contract, whatever pm25.kernel.on_error says globally.
+  labels <- str_c(groups$endpoint, groups$agegroup, sep = "/")
+  group_results <- kernel_map2(
     groups$endpoint,
     groups$agegroup,
-    compute_group
+    compute_group,
+    .labels = labels,
+    .label = "Mortality groups",
+    .error = "stop"
   )
 
   skipped_keys <- group_results |>

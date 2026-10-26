@@ -7,6 +7,9 @@
 # the state of each prefix is derived by one explicit mapping, not by an if chain.
 # NOTE 261026b: the 24 sequences share 16 unique factor states. States are cached
 # by sorted factor set; aggregate_drivers() uses country-level state summaries.
+# NOTE 261027: when the Future kernel plan is active, the unique factor states are
+# summarised once in parallel (one small domain x Cause_Age table per state); the
+# serial cache path stays unchanged when the plan is sequential.
 
 # Core Module Load ----
 
@@ -18,6 +21,16 @@ source('./Code/data.R', encoding = 'UTF8')
 source('./Code/mortality.R', encoding = 'UTF8')
 source('./Code/uncertainty.R', encoding = 'UTF8')
 source('./Code/aggregation.R', encoding = 'UTF8')
+
+# Concurrency (optional) ----
+# Sequential by default. Export PM25_KERNEL_WORKERS = 8 to run Mortality()
+# groups in parallel. The plan stays active for this R session; kernel_off()
+# restores the sequential plan.
+
+worker_n <- as.integer(Sys.getenv("PM25_KERNEL_WORKERS", unset = "1"))
+if (!is.na(worker_n) && worker_n > 1) {
+  kernel_plan(workers = worker_n)
+}
 
 # C-R function setting ----
 # this section used to choose C-R function for Health Impact Calculation.
@@ -147,6 +160,76 @@ decomp_state_key <- function(prefix, start.y, end.y, domain) {
   str_c(start.y, end.y, str_c(domain, collapse = "+"), factors, sep = "::")
 }
 
+# One series as its five cumulative factor prefixes: start, then each step.
+decomp_series_prefixes <- function(serie) {
+  seq_row <- decomp_sequences |> filter(serie == .env$serie)
+  if (nrow(seq_row) != 1) {
+    stop("serie must be one of 1:24.")
+  }
+  steps <- seq_row |>
+    select(step1:step4) |>
+    unlist(use.names = FALSE)
+  list(
+    character(0),
+    steps[1],
+    steps[1:2],
+    steps[1:3],
+    steps[1:4]
+  )
+}
+
+# Unique factor states needed by the requested series, keyed by decomp_state_key().
+# 24 sequences share 16 states; one series needs 5.
+decomp_unique_prefixes <- function(start.y, end.y, domain, RUN24 = TRUE) {
+  series <- if (RUN24) 1:24 else 1
+  prefixes <- series |>
+    map(decomp_series_prefixes) |>
+    unlist(recursive = FALSE)
+  keys <- prefixes |>
+    map_chr(
+      decomp_state_key,
+      start.y = start.y,
+      end.y = end.y,
+      domain = domain
+    )
+  prefixes[!duplicated(keys)] |>
+    set_names(unique(keys))
+}
+
+# Country-level summary of one state: attributable deaths summed by domain × Cause_Age.
+state_summary_from_grid <- function(mort, domain) {
+  mort |>
+    pivot_longer(
+      cols = -all_of(c("x", "y", domain)),
+      names_to = "Cause_Age",
+      values_to = "Mort"
+    ) |>
+    group_by(across(all_of(c(domain, "Cause_Age")))) |>
+    summarise(Mort = sum(Mort), .groups = "drop")
+}
+
+# One kernel task: build a state grid, then return only its small summary.
+state_summary_for_prefix <- function(prefix, start.y, end.y, domain) {
+  mort_at_prefix(prefix, start.y, end.y, domain) |>
+    add_domain(domain = domain) |>
+    state_summary_from_grid(domain = domain)
+}
+
+# Summarise the unique states once, in parallel when a kernel plan is active.
+precompute_state_summaries <- function(states, start.y, end.y, domain) {
+  summaries <- kernel_map(
+    states,
+    state_summary_for_prefix,
+    start.y = start.y,
+    end.y = end.y,
+    domain = domain,
+    .labels = names(states),
+    .label = "DrivingFactors states",
+    .error = "stop"
+  )
+  set_names(summaries, names(states))
+}
+
 get_decomp_state <- function(prefix, start.y, end.y, domain, cache) {
   key <- decomp_state_key(prefix, start.y, end.y, domain)
   if (exists(key, envir = cache$states, inherits = FALSE)) {
@@ -198,22 +281,8 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
     domain <- detect_domain()
   }
 
-  seq_row <- decomp_sequences |> filter(serie == .env$serie)
-  if (nrow(seq_row) != 1) {
-    stop("serie must be one of 1:24.")
-  }
-
-  steps <- seq_row |>
-    select(step1:step4) |>
-    unlist(use.names = FALSE)
-
-  prefixes <- list(
-    character(0),
-    steps[1],
-    steps[1:2],
-    steps[1:3],
-    steps[1:4]
-  )
+  prefixes <- decomp_series_prefixes(serie)
+  steps <- prefixes[[5]]
 
   if (is.null(cache)) {
     cache <- new_decomp_cache()
@@ -258,48 +327,61 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
 
 # Build country-level sequence contributions from cached state summaries.
 # Decomposition() keeps the grid-level output; aggregate_drivers() uses this path.
+# state_summaries, when supplied, replaces the cache: it must be keyed by
+# decomp_state_key() and hold one state_summary_from_grid() table per state.
 Decomposition_summary <- function(
   serie,
   start.y,
   end.y,
   domain = NULL,
-  cache = NULL
+  cache = NULL,
+  state_summaries = NULL
 ) {
   validate_scenario_columns(start.y, end.y)
   if (is.null(domain)) {
     domain <- detect_domain()
   }
 
-  seq_row <- decomp_sequences |> filter(serie == .env$serie)
-  if (nrow(seq_row) != 1) {
-    stop("serie must be one of 1:24.")
-  }
-
-  steps <- seq_row |>
-    select(step1:step4) |>
-    unlist(use.names = FALSE)
-
-  prefixes <- list(
-    character(0),
-    steps[1],
-    steps[1:2],
-    steps[1:3],
-    steps[1:4]
-  )
+  prefixes <- decomp_series_prefixes(serie)
+  steps <- prefixes[[5]]
 
   if (is.null(cache)) {
     cache <- new_decomp_cache()
   }
 
-  Decomp <- prefixes |>
-    map(
-      decomp_state_summary,
-      start.y = start.y,
-      end.y = end.y,
-      domain = domain,
-      cache = cache
-    ) |>
-    set_names(str_c("Mort_", 0:4))
+  if (is.null(state_summaries)) {
+    summaries <- prefixes |>
+      map(
+        decomp_state_summary,
+        start.y = start.y,
+        end.y = end.y,
+        domain = domain,
+        cache = cache
+      )
+  } else {
+    keys <- prefixes |>
+      map_chr(
+        decomp_state_key,
+        start.y = start.y,
+        end.y = end.y,
+        domain = domain
+      )
+    missing_keys <- setdiff(keys, names(state_summaries))
+    if (length(missing_keys) > 0) {
+      stop(
+        "state_summaries lacks ",
+        length(missing_keys),
+        " of ",
+        length(keys),
+        " state(s) needed by serie ",
+        serie,
+        "."
+      )
+    }
+    summaries <- state_summaries[keys]
+  }
+
+  Decomp <- summaries |> set_names(str_c("Mort_", 0:4))
 
   Decomp <- Decomp |>
     imap_dfr(
@@ -336,6 +418,31 @@ aggregate_drivers <- function(
   n <- if (RUN24) 1:24 else 1
   cache <- new_decomp_cache()
 
+  # Parallel path: summarise the unique factor states once, then assemble the
+  # sequences from those summaries. The serial cache path below stays unchanged.
+  kernel_on <- exists("kernel_active", mode = "function") &&
+    isTRUE(kernel_active())
+  state_summaries <- NULL
+  if (kernel_on) {
+    states <- decomp_unique_prefixes(
+      start.year, end.year, domain,
+      RUN24 = RUN24
+    )
+    log_msg(
+      INFO,
+      "kernel: summarising ",
+      length(states),
+      " unique factor state(s) for ",
+      length(n),
+      " sequence(s) on ",
+      kernel_workers(),
+      " worker(s)."
+    )
+    state_summaries <- precompute_state_summaries(
+      states, start.year, end.year, domain
+    )
+  }
+
   ls1 <- n |>
     set_names() |>
     map(
@@ -344,7 +451,8 @@ aggregate_drivers <- function(
         start.y = start.year,
         end.y = end.year,
         domain = domain,
-        cache = cache
+        cache = cache,
+        state_summaries = state_summaries
       ) |>
         group_by(across(all_of(domain))) |>
         summarise(across(Start:End, sum))
