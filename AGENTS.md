@@ -69,7 +69,7 @@
 
 ### 3.3 当前缺口（摘要）
 
-- 完整健康负担、完整 24 序列、真实 O3/NO2 burden 与 0.1° 压测未完成。
+- 完整健康负担、真实 O3/NO2 burden 与 0.1° 压测未完成；`NCD+LRI` 完整 24 序列已完成。
 - 现有 260617 实例的 2030 列混用 exposure 2030、population 2020、age 2019、mortality 2020。重建默认阻止混合年份，正式分解待用户批准代理或换真 2030 输入。
 - NO2 0–14 岁、IER LRI 年龄、legacy 气体单位、超范围 clamp 口径待确认。
 - `Code/README.md` 与目录级 `AGENTS.md` 未建。
@@ -99,7 +99,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合、输入契约、精度和构建链修复（v5.7）；目录布局调整（v5.8）。最新交接：`handoff/261026_repo-layout.md`。
+GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合、输入契约、精度和构建链修复（v5.7）；目录布局调整（v5.8）；`NCD+LRI` 完整 24 序列已运行并通过守恒与健康负担交叉验收。最新交接：`handoff/261026_drivingfactors-full-test.md`。
 
 ## 7. 联系与来源
 
