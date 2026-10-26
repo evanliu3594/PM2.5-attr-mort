@@ -239,9 +239,80 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 | `debug` | `FALSE` | `FALSE` = plain `left_join` (fast); `TRUE` = `join_report()` hierarchical NA diagnostics |
 | `verbose` | `FALSE` | `FALSE` = truncate domain names to 6 in warnings; `TRUE` = show all |
 
+### Concurrency
+
+`Code/kernel.R` is the project concurrency kernel. It builds on the R Future API
+and keeps the historical sequential behaviour by default. Load it before the
+calculation and set a plan:
+
+```r
+source("Code/kernel.R")
+
+kernel_plan(workers = 4)   # callr; falls back to multisession, then sequential
+grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
+kernel_off()               # restore the sequential plan
+```
+
+What runs in parallel:
+
+- `Mortality()` runs its `endpoint × agegroup` groups through `kernel_map2()`.
+  Each group stays side-effect free, and parallel results are identical to the
+  sequential path.
+- `DrivingFactors` precomputes the 16 unique factor states with `kernel_map()`
+  when a plan is active, then assembles the 24 sequences from those summaries.
+
+Backends and fallbacks:
+
+| Backend | Engine | Use |
+|---------|--------|-----|
+| `"callr"` (default) | `future.callr`, one process per future | Production; needs process pipes. Verified in a normal R session (elevated run): output identical to serial, but process startup per future makes one call slower than serial |
+| `"multisession"` | persistent R workers | Works where pipes are blocked, such as sandboxed runners |
+| `"sequential"` | main process | No parallel execution |
+
+`kernel_plan()` runs one smoke test. When the requested backend cannot start, it
+falls back to the next backend with one warning. Set `fallback = FALSE` to stop
+instead.
+
+Error strategies for one mapping call:
+
+| `.error` | Behaviour |
+|----------|-----------|
+| `"stop"` (default) | Run every task, then raise one `kernel_task_error` listing up to three failed keys |
+| `"warn"` | Run every task, signal one warning, leave failed slots `NULL` |
+| `"collect"` | Return a `kernel_result` with `values`, `errors`, `n_ok`, and timings |
+
+`kernel_info()` reports the backend, worker count, whether the call ran inside a
+worker, and the last run's elapsed time, mapping-input payload size, and error
+count.
+
+Entry scripts read `PM25_KERNEL_WORKERS` (default `1`, sequential). The plan
+stays active for the R session, so call `kernel_off()` to restore the sequential
+plan.
+
+Two kernel rules matter for performance:
+
+- A mapping call with one task never starts a future; it runs in the main process.
+- The R Future API re-serialises the exported closure once per future. One
+  `Mortality()` call exports about 40 MB per future, so parallel group execution
+  is slower than serial on the 260,617 sample: 6.08 s serial vs 8.365 s with four
+  workers (0.73×). The kernel pays off for multi-call runs: the 24-sequence
+  decomposition fell from 66.45 s to 29.88 s with four workers (2.22×).
+
+`kernel_info()$payload_mb_last` reports only the mapping inputs (`.x`, `.y`,
+`.l`). It does not include the exported closure environment.
+
 # Release notes
 
-## v5.9 (current)
+## v6.0 (current)
+- **Concurrency kernel**: `Code/kernel.R` adds one Future-based kernel for the project: plan management (`kernel_plan()`, `kernel_off()`, `kernel_probe()`, `kernel_info()`, `kernel_active()`, `kernel_workers()`) and mapping functions (`kernel_map()`, `kernel_map2()`, `kernel_imap()`, `kernel_pmap()`, `kernel_walk()`). Every task runs through `tryCatch()`; the parallel path dispatches `furrr` functions with `do.call()`. The default backend is `future.callr`, followed by `multisession` and sequential fallbacks.
+- **Default stays sequential**: entry scripts read `PM25_KERNEL_WORKERS` (default `1`). Serial results are unchanged; `Mortality()` output is identical with or without a plan.
+- **Mortality() groups use the kernel**: `map2()` is replaced by `kernel_map2()` with `endpoint/agegroup` task labels. Parallel output is identical to serial output in all nine measured worker configurations.
+- **DrivingFactors state precompute**: when a plan is active, the 16 unique factor states are summarised once in parallel, and workers return only country × Cause_Age summaries. The serial cache path is unchanged.
+- **Measured performance**: the full 24-sequence run fell from 66.45 s to 29.88 s with four workers (2.22×; two alternating rounds, maximum absolute workbook difference 0). One `Mortality()` call does not speed up: 6.08 s serial vs 8.365 s with four workers (0.73×). Every future re-serialises about 40 MB of closure environment, and 15 groups are too little work to repay it. Enable the kernel for multi-call runs, not for a single call.
+- **Tests**: `tests/run_tests.R` runs nine files with 370 assertions, including new kernel contract, Mortality equivalence, and DrivingFactors equivalence tests. The original 183 assertions are unchanged.
+- **Boundaries**: the development sandbox blocks process pipes, so all timing measurements used `multisession`. A separate elevated run verified the `future.callr` backend in a normal R session: both backends return identical output (maximum absolute difference 0), and both are slower than serial for one `Mortality()` call (callr four workers 11.53 s vs serial 6.14 s). `Decomposition()` (grid-level) and `aggregate_sigma()` are not parallelised.
+
+## v5.9
 - **DrivingFactors state cache**: the 24 decomposition sequences share 16 unique factor states. States are cached by sorted factor set and reused across sequences.
 - **Country-level summaries**: `aggregate_drivers()` now uses `Decomposition_summary()` and country × Cause_Age state summaries. It no longer rebuilds the 805,695-row grid table for every sequence.
 - **Trusted-input fast path**: `Mortality(..., validate_keys = FALSE)` skips repeated input key checks after `read_files()` validation. The default remains `TRUE`.
@@ -276,7 +347,7 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 ## v5.4
 - **Mortality() grouped by endpoint × agegroup**: `Mortality()` now iterates one `{endpoint}-{agegroup}` group at a time. Each group joins at grid level, computes PWRR, and returns one or three value columns. The grid × endpoint × agegroup long table is no longer materialized.
-- **Future-ready**: `compute_group()` is side-effect free; the `map2()` call can be replaced by `future_map2()` to parallelize one group per worker.
+- **Future-ready** (implemented by the v6.0 kernel): `compute_group()` is side-effect free; the group loop now runs through `kernel_map2()`, and the default plan stays sequential.
 - **Validation**: NCD+LRI MEAN/RANGE outputs are bit-identical to the pre-refactor baseline (max abs diff 0). MRBRT2021 RANGE: 53,713 × 287, NA = 0; totals 6,715,235 / 8,204,761 / 4,892,366; 31.8 s.
 - **Debug**: per-group `join_report()` diagnostics remain; debug small-subset test 20 × 17, NA = 0.
 
