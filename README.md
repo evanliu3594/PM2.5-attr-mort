@@ -82,7 +82,7 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
    without writing. O3/NO2 require ppb concentration and the matching endpoint
    in the mortality table; the entry stops when those inputs are missing.
 
-4. **Decomposition analysis** — `source('DrivingFactors.R')` to attribute mortality changes to Population Growth, Population Aging, Exposure change, and Other Risk Factors. Set `PM25_RUN_DRIVERS=false` to load functions without running all 24 sequences.
+4. **Decomposition analysis** — `DrivingFactors.R` is the entry script; the decomposition functions live in `Code/decomposition.R`. Edit its configuration block (`MODEL`, `START_YEAR`, `END_YEAR`, `RESULT_AT`, `RUN24`, `WORKERS`), then source the file or run it with Rscript. Set `PM25_RUN_DRIVERS=false` to load data and functions without running the 24 sequences.
 
 ## Output layout
 
@@ -308,6 +308,7 @@ Two kernel rules matter for performance:
 - **Default stays sequential**: entry scripts read `PM25_KERNEL_WORKERS` (default `1`). Serial results are unchanged.
 - **Decomposition() states build in parallel**: when a plan is active, missing factor states are computed in parallel and cached; the grid-level output is identical to the serial path. One series (five states) fell from 23.22 s to 15.39 s with four workers (1.51×).
 - **DrivingFactors state precompute**: `aggregate_drivers()` summarises the 16 unique states in parallel and assembles the 24 sequences from the summaries. The 24-sequence run fell from about 66 s to about 29 s with four workers (2.22×), and the workbook matches the frozen 261026 run (maximum absolute difference 0).
+- **DrivingFactors entry split**: function definitions moved to `Code/decomposition.R`; the root `DrivingFactors.R` is now a 74-line entry script with a configuration block (`MODEL`, `START_YEAR`, `END_YEAR`, `RESULT_AT`, `RUN24`, `WORKERS`). Existing `source('DrivingFactors.R')` and `PM25_RUN_DRIVERS=false` usage still work. End-to-end: 72.49 s sequential vs 33.90 s with four workers (2.14×); sequential, parallel, and the frozen 261026 workbook agree with maximum absolute difference 0.
 - **Mortality() stays serial**: group-level dispatch was built and measured, then reverted. The endpoint × agegroup loop is only about 1.8 s of a roughly 6 s call; input key validation and RR/base-table preparation dominate. See `handoff/261027_inner-parallel-diagnosis.md`.
 - **Tests**: `tests/run_tests.R` runs eight files with 359 assertions, including kernel contract, decomposition cache, and parallel decomposition equivalence tests. The original 183 assertions are unchanged.
 - **Boundaries**: the development sandbox blocks process pipes, so all timing measurements used `multisession`. A separate elevated run verified the `future.callr` backend in a normal R session: both backends return identical output (maximum absolute difference 0), and callr is slower per call. `aggregate_sigma()` is not parallelised.

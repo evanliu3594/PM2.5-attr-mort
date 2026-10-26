@@ -38,7 +38,7 @@
 
 ## 3. 研究方案与计算逻辑（概要）
 
-管线：`build_instance.R` 生成实例表 → `Code/build/build_CR.R`、`build_CR_MRBRT2023.R` 或 `build_CR_GBD2023_gas.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `DrivingFactors.R` 做 24 排列分解。公式、函数契约与数据流见 `README.md` 与 `Code/*.R` 内注释。
+管线：`build_instance.R` 生成实例表 → `Code/build/build_CR.R`、`build_CR_MRBRT2023.R` 或 `build_CR_GBD2023_gas.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `Code/decomposition.R` 做 24 排列分解。公式、函数契约与数据流见 `README.md` 与 `Code/*.R` 内注释。
 
 ### 3.1 已拍板口径（用户确认，勿再改）
 
