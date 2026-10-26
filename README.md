@@ -46,25 +46,34 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
    | `GBD_mortality_instance_*.xlsx` | Baseline mortality rate (deaths per 100,000) by country, endpoint, and age group |
    | `GBD_agestructure_instance_*.xlsx` | Proportion of population in each age group by country |
 
-   `build_instance.R` writes `Data/instance_manifest.json`. Entry scripts read
-   this manifest, so a new build enters the calculation without editing paths.
-   Counterfactual concentration is not generated automatically. Supply an
-   approved `Conc_cf` file separately.
+   `build_instance.R` writes `Data/instance_manifest.json` with the active
+   instance paths and source-year specification. Entry scripts list the five
+   input paths in their own configuration block; edit those paths to use
+   another instance. `resolve_instance_files()` still reads the manifest for
+   scripts that prefer it. Counterfactual concentration is not generated
+   automatically. Supply an approved `Conc_cf` file separately.
 
-3. Choose a C-R model and run the calculation — `HealthBurdenCalc.R` reads the
-   latest instance from the manifest and writes national aggregates by default:
+3. Choose a C-R model and run the calculation — `HealthBurdenCalc.R` lists the
+   input paths in its configuration block and writes national aggregates by
+   default:
 
    ```r
    set_Model('NCD+LRI')     # or '5COD', 'IER', 'MRBRT', 'MRBRT2023', 'O3', 'NO2'
 
-   instance_files <- resolve_instance_files()
+   GRIDS_FILE      <- "./Data/Grid_info_instance_260617.xlsx"
+   POP_FILE        <- "./Data/GridPop_instance_260617.xlsx"
+   CONC_REAL_FILE  <- "./Data/GridPM25_instance_260617.xlsx"
+   CONC_CF_FILE    <- NULL   # optional counterfactual file
+   MORT_RATE_FILE  <- "./Data/GBD_mortality_instance_260617.xlsx"
+   AGE_GROUP_FILE  <- "./Data/GBD_agestructure_instance_260617.xlsx"
+
    read_files(
-     Grids     = instance_files$Grids,
-     Pop       = instance_files$Pop,
-     Conc_real = instance_files$Conc_real,
-     Conc_cf   = instance_files$Conc_cf,
-     MortRate  = instance_files$MortRate,
-     AgeGroup  = instance_files$AgeGroup,
+     Grids     = GRIDS_FILE,
+     Pop       = POP_FILE,
+     Conc_real = CONC_REAL_FILE,
+     Conc_cf   = CONC_CF_FILE,
+     MortRate  = MORT_RATE_FILE,
+     AgeGroup  = AGE_GROUP_FILE,
      dgt_grid  = 2,
      conc_unit = "ug/m3"
    )
@@ -106,7 +115,7 @@ If you prepare instance files manually (without `build_instance.R`), each file m
 
 All gridded files must share the same `(x, y)` coordinate system. `read_files()` normalises coordinates to `matchable(dgt_grid)` precision regardless of whether they are stored as numeric or text. Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`. Duplicate `(x, y)` or domain keys stop the load.
 
-`Data/instance_manifest.json` records the active instance paths. Entry scripts call `resolve_instance_files()`. For a manual instance, pass a six-digit suffix explicitly: `resolve_instance_files(suffix = "260617")`.
+Both entry scripts list the five input paths in their configuration block. Edit those paths to switch instance. `Data/instance_manifest.json` records the active instance and source-year specification; `resolve_instance_files()` reads it for scripts that prefer the manifest. For a manual instance, pass a six-digit suffix explicitly: `resolve_instance_files(suffix = "260617")`.
 
 `RR_std_config.json` also records `conc_unit` and `conc_range` for every model. Pass the matching unit to `read_files(conc_unit = "ug/m3")`; gas models use `"ppb"`. Legacy gas entries remain `"unknown"` until their source unit is verified.
 
@@ -304,13 +313,14 @@ Two kernel rules matter for performance:
 # Release notes
 
 ## v6.0 (current)
+- **Explicit input paths**: both entry scripts carry an input-data block with five file paths (`GRIDS_FILE`, `POP_FILE`, `CONC_REAL_FILE`, `MORT_RATE_FILE`, `AGE_GROUP_FILE`; `CONC_CF_FILE` optional). Edit those paths to switch instance. `resolve_instance_files()` remains available for scripts that prefer `Data/instance_manifest.json`.
 - **Concurrency kernel**: `Code/kernel.R` adds one Future-based kernel for the project: plan management (`kernel_plan()`, `kernel_off()`, `kernel_probe()`, `kernel_info()`, `kernel_active()`, `kernel_workers()`) and mapping functions (`kernel_map()`, `kernel_map2()`, `kernel_imap()`, `kernel_pmap()`, `kernel_walk()`). Every task runs through `tryCatch()`; the parallel path dispatches `furrr` functions with `do.call()`. The default backend is `future.callr`, followed by `multisession` and sequential fallbacks.
 - **Default stays sequential**: entry scripts read `PM25_KERNEL_WORKERS` (default `1`). Serial results are unchanged.
 - **Decomposition() states build in parallel**: when a plan is active, missing factor states are computed in parallel and cached; the grid-level output is identical to the serial path. One series (five states) fell from 23.22 s to 15.39 s with four workers (1.51×).
 - **DrivingFactors state precompute**: `aggregate_drivers()` summarises the 16 unique states in parallel and assembles the 24 sequences from the summaries. The 24-sequence run fell from about 66 s to about 29 s with four workers (2.22×), and the workbook matches the frozen 261026 run (maximum absolute difference 0).
 - **DrivingFactors entry split**: function definitions moved to `Code/decomposition.R`; the root `DrivingFactors.R` is now a 74-line entry script with a configuration block (`MODEL`, `START_YEAR`, `END_YEAR`, `RESULT_AT`, `RUN24`, `WORKERS`). Existing `source('DrivingFactors.R')` and `PM25_RUN_DRIVERS=false` usage still work. End-to-end: 72.49 s sequential vs 33.90 s with four workers (2.14×); sequential, parallel, and the frozen 261026 workbook agree with maximum absolute difference 0.
 - **Mortality() stays serial**: group-level dispatch was built and measured, then reverted. The endpoint × agegroup loop is only about 1.8 s of a roughly 6 s call; input key validation and RR/base-table preparation dominate. See `handoff/261027_inner-parallel-diagnosis.md`.
-- **Tests**: `tests/run_tests.R` runs eight files with 359 assertions, including kernel contract, decomposition cache, and parallel decomposition equivalence tests. The original 183 assertions are unchanged.
+- **Tests**: `tests/run_tests.R` runs eight files with 367 assertions, including kernel contract, decomposition cache, and parallel decomposition equivalence tests. The original 183 assertions are unchanged.
 - **Boundaries**: the development sandbox blocks process pipes, so all timing measurements used `multisession`. A separate elevated run verified the `future.callr` backend in a normal R session: both backends return identical output (maximum absolute difference 0), and callr is slower per call. `aggregate_sigma()` is not parallelised.
 
 ## v5.9
@@ -331,7 +341,7 @@ Two kernel rules matter for performance:
 - **Precision and units**: `dgt_conc` propagates through RR construction and mortality joins. `RR_std_config.json` records `conc_unit` and `conc_range`; `read_files(conc_unit = ...)` checks them.
 - **Uncertainty**: `Uncertainty()` is retired. `aggregate_sigma()` now computes MEAN/UP/LOW from grid-level PWRR mortality. It supports `by = "total"`; use `aggregate_range()` for breakdowns.
 - **Builders**: `build_CR.R` parses under R 4.6.1. MRBRT2023 uses an explicit endpoint scale map. Builders assert source range, finite values, RR ≥ 1, and CI order.
-- **Instance provenance**: `build_instance.R` writes `Data/instance_manifest.json`, caches country mappings, blocks mixed-year scenarios by default, and no longer generates random `Conc_cf` files. Entry scripts resolve paths from the manifest.
+- **Instance provenance**: `build_instance.R` writes `Data/instance_manifest.json`, caches country mappings, blocks mixed-year scenarios by default, and no longer generates random `Conc_cf` files. At v5.7 entry scripts resolved paths from the manifest; v6.0 lists them explicitly.
 - **Tests**: `Rscript tests/run_tests.R` covers aggregation, missing values, duplicate keys, PWRR branch consistency, precision, units, manifest, and builders.
 
 ## v5.6
