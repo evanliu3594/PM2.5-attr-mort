@@ -48,7 +48,7 @@
 | ② | GBD 2023 RR 接入 | 下载 GHDx 曲线并编译为项目可用 CR 表 | 261026 |
 | ③ | PWRR 归一化 | 按域 × 终点 × 年龄档计算；CI 分支用对应 PWRR | 261026 |
 | ④ | DrivingFactors 24 序列 | 按注释顺序明文表；state 规则显式；domain 注入 | 261026 |
-| ⑤ | Mortality 计算结构 | 按 endpoint × agegroup 分组遍历；每组 grid 级长表；组循环走 `kernel_map2()` | 261026 |
+| ⑤ | Mortality 计算结构 | 按 endpoint × agegroup 分组遍历；每组 grid 级长表；默认串行 | 261026 |
 | ⑥ | MRBRT 默认指向 | `set_Model("MRBRT")` = `MRBRT2023`；`MRBRT2021` 保留 | 261026 |
 | ⑦ | O3/NO2 默认 | `O3` = GBD 2023 COPD；`NO2` = GBD 2023 asthma；`O3_legacy` / `NO2_allcause` 保留 | 261026 |
 | ⑧ | 并发内核 | 构建块 `future.callr` + `furrr` + `tryCatch` + `do.call`；并发默认关闭 | 261027 |
@@ -67,7 +67,7 @@
 | ⑧ | RANGE 分支 PWRR | 三分支各用对应 PWRR | 与分子 RR 分支一致 | 261026 |
 | ⑨ | O3/NO2 曲线口径 | GBD 2023；ppb；O3 0–50、NO2 0–100；NO2 为 asthma；NO2 LOW 截到 1；保留 legacy | 与源表一致；PWRR 要求 RR ≥ 1 | 261026 |
 | ⑩ | O3/NO2 CI 分母 | `pwr_branch: "mean"`；其余模型默认 `"branch"` | NO2 UP 极宽，分支 PWRR 会产生 UP < MEAN；共用 MEAN PWRR 保序 | 261026 |
-| ⑪ | 并发默认 | 内核 `Code/kernel.R`；默认串行；`PM25_KERNEL_WORKERS` 开启；后端不可用回退 `multisession` | 沙箱禁命名管道；默认结果不变 | 261027 |
+| ⑪ | 并发范围 | 内核 `Code/kernel.R`；默认串行；`PM25_KERNEL_WORKERS` 开启；对象为 `Decomposition()` 状态与状态摘要 | Mortality 组级并发收益不足，已撤回 | 261027 |
 
 ### 3.3 当前缺口（摘要）
 
@@ -101,7 +101,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合与输入契约修复（v5.7）；目录布局（v5.8）；24 序列状态缓存与键校验优化（v5.9，65.54 秒）；并发内核（v6.0）。最新交接：`handoff/261027_future-kernel.md`。
+GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合与输入契约修复（v5.7）；目录布局（v5.8）；24 序列状态缓存与键校验优化（v5.9，65.54 秒）；并发内核与 Decomposition 状态并行（v6.0；Mortality 组级并发已撤回）。最新交接：`handoff/261027_decomposition-kernel.md`。
 
 ## 7. 联系与来源
 
