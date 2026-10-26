@@ -23,7 +23,7 @@ These files are the bridge between raw epidemiological coefficients and the mort
 
 Files with different `Build_YYMMDD` suffixes are historical versions. The active version for each model is specified in `Data/RR_std_config.json` under the `"lookup"` key.
 
-**Units:** PM<sub>2.5</sub> tables use µg/m³. GBD 2023 O<sub>3</sub> and NO<sub>2</sub> tables use ppb, matching the GBD source curves.
+**Units:** PM<sub>2.5</sub> tables use µg/m³. GBD 2023 O<sub>3</sub> and NO<sub>2</sub> tables use ppb, matching the GBD source curves. `Data/RR_std_config.json` records `conc_unit` and `conc_range` for every active model. Legacy gas units remain `"unknown"` until verified.
 
 ## Internal structure
 
@@ -39,7 +39,8 @@ concentration | copd_25 | copd_30 | ... | ihd_25 | ... | lri_0 | lri_5 | ...
 300.0         | 3.2140  | 3.1890  | ... | 5.6701 | ... |   ... |   ... | ...
 ```
 
-- **First column**: concentration values — PM<sub>2.5</sub> in µg/m³, from 0.0 to 300.0 in steps of 0.1 (~3000 rows); GBD 2023 O<sub>3</sub> and NO<sub>2</sub> in ppb. The column name is defined by the `"conc_col"` field in `Data/RR_std_config.json` (default `"concentration"`).
+- **First column**: concentration values — PM<sub>2.5</sub> in µg/m³; GBD 2023 O<sub>3</sub> and NO<sub>2</sub> in ppb. The column name is defined by the `"conc_col"` field in `Data/RR_std_config.json` (default `"concentration"`).
+- **Active ranges**: IER Build_220601 tables cover 0–200; GEMM Build_220914, MRBRT2021 and MRBRT2023 cover 0–300; MRBRT2019 covers 0–600. Gas ranges are listed in `RR_std_config.json`.
 - **Remaining columns**: `{endpoint}_{agegroup}` — one column per disease × age band. For example, `copd_25` means COPD at age 25–29, `lri_0` means lower respiratory infection at age 0–4.
 
 ### Column naming convention
@@ -136,7 +137,7 @@ If your lookup table uses a different column name for concentration (e.g., `"pm2
 
 - Concentration values must be **rounded to one decimal place** (matching `dgt_conc = 1` in `read_files()`). The `matchable()` helper is used to ensure string-identical join keys.
 - All three sheets must cover the **same concentration range** and **same endpoint × agegroup columns**.
-- The `ALL` age group row (if present in the coefficient parameters) is used as a fallback when age-specific values are missing; `RR_std()` fills these via `tidyr::fill()`.
+- The `ALL` age-group column suffix (for example `LRI_ALL`) is used as a fallback when age-specific columns are missing; `RR_std()` fills these via `tidyr::fill()`.
 
 ## Relationship to other files
 

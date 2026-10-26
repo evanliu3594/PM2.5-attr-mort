@@ -26,13 +26,14 @@ set_Model('NCD+LRI')
 
 # Data load ----
 
+instance_files <- resolve_instance_files()
 read_files(
-  Grids = './Data/Grid_info_instance_260617.xlsx',
-  Pop = './Data/GridPop_instance_260617.xlsx',
-  Conc_real = './Data/GridPM25_instance_260617.xlsx',
-  Conc_cf = './Data/GridPM25_cf_instance_260325.xlsx', # Conc_cf works only in counter-fact scenario
-  MortRate = "./Data/GBD_mortality_instance_260617.xlsx",
-  AgeGroup = './Data/GBD_agestructure_instance_260617.xlsx'
+  Grids = instance_files$Grids,
+  Pop = instance_files$Pop,
+  Conc_real = instance_files$Conc_real,
+  MortRate = instance_files$MortRate,
+  AgeGroup = instance_files$AgeGroup,
+  conc_unit = "ug/m3"
 )
 
 # 24 decomposition sequences, written explicitly in the documented order ----
@@ -82,6 +83,25 @@ mort_state <- function(prefix, start.y, end.y) {
   )
 }
 
+validate_scenario_columns <- function(start.y, end.y) {
+  datasets <- list(
+    Conc_real = Conc_real,
+    Pop = Pop,
+    MortRate = MortRate,
+    AgeGroup = AgeGroup
+  )
+  for (name in names(datasets)) {
+    missing_cols <- setdiff(c(start.y, end.y), names(datasets[[name]]))
+    if (length(missing_cols) > 0) {
+      stop(
+        name, " is missing scenario column(s): ",
+        paste(missing_cols, collapse = ", ")
+      )
+    }
+  }
+  invisible(TRUE)
+}
+
 add_domain <- function(mort, domain) {
   mort |>
     left_join(
@@ -97,7 +117,7 @@ mort_at_prefix <- function(prefix, start.y, end.y, domain) {
     CI = "MEAN",
     pop = Pop |> select(x, y, Pop = !!sym(state$pop)),
     ag = AgeGroup |>
-      select(domain, agegroup, AgeStruc = !!sym(state$ag)),
+      select(all_of("domain"), agegroup, AgeStruc = !!sym(state$ag)),
     Conc_c = Conc_real |>
       select(x, y, concentration = !!sym(state$conc_c)),
     Conc_r = Conc_real |>
@@ -108,6 +128,7 @@ mort_at_prefix <- function(prefix, start.y, end.y, domain) {
 }
 
 Decomposition <- function(serie, start.y, end.y, domain = NULL) {
+  validate_scenario_columns(start.y, end.y)
   if (is.null(domain)) {
     domain <- detect_domain()
   }
@@ -184,6 +205,7 @@ aggregate_drivers <- function(
   end.year = 'SSP1-Baseline_2030',
   domain = NULL
 ) {
+  validate_scenario_columns(start.year, end.year)
   if (is.null(domain)) {
     domain <- detect_domain()
   }
@@ -217,4 +239,7 @@ aggregate_drivers <- function(
     ))
 }
 
-aggregate_drivers(start.year = 'base2015', end.year = 'SSP1-Baseline_2030')
+RUN_DRIVERS <- tolower(Sys.getenv("PM25_RUN_DRIVERS", unset = "true")) == "true"
+if (RUN_DRIVERS) {
+  aggregate_drivers(start.year = 'base2015', end.year = 'SSP1-Baseline_2030')
+}

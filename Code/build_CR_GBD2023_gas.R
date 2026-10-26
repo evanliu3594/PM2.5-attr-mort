@@ -62,21 +62,49 @@ build_gas_lookup <- function(name, pattern, endpoint, max_conc, out_path) {
 
   # Source is log(RR). Interpolate in log space to the project's 0.1 grid.
   target <- seq(0, max_conc, 0.1)
+  source_range <- range(raw$exposure)
+  if (min(target) < source_range[1] || max(target) > source_range[2]) {
+    cli::cli_abort(
+      "Target range 0-{max_conc} ppb exceeds source range ",
+      "{source_range[1]}-{source_range[2]} ppb."
+    )
+  }
   interp <- function(y) {
     approx(
       x = raw$exposure,
       y = y,
       xout = target,
       method = 'linear',
-      rule = 2
+      rule = 1
     )$y
   }
 
-  # Floor all branches at RR = 1. The NO2 lower bound is below 1 at some
-  # exposures; the project's PWRR guard and RR >= 1 assumption require this.
-  rr_mean <- pmax(exp(interp(raw$mean)), 1)
-  rr_low <- pmax(exp(interp(raw$lower)), 1)
-  rr_up <- pmax(exp(interp(raw$upper)), 1)
+  # Only the NO2 lower bound is approved to be floored at RR = 1. Other
+  # branches must already satisfy the project's RR >= 1 guard.
+  rr_mean <- exp(interp(raw$mean))
+  rr_low <- exp(interp(raw$lower))
+  rr_up <- exp(interp(raw$upper))
+
+  if (identical(name, "NO2")) {
+    n_floored <- sum(rr_low < 1)
+    if (n_floored > 0) {
+      cli::cli_inform(
+        "Floored {n_floored} NO2 LOW value(s) at RR = 1."
+      )
+    }
+    rr_low <- pmax(rr_low, 1)
+  }
+
+  below_one <- c(
+    LOW = sum(rr_low < 1),
+    MEAN = sum(rr_mean < 1),
+    UP = sum(rr_up < 1)
+  )
+  if (any(below_one > 0)) {
+    cli::cli_abort(
+      "Unapproved RR < 1 values: {str_c(names(below_one)[below_one > 0], '=', below_one[below_one > 0], collapse = ', ')}."
+    )
+  }
 
   col_name <- str_c(endpoint, 'ALL', sep = '_')
   make_sheet <- function(rr) {
@@ -93,8 +121,11 @@ build_gas_lookup <- function(name, pattern, endpoint, max_conc, out_path) {
 
   stopifnot(nrow(sheets$MEAN) == length(target))
   stopifnot(identical(names(sheets$MEAN), c('concentration', col_name)))
-  stopifnot(all(is.finite(as.matrix(sheets$MEAN[-1]))))
-  stopifnot(all(as.matrix(sheets$MEAN[-1]) >= 1))
+  for (sheet in sheets) {
+    values <- as.matrix(sheet[-1])
+    stopifnot(all(is.finite(values)))
+    stopifnot(all(values >= 1))
+  }
   stopifnot(all(as.matrix(sheets$LOW[-1]) <= as.matrix(sheets$MEAN[-1]) + 1e-12))
   stopifnot(all(as.matrix(sheets$MEAN[-1]) <= as.matrix(sheets$UP[-1]) + 1e-12))
   stopifnot(all(abs(sheets$MEAN[sheets$MEAN$concentration == 0, -1] - 1) < 1e-10))

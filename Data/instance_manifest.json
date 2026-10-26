@@ -1,0 +1,11 @@
+{
+  "suffix": "260617",
+  "created": "2026-06-17",
+  "files": {
+    "Grids": "./Data/Grid_info_instance_260617.xlsx",
+    "Pop": "./Data/GridPop_instance_260617.xlsx",
+    "Conc_real": "./Data/GridPM25_instance_260617.xlsx",
+    "MortRate": "./Data/GBD_mortality_instance_260617.xlsx",
+    "AgeGroup": "./Data/GBD_agestructure_instance_260617.xlsx"
+  }
+}

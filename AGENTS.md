@@ -9,7 +9,7 @@
 |---|---|---|
 | `Code/` | 计算引擎、CR 构建脚本 | `Code/README.md`（待补）；函数说明见 `README.md` 与代码注释 |
 | `Data/` | 原始数据、实例表、CRF 系数、RR 查找表 | `Data/README.md`、`Data/RR_index/README.md` |
-| `Result/` | 结果表与图件 | `Result/README.md`（待补） |
+| `Result/` | 结果表与图件 | `Result/README.md` |
 | `handoff/` | 会话交接记录；最新一份 = 当前状态入口 | — |
 | 根脚本 | `build_instance.R`、`HealthBurdenCalc.R`、`DrivingFactors.R` | `README.md` |
 
@@ -66,19 +66,12 @@
 
 ### 3.3 当前缺口（摘要）
 
-- `MRBRT2023` 已通过 `base2015` 全样本测试；两情景正式结果未生成。
-- 完整 24 序列（120 次 `Mortality()`）未跑；仅有状态审计与小样本测试。
-- `Mortality()` 已分组遍历；0.1° 全球压测与 `future` 并发未做。
-- 旧健康负担结果已失效；需用 v5.2 重跑并更新下游。
-- `NO2` 默认用 asthma 终点；当前样本死亡率表无 asthma，`Mortality()` 不能直接用样本跑 NO2。`NO2_allcause` 保留旧 all-cause 口径。
-- O3/NO2 输入浓度必须用 ppb；O3 表只覆盖 0–50 ppb，超过会 clamp。NO2 LOW 分支截到 1，CI 下限退化为无效应。
-- O3/NO2 没有真实浓度数据，未做真实 burden 测试；仅做 `set_Model` 与 200 格合成浓度测试。
-- dementia、birth weight、gestational age 曲线未编译。
-- `Code/README.md` 与目录级 `AGENTS.md` 未建；`Result/README.md` 仅 1 行，仍需补全。
-- `CLAUDE.md` 已于 261026 删除；详细架构正文仅存于 git 历史（commit `405fd74`）。
-- 研究意图基线、成功标准与服务对象未经用户确认。
-- `Result/` 下有未入库的 MRBRT2023 对比图（`MRBRT2023_vs_2021.png`）。
-- 261026 评审发现聚合、mean 单分支与 sigma 缺陷。通用输入与 sigma 未通过验收，详见最新 handoff。
+- 完整健康负担、完整 24 序列、真实 O3/NO2 burden 与 0.1° 压测未完成。
+- 现有 260617 实例的 2030 列混用 exposure 2030、population 2020、age 2019、mortality 2020。重建默认阻止混合年份，正式分解待用户批准代理或换真 2030 输入。
+- NO2 0–14 岁、IER LRI 年龄、legacy 气体单位、超范围 clamp 口径待确认。
+- `Code/README.md` 与目录级 `AGENTS.md` 未建。
+- v5.7 已修复聚合缺失归零、数值列误加、重复键、无关 NA 删格、mean 单分支、dgt、单位、构建解析与入口路径。回归测试 `tests/run_tests.R` 通过。
+- 旧健康负担结果失效；`MRBRT2023` 仅完成 `base2015` 评审测试。研究意图未确认；对比图未入库。
 
 ## 4. 基本规则（全局）
 
@@ -98,12 +91,12 @@
 2. MR-BRT 曲线只提供全年龄 RR，按 `_ALL` 填到各年龄档；这不是年龄特异曲线。
 3. GBD 2023 与 2021：IHD、Stroke、LRI 更新；COPD、DM2、LC 与 2021 接近，300 µg/m³ 处差异 ≤1.1%。
 4. IHME 免费非商业许可；原始 zip 不入库，重下需 IHME 账号。
-5. PM2.5 查找表覆盖 0–300 µg/m3；`Mortality()` 当前将超范围浓度 clamp 到边界，目标口径待用户确认。
-6. O3/NO2 查找表使用 ppb；O3 覆盖 0–50 ppb，NO2 覆盖 0–100 ppb；NO2 LOW 分支截到 1。
+5. 查找表范围随模型不同：IER 0–200、GEMM/MRBRT2021/2023 0–300、MRBRT2019 0–600；`Mortality()` 当前将超范围浓度 clamp 到边界，目标口径待用户确认。
+6. GBD 2023 O3/NO2 使用 ppb；O3 覆盖 0–50、NO2 覆盖 0–100；NO2 LOW 截到 1。legacy 气体单位未核实。
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；DrivingFactors 24 序列明文表（v5.3）；Mortality 按 endpoint × agegroup 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）。两情景正式健康负担与完整分解未生成。最新交接：`handoff/261026_design-implementation-review.md`。
+GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合、输入契约、精度和构建链修复（v5.7）。最新交接：`handoff/261026_issue-fix.md`。
 
 ## 7. 联系与来源
 

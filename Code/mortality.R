@@ -12,10 +12,23 @@
 #     compute_group() is side-effect free and ready for future_map2().
 #   Modified 261026: pwr_branch config ("branch" or "mean") controls whether
 #     RANGE uses branch-specific or common MEAN PWRR.
+#   Modified 261026b: single branches reuse the RANGE denominator; required
+#     columns only; key guards; dgt_conc and unit checks; missing groups stay NA.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
   str_c(str_c(head(x, n), collapse = ", "), if (length(x) > n) " ..." else "")
+}
+
+require_columns <- function(df, columns, label) {
+  missing_cols <- setdiff(columns, names(df))
+  if (length(missing_cols) > 0) {
+    stop(
+      label, " is missing required column(s): ",
+      paste(missing_cols, collapse = ", ")
+    )
+  }
+  invisible(TRUE)
 }
 
 # ── join_report ────────────────────────────────────────────────────────────────
@@ -49,7 +62,7 @@ join_report <- function(
     if (is.null(breakdown) || length(breakdown) < 2) {
       log_msg(
         WARN,
-        "{n_na} row(s) with NA in \"{col}\" after joining {label}. These rows will be dropped by na.omit."
+        "{n_na} row(s) with NA in \"{col}\" after joining {label}. These rows will be dropped by the required-column filter."
       )
       next
     }
@@ -173,6 +186,8 @@ Mortality <- function(
   debug = FALSE
 ) {
   show_n <- if (verbose) Inf else 6
+  CI <- match.arg(CI, c("MEAN", "UP", "LOW", "RANGE"))
+
   if (is.null(Conc_c)) {
     Conc_c <- Conc_r
   }
@@ -180,40 +195,131 @@ Mortality <- function(
   if (is.null(domain)) {
     domain <- detect_domain()
   }
+  if (length(domain) != 1) {
+    stop("domain must be one Grid_info column name.")
+  }
 
-  # ---- Guard: domain column exists ----
-  if (!all(domain %in% names(Grids))) {
-    stop(
-      "Domain column \"",
-      paste(setdiff(domain, names(Grids)), collapse = "\", \""),
-      "\" not found in Grid_info. Available: ",
-      paste(names(Grids), collapse = ", ")
+  # ---- Guard: required columns and key uniqueness ----
+  require_columns(Grids, c("x", "y", domain), "Grids")
+  require_columns(Conc_r, c("x", "y", "concentration"), "Conc_r")
+  require_columns(Conc_c, c("x", "y", "concentration"), "Conc_c")
+  require_columns(pop, c("x", "y", "Pop"), "pop")
+  require_columns(mRate, c("domain", "endpoint", "agegroup", "MortRate"), "mRate")
+  require_columns(ag, c("domain", "agegroup", "AgeStruc"), "ag")
+
+  assert_unique_key(Grids, c("x", "y"), "Grids")
+  assert_unique_key(Conc_r, c("x", "y"), "Conc_r")
+  assert_unique_key(Conc_c, c("x", "y"), "Conc_c")
+  assert_unique_key(pop, c("x", "y"), "pop")
+
+  mRate <- mRate |>
+    mutate(
+      endpoint = tolower(endpoint),
+      agegroup = matchable(as.numeric(agegroup), 0),
+      MortRate = as.numeric(MortRate)
     )
+  ag <- ag |>
+    mutate(
+      agegroup = matchable(as.numeric(agegroup), 0),
+      AgeStruc = as.numeric(AgeStruc)
+    )
+  pop <- pop |>
+    mutate(Pop = as.numeric(Pop))
+  assert_unique_key(
+    mRate,
+    c("domain", "endpoint", "agegroup"),
+    "mRate"
+  )
+  assert_unique_key(ag, c("domain", "agegroup"), "ag")
+
+  if (any(pop$Pop < 0, na.rm = TRUE)) {
+    stop("Population contains negative values.")
   }
 
   # ---- Get standardised RR table ----
-  RR_all <- .RR_std_tbl
+  RR_raw <- .RR_std_tbl
+  if (is.null(RR_raw) || nrow(RR_raw) == 0) {
+    stop("RR lookup table is empty. Run set_Model() first.")
+  }
+  require_columns(
+    RR_raw,
+    c("concentration", "endpoint", "agegroup", "CI", "RR"),
+    "RR lookup table"
+  )
 
-  if (nrow(RR_all) == 0) {
-    stop("RR lookup table is empty.")
+  conc_dgt <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
+  rr_dgt <- attr(RR_raw, "dgt_conc", exact = TRUE) %||% conc_dgt
+  if (!identical(as.integer(conc_dgt), as.integer(rr_dgt))) {
+    stop(
+      "RR table precision (", rr_dgt, ") differs from .DGT_CONC (",
+      conc_dgt, "). Rebuild the RR table with the requested precision."
+    )
   }
 
-  rr_conc_range <- range(as.numeric(RR_all$concentration), na.rm = TRUE)
+  rr_meta <- get0(".RR_meta", envir = globalenv(), ifnotfound = list())
+  conc_unit <- get0(".CONC_UNIT", envir = globalenv(), ifnotfound = NULL)
+  rr_unit <- rr_meta$conc_unit %||% NULL
+  if (!is.null(conc_unit) && !is.null(rr_unit) && !identical(conc_unit, rr_unit)) {
+    stop(
+      "Concentration unit mismatch: RR model expects \"", rr_unit,
+      "\", data were loaded as \"", conc_unit, "\"."
+    )
+  }
+
+  RR_raw <- RR_raw |>
+    mutate(
+      concentration = matchable(as.numeric(concentration), conc_dgt),
+      endpoint = tolower(endpoint),
+      agegroup = matchable(as.numeric(agegroup), 0)
+    )
+  assert_unique_key(
+    RR_raw,
+    c("concentration", "endpoint", "agegroup", "CI"),
+    "RR lookup table"
+  )
+  if (!setequal(unique(RR_raw$CI), c("MEAN", "UP", "LOW"))) {
+    stop("RR lookup table must contain exactly MEAN, UP, and LOW branches.")
+  }
+
+  rr_conc_range <- range(as.numeric(RR_raw$concentration), na.rm = TRUE)
+  pwr_branch <- get0(".PWRR_branch", envir = globalenv(), ifnotfound = "branch")
+  if (!pwr_branch %in% c("branch", "mean")) {
+    stop("PWRR branch mode must be 'branch' or 'mean'.")
+  }
+  use_branch_pwr <- CI == "RANGE" && identical(pwr_branch, "branch")
 
   if (CI == "RANGE") {
-    RR_all <- RR_all |>
+    RR_all <- RR_raw |>
       pivot_wider(names_from = CI, values_from = RR) |>
       rename(RR = MEAN, RR_UP = UP, RR_LOW = LOW)
+    pwr_source <- if (use_branch_pwr) {
+      RR_all |>
+        select(
+          concentration, endpoint, agegroup,
+          PWRR_MEAN = RR, PWRR_UP = RR_UP, PWRR_LOW = RR_LOW
+        )
+    } else {
+      RR_all |>
+        select(concentration, endpoint, agegroup, PWRR = RR)
+    }
+    rr_cols <- c("RR", "RR_UP", "RR_LOW")
   } else {
-    RR_all <- RR_all |>
+    RR_all <- RR_raw |>
       filter(CI == !!CI) |>
-      select(-CI)
+      select(concentration, endpoint, agegroup, RR)
+    denominator_ci <- if (identical(pwr_branch, "mean")) "MEAN" else CI
+    pwr_source <- RR_raw |>
+      filter(CI == denominator_ci) |>
+      select(concentration, endpoint, agegroup, PWRR = RR)
+    rr_cols <- "RR"
+  }
+  pwr_cols <- if (use_branch_pwr) {
+    c("PWRR_MEAN", "PWRR_UP", "PWRR_LOW")
+  } else {
+    "PWRR"
   }
 
   # ---- Clamp concentrations to RR lookup table range ----
-  conc_range_r <- range(as.numeric(Conc_r$concentration), na.rm = TRUE)
-  conc_range_c <- range(as.numeric(Conc_c$concentration), na.rm = TRUE)
-
   clamp_conc <- function(conc_vec, rr_range, label) {
     n_lo <- sum(conc_vec < rr_range[1], na.rm = TRUE)
     n_hi <- sum(conc_vec > rr_range[2], na.rm = TRUE)
@@ -247,7 +353,7 @@ Mortality <- function(
         rr_conc_range,
         "Conc_r"
       ) |>
-        matchable(1)
+        matchable(conc_dgt)
     )
   Conc_c <- Conc_c |>
     mutate(
@@ -256,7 +362,7 @@ Mortality <- function(
         rr_conc_range,
         "Conc_c"
       ) |>
-        matchable(1)
+        matchable(conc_dgt)
     )
 
   # ---- Guard: coordinate overlap ----
@@ -276,7 +382,7 @@ Mortality <- function(
       " grid(s) in Grid_info have no matching concentration in Conc_r ",
       "({length(orphan_conc_dom)} domain(s): ",
       trunc_fmt(orphan_conc_dom, n = show_n),
-      "). They will be dropped by na.omit."
+      "). They will be dropped by the required-column filter."
     )
   }
 
@@ -292,20 +398,19 @@ Mortality <- function(
       " grid(s) in Grid_info have no matching population in pop ",
       "({length(orphan_pop_dom)} domain(s): ",
       trunc_fmt(orphan_pop_dom, n = show_n),
-      "). They will be dropped by na.omit."
+      "). They will be dropped by the required-column filter."
     )
   }
 
   # ---- Base tables: one row per grid ----
   # base_c uses the counterfactual/real concentration for the RR numerator;
   # base_r uses the real concentration for PWRR.
-  base_c <- Grids |>
-    rename(domain = !!sym(domain)) |>
+  base_xy <- Grids |>
+    select(x, y, domain = all_of(domain))
+  base_c <- base_xy |>
     left_join(Conc_c, by = c("x", "y")) |>
     left_join(pop, by = c("x", "y"))
-
-  base_r <- Grids |>
-    rename(domain = !!sym(domain)) |>
+  base_r <- base_xy |>
     left_join(Conc_r, by = c("x", "y")) |>
     left_join(pop, by = c("x", "y"))
 
@@ -314,20 +419,35 @@ Mortality <- function(
   # × agegroup). compute_group() is side-effect free; replace map2() with
   # future_map2() to parallelize one endpoint-agegroup per worker.
   groups <- RR_all |> distinct(endpoint, agegroup)
-
   if (nrow(groups) == 0) {
     stop("RR lookup table has no endpoint-agegroup groups.")
   }
 
-  pwr_branch <- get0(".PWRR_branch", envir = globalenv(), ifnotfound = "branch")
-  use_branch_pwr <- CI == "RANGE" && identical(pwr_branch, "branch")
+  available_mort_groups <- mRate |>
+    distinct(endpoint, agegroup)
+  available_age_groups <- ag |>
+    mutate(agegroup = matchable(as.numeric(agegroup), 0)) |>
+    distinct(agegroup)
+  usable_groups <- groups |>
+    semi_join(available_mort_groups, by = c("endpoint", "agegroup")) |>
+    semi_join(available_age_groups, by = "agegroup")
 
-  rr_cols <- if (CI == "RANGE") c("RR", "RR_UP", "RR_LOW") else "RR"
-  pwr_cols <- if (use_branch_pwr) c("RR", "RR_UP", "RR_LOW") else "RR"
-  pwr_value_cols <- if (use_branch_pwr) {
-    c("PWRR_MEAN", "PWRR_UP", "PWRR_LOW")
-  } else {
-    "PWRR"
+  if (nrow(usable_groups) == 0) {
+    stop(
+      "No endpoint/agegroup group is jointly covered by RR, MortRate, and AgeGroup. ",
+      "Check model endpoints (", paste(unique(groups$endpoint), collapse = ", "),
+      ") against MortRate endpoints (",
+      paste(unique(mRate$endpoint), collapse = ", "), ")."
+    )
+  }
+  if (nrow(usable_groups) < nrow(groups)) {
+    missing_groups <- anti_join(groups, usable_groups, by = c("endpoint", "agegroup"))
+    log_msg(
+      WARN,
+      "{nrow(missing_groups)} endpoint/agegroup group(s) lack MortRate or ",
+      "AgeGroup coverage and will remain NA: ",
+      trunc_fmt(str_c(missing_groups$endpoint, missing_groups$agegroup, sep = "/"))
+    )
   }
 
   compute_group <- function(ep, age) {
@@ -335,37 +455,34 @@ Mortality <- function(
       filter(endpoint == ep, agegroup == age) |>
       select(concentration, all_of(rr_cols))
 
-    pwr_rr <- RR_all |>
+    pwr_source_g <- pwr_source |>
       filter(endpoint == ep, agegroup == age) |>
       select(concentration, all_of(pwr_cols))
 
-    pwr <- base_r |>
-      left_join(pwr_rr, by = "concentration", relationship = "many-to-one") |>
-      drop_na() |>
+    pwr_values <- base_r |>
+      select(domain, concentration, Pop) |>
+      filter(!is.na(domain), !is.na(concentration), !is.na(Pop)) |>
+      left_join(
+        pwr_source_g,
+        by = "concentration",
+        relationship = "many-to-one"
+      ) |>
+      filter(if_all(all_of(pwr_cols), ~ !is.na(.x)))
+
+    pwr <- pwr_values |>
       group_by(domain) |>
       summarise(
         across(
           all_of(pwr_cols),
-          ~ weighted.mean(.x, Pop, na.rm = TRUE),
-          .names = "PWRR_{.col}"
+          ~ weighted.mean(.x, Pop),
+          .names = "{.col}"
         ),
         .groups = "drop"
       )
 
-    if (use_branch_pwr) {
-      pwr <- pwr |>
-        rename(
-          PWRR_MEAN = PWRR_RR,
-          PWRR_UP = PWRR_RR_UP,
-          PWRR_LOW = PWRR_RR_LOW
-        )
-    } else {
-      pwr <- pwr |> rename(PWRR = PWRR_RR)
-    }
-
     pwr_long <- pwr |>
       pivot_longer(
-        all_of(pwr_value_cols),
+        all_of(pwr_cols),
         names_to = "branch",
         values_to = "PWRR_value"
       )
@@ -400,11 +517,15 @@ Mortality <- function(
         pull(key) |>
         unique()
       pwr <- pwr |>
-        filter(if_all(all_of(pwr_value_cols), ~ !is.na(.x)))
+        filter(if_all(all_of(pwr_cols), ~ !is.na(.x)))
     }
 
-    mrate_g <- mRate |> filter(endpoint == ep, agegroup == age)
-    ag_g <- ag |> filter(agegroup == age)
+    mrate_g <- mRate |>
+      filter(endpoint == ep, agegroup == age) |>
+      select(domain, MortRate)
+    ag_g <- ag |>
+      filter(agegroup == age) |>
+      select(domain, AgeStruc)
 
     value_cols <- if (CI == "RANGE") {
       c(
@@ -446,10 +567,23 @@ Mortality <- function(
         verbose = verbose,
         debug = debug
       ) |>
-      drop_na()
+      filter(
+        if_all(
+          all_of(c("domain", "concentration", "Pop", rr_cols, "MortRate", "AgeStruc", pwr_cols)),
+          ~ !is.na(.x)
+        )
+      ) |>
+      filter(
+        if_all(
+          all_of(c("Pop", rr_cols, "MortRate", "AgeStruc", pwr_cols)),
+          ~ is.finite(.x)
+        )
+      )
 
     if (nrow(mort) == 0) {
-      empty <- tibble(x = character(), y = character())
+      empty <- Grids |>
+        slice(0) |>
+        select(x, y)
       for (col in value_cols) {
         empty[[col]] <- numeric()
       }
@@ -491,7 +625,11 @@ Mortality <- function(
     list(data = mort, skipped = skipped)
   }
 
-  group_results <- map2(groups$endpoint, groups$agegroup, compute_group)
+  group_results <- map2(
+    groups$endpoint,
+    groups$agegroup,
+    compute_group
+  )
 
   skipped_keys <- group_results |>
     map("skipped") |>
@@ -502,19 +640,25 @@ Mortality <- function(
     log_msg(
       WARN,
       "{length(skipped_keys)} domain/endpoint/age combination(s) have no valid ",
-      "PWRR after na.omit; affected rows will be dropped: ",
+      "PWRR; affected rows will be dropped: ",
       trunc_fmt(skipped_keys, n = show_n)
     )
   }
 
   data_list <- map(group_results, "data")
-  result <- reduce(data_list, full_join, by = c("x", "y"))
+  result <- reduce(
+    data_list,
+    full_join,
+    by = c("x", "y"),
+    relationship = "one-to-one"
+  )
 
   if (nrow(result) == 0) {
-    stop("Mortality result has 0 rows. Check pivot_wider inputs.")
+    stop("Mortality result has 0 rows. Check input coverage.")
   }
+  assert_unique_key(result, c("x", "y"), "Mortality output")
 
-  return(result)
+  result
 }
 
 detect_domain <- function() {

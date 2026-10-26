@@ -20,11 +20,22 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 
 2. **Generate instance data** from raw sources (one-time setup):
 
-   Edit the CONFIG section in `build_instance.R`, then source it:
+   Set the population raster directory before running. The other raw paths can
+   also be overridden with environment variables:
+
+   ```powershell
+   $env:PM25_POP_RAW_DIR = "D:\path\to\population\tifs"
+   $env:PM25_INSTANCE_SUFFIX = "261026"
+   ```
 
    ```r
    source('build_instance.R')
    ```
+
+   `build_instance.R` blocks mixed source years by default. The current `2030`
+   label combines 2030 exposure with 2020 population/mortality and 2019 age
+   structure. Set `ALLOW_MIXED_SCENARIO_YEARS <- TRUE` only after the proxy is
+   approved; the chosen years are written to `Data/instance_manifest.json`.
 
    This produces five standardised `.xlsx` files under `./Data/`:
    | Output file | Content |
@@ -35,22 +46,30 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
    | `GBD_mortality_instance_*.xlsx` | Baseline mortality rate (deaths per 100,000) by country, endpoint, and age group |
    | `GBD_agestructure_instance_*.xlsx` | Proportion of population in each age group by country |
 
-3. Choose a C-R model and run the calculation — open `HealthBurdenCalc.R` and step through:
+   `build_instance.R` writes `Data/instance_manifest.json`. Entry scripts read
+   this manifest, so a new build enters the calculation without editing paths.
+   Counterfactual concentration is not generated automatically. Supply an
+   approved `Conc_cf` file separately.
+
+3. Choose a C-R model and run the calculation — `HealthBurdenCalc.R` reads the
+   latest instance from the manifest and writes national aggregates by default:
 
    ```r
    set_Model('NCD+LRI')     # or '5COD', 'IER', 'MRBRT', 'MRBRT2023', 'O3', 'NO2'
 
+   instance_files <- resolve_instance_files()
    read_files(
-     Grids     = './Data/Grid_info_instance_260617.xlsx',
-     Pop       = './Data/GridPop_instance_260617.xlsx',
-     Conc_real = './Data/GridPM25_instance_260617.xlsx',
-     # Conc_cf = './Data/GridPM25_cf_instance_*.xlsx',  # omit for absolute burden
-     MortRate  = './Data/GBD_mortality_instance_260617.xlsx',
-     AgeGroup  = './Data/GBD_agestructure_instance_260617.xlsx',
-     dgt_grid  = 2
+     Grids     = instance_files$Grids,
+     Pop       = instance_files$Pop,
+     Conc_real = instance_files$Conc_real,
+     Conc_cf   = instance_files$Conc_cf,
+     MortRate  = instance_files$MortRate,
+     AgeGroup  = instance_files$AgeGroup,
+     dgt_grid  = 2,
+     conc_unit = "ug/m3"
    )
 
-   scenarios <- names(Conc_real)[c(-1:-2)]
+   scenarios <- get_scenarios()
 
    # Grid-level mortality with 95% CI (single-pass MEAN + UP + LOW)
    grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
@@ -59,7 +78,11 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
    aggregate_range(grid_ci, at = "Country", by = "endpoint", write = TRUE)
    ```
 
-4. **Decomposition analysis** — `source('DrivingFactors.R')` to attribute mortality changes to Population Growth, Population Aging, Exposure change, and Other Risk Factors.
+   Set `WRITE_RESULTS <- FALSE` in `HealthBurdenCalc.R` when stepping through
+   without writing. O3/NO2 require ppb concentration and the matching endpoint
+   in the mortality table; the entry stops when those inputs are missing.
+
+4. **Decomposition analysis** — `source('DrivingFactors.R')` to attribute mortality changes to Population Growth, Population Aging, Exposure change, and Other Risk Factors. Set `PM25_RUN_DRIVERS=false` to load functions without running all 24 sequences.
 
 ## Instance file format reference
 
@@ -75,7 +98,11 @@ If you prepare instance files manually (without `build_instance.R`), each file m
 | **GBD_agestructure** | `Country` _(or `domain`)_, `agegroup`, plus year/scenario columns | Proportion of population in each age group by region |
 | **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. Regenerate IER/GEMM via `Code/build_CR.R`; build the GBD 2023 MR-BRT table via `Code/build_CR_MRBRT2023.R`. |
 
-All gridded files must share the same `(x, y)` coordinate system. `read_files()` normalises coordinates to `matchable(dgt_grid)` precision regardless of whether they are stored as numeric or text. Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`.
+All gridded files must share the same `(x, y)` coordinate system. `read_files()` normalises coordinates to `matchable(dgt_grid)` precision regardless of whether they are stored as numeric or text. Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`. Duplicate `(x, y)` or domain keys stop the load.
+
+`Data/instance_manifest.json` records the active instance paths. Entry scripts call `resolve_instance_files()`. For a manual instance, pass a six-digit suffix explicitly: `resolve_instance_files(suffix = "260617")`.
+
+`RR_std_config.json` also records `conc_unit` and `conc_range` for every model. Pass the matching unit to `read_files(conc_unit = "ug/m3")`; gas models use `"ppb"`. Legacy gas entries remain `"unknown"` until their source unit is verified.
 
 ### Data flow — how sources are joined inside `Mortality()`
 
@@ -165,7 +192,7 @@ All gridded files must share the same `(x, y)` coordinate system. `read_files()`
 | Grids ↔ Conc ↔ Pop | `x`, `y` | `matchable(dgt_grid)` — default 2 decimal places | `read_files()` |
 | Conc ↔ RR lookup | `concentration` | `matchable(dgt_conc)` — default 1 decimal place, string type | `set_Model()` (build), `Mortality()` (join) |
 | RR ↔ Mortality rates | `endpoint`, `agegroup` | endpoint = lowercase string, agegroup = `matchable(dgt=0)` | `Mortality()` |
-| All ↔ Domain stats | `domain` (e.g. `Country`) | string, must match Grid_info column names | `Mortality()`, `Uncertainty()` |
+| All ↔ Domain stats | `domain` (e.g. `Country`) | string, must match Grid_info column names | `Mortality()`, `aggregate_sigma()` |
 
 All join keys are **strings** (not floats) to avoid floating-point mismatch. The `matchable()` helper does `round(dgt) |> as.character()`.
 
@@ -187,7 +214,7 @@ set_Model('NO2_allcause') # legacy NO2 all-cause lookup
 set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")
 ```
 
-All model configuration is driven by `Data/RR_std_config.json`.
+All model configuration is driven by `Data/RR_std_config.json`. The file records the concentration unit and valid range. `set_Model("NCD+LRI", dgt_conc = 2)` builds the standardised table at two decimal places; `read_files()` then requires `dgt_conc = 2`.
 
 ### Diagnostic parameters
 
@@ -208,7 +235,17 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.6 (current)
+## v5.7 (current)
+- **Aggregation correctness**: `aggregate_range()` sums only mortality columns. Numeric Grid_info metadata no longer enters totals, and missing mortality stays `NA` instead of becoming zero.
+- **Input contracts**: duplicated grid/domain keys abort. Irrelevant metadata `NA` no longer drops grids. Explicit missing `Conc_cf` paths abort.
+- **PWRR consistency**: single `CI = "UP"/"LOW"` calls now use the same PWRR denominator as the corresponding `RANGE` branch, including `pwr_branch = "mean"`.
+- **Precision and units**: `dgt_conc` propagates through RR construction and mortality joins. `RR_std_config.json` records `conc_unit` and `conc_range`; `read_files(conc_unit = ...)` checks them.
+- **Uncertainty**: `Uncertainty()` is retired. `aggregate_sigma()` now computes MEAN/UP/LOW from grid-level PWRR mortality. It supports `by = "total"`; use `aggregate_range()` for breakdowns.
+- **Builders**: `build_CR.R` parses under R 4.6.1. MRBRT2023 uses an explicit endpoint scale map. Builders assert source range, finite values, RR ≥ 1, and CI order.
+- **Instance provenance**: `build_instance.R` writes `Data/instance_manifest.json`, caches country mappings, blocks mixed-year scenarios by default, and no longer generates random `Conc_cf` files. Entry scripts resolve paths from the manifest.
+- **Tests**: `Rscript tests/run_tests.R` covers aggregation, missing values, duplicate keys, PWRR branch consistency, precision, units, manifest, and builders.
+
+## v5.6
 - **GBD 2023 O3/NO2 defaults**: `O3` now uses the GBD 2023 ozone–COPD curve; `NO2` now uses the GBD 2023 NO2–asthma curve. Both lookups are built by `Code/build_CR_GBD2023_gas.R`.
 - **Legacy retained**: `O3_legacy` and `NO2_allcause` keep the previous lookups and endpoints.
 - **Units/ranges**: GBD 2023 O3 and NO2 source concentrations are in ppb. O3 covers 0–50 ppb; NO2 covers 0–100 ppb. Input concentration data must use ppb.
@@ -255,7 +292,7 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 - **Custom CRF support**: `set_Model("Name", path = "...")` auto-generates config from any lookup table
 - **Auto PWRR domain detection**: `detect_domain()` matches mortality data domains against Grid_info columns
 - **`aggregate_range()`**: RR-substitution CI aggregation, returns named list for pipe-friendly `pluck()` indexing
-- **`aggregate_sigma()`**: error-propagation CI aggregation via `Uncertainty()`
+- **`aggregate_sigma()`**: total-mortality CI aggregation (PWRR-consistent since v5.7)
 - **Modular code structure**: model / data / mortality / uncertainty / aggregation
 - **`cli`-based logging**: `log_msg(INFO/WARN/ERROR, ...)` for coloured terminal output
 

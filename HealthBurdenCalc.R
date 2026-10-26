@@ -53,23 +53,41 @@ set_Model('NCD+LRI')
 
 # Data load ----
 
+instance_files <- resolve_instance_files()
 read_files(
-  Grids = './Data/Grid_info_instance_260617.xlsx',
-  Pop = './Data/GridPop_instance_260617.xlsx',
-  Conc_real = './Data/GridPM25_instance_260617.xlsx',
-  # Conc_cf = './Data/GridPM25_cf_instance_260617.xlsx', # PM_cf works only in counter-fact scenario
-  MortRate = "./Data/GBD_mortality_instance_260617.xlsx",
-  AgeGroup = './Data/GBD_agestructure_instance_260617.xlsx',
-  dgt_grid = 2
+  Grids = instance_files$Grids,
+  Pop = instance_files$Pop,
+  Conc_real = instance_files$Conc_real,
+  Conc_cf = instance_files$Conc_cf,
+  MortRate = instance_files$MortRate,
+  AgeGroup = instance_files$AgeGroup,
+  dgt_grid = 2,
+  conc_unit = "ug/m3"
 )
 
-scenarios <- names(Conc_real)[c(-1:-2)]
+scenarios <- get_scenarios()
 
 # Grid-level calculation with 95% CI (MEAN + UP + LOW in one pass) ----
 grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
 # grid_mean <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "MEAN"))
 # grid_low <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "LOW"))
 # grid_up <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "UP"))
+
+# Result output ----
+# Set WRITE_RESULTS = FALSE when stepping through the script without writing.
+WRITE_RESULTS <- TRUE
+RESULT_AT <- "Country"
+if (WRITE_RESULTS) {
+  walk(
+    c("total", "endpoint", "agegroup", "all"),
+    ~ aggregate_range(
+      grid_ci,
+      at = RESULT_AT,
+      by = .x,
+      write = TRUE
+    )
+  )
+}
 
 # Aggregation ----
 # Uncomment the level(s) and breakdown(s) you need.
@@ -116,6 +134,6 @@ grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
 # aggregate_range(grid_ci, at = "geo", by = "total", write = FALSE)
 # aggregate_range(grid_ci, at = "geo", by = "all", write = FALSE)
 
-# Uncertainty propagation algorithm ====
-# grid_mean <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "MEAN"))
-# aggregate_sigma(grid_mean, at = "Country", write = FALSE)
+# PWRR-consistent uncertainty ====
+# aggregate_sigma() recomputes MEAN/UP/LOW from the PWRR estimator.
+# sigma_result <- aggregate_sigma(grid_ci, at = "Country", by = "total", write = FALSE)

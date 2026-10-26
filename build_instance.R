@@ -16,6 +16,7 @@
 library(tidyverse)
 library(writexl)
 library(readxl)
+library(jsonlite)
 library(llmjoin)
 library(terra)
 library(sf)
@@ -29,14 +30,20 @@ sf_use_s2(FALSE)
 GRID_RES <- 0.5
 
 # Source data paths, replace with yours
-PM25_RAW_DIR <- "./Data/PM25_raw/"
-POP_RAW_DIR <- "D:/temp/" # Dir stores your raster population data
-MORT_RAW_DIR <- "./Data/IHME_MortRate_raw/"
-AGESTRUC_RAW_DIR <- "./Data/IHME_Pop_raw/"
+PM25_RAW_DIR <- Sys.getenv("PM25_RAW_DIR", unset = "./Data/PM25_raw/")
+POP_RAW_DIR <- Sys.getenv("PM25_POP_RAW_DIR", unset = "")
+MORT_RAW_DIR <- Sys.getenv("PM25_MORT_RAW_DIR", unset = "./Data/IHME_MortRate_raw/")
+AGESTRUC_RAW_DIR <- Sys.getenv("PM25_AGESTRUC_RAW_DIR", unset = "./Data/IHME_Pop_raw/")
 
 # Output
-OUT_DIR <- "./Data/"
-OUT_SUFFIX <- format(Sys.Date(), "%y%m%d")
+OUT_DIR <- Sys.getenv("PM25_INSTANCE_DIR", unset = "./Data/")
+OUT_SUFFIX <- Sys.getenv(
+  "PM25_INSTANCE_SUFFIX",
+  unset = format(Sys.Date(), "%y%m%d")
+)
+if (!str_detect(OUT_SUFFIX, "^[0-9]{6}$")) {
+  stop("PM25_INSTANCE_SUFFIX must contain exactly six digits.")
+}
 
 # Manually set future year / counter-fact scenario data mapping
 # scenario → Year mapping (source year → output column name)
@@ -44,6 +51,70 @@ YEAR_MAP <- c(
   "2015" = "base2015",
   "2020" = "SSP1-Baseline_2030"
 )
+
+# Every scenario must declare the source year of each component. The 2030
+# label currently combines 2030 exposure with 2020 population/mortality and
+# 2019 age structure. This is a proxy, not a complete 2030 projection.
+ALLOW_MIXED_SCENARIO_YEARS <- FALSE
+SCENARIO_YEAR_SPEC <- tribble(
+  ~scenario, ~exposure_year, ~population_year, ~age_year, ~mortality_year,
+  "base2015", 2015, 2015, 2015, 2015,
+  "SSP1-Baseline_2030", 2030, 2020, 2019, 2020
+)
+
+validate_scenario_years <- function(spec, allow_mixed) {
+  component_cols <- c(
+    "exposure_year", "population_year", "age_year", "mortality_year"
+  )
+  mixed <- spec |>
+    mutate(
+      n_years = apply(
+        pick(all_of(component_cols)),
+        1,
+        \(x) length(unique(x))
+      )
+    )
+  bad <- mixed |> filter(n_years > 1)
+  if (nrow(bad) > 0 && !allow_mixed) {
+    details <- bad |>
+      mutate(
+        detail = str_c(
+          scenario, " (",
+          "exposure=", exposure_year,
+          ", population=", population_year,
+          ", age=", age_year,
+          ", mortality=", mortality_year,
+          ")"
+        )
+      ) |>
+      pull(detail)
+    stop(
+      "Mixed source years are blocked for scenario(s): ",
+      paste(details, collapse = "; "),
+      ". Set ALLOW_MIXED_SCENARIO_YEARS <- TRUE only for an approved proxy. ",
+      "The build manifest records the chosen years."
+    )
+  }
+  invisible(mixed)
+}
+
+validate_scenario_years(SCENARIO_YEAR_SPEC, ALLOW_MIXED_SCENARIO_YEARS)
+
+if (!nzchar(POP_RAW_DIR) || !dir.exists(POP_RAW_DIR)) {
+  stop(
+    "Population raster directory not found. Set PM25_POP_RAW_DIR or edit ",
+    "POP_RAW_DIR in build_instance.R."
+  )
+}
+pop_files <- list.files(
+  POP_RAW_DIR,
+  pattern = "\\d+\\.(tif|tiff)$",
+  full.names = TRUE,
+  recursive = TRUE
+)
+if (length(pop_files) == 0) {
+  stop("No .tif files found in ", POP_RAW_DIR)
+}
 
 # Helper function to rename year/scenario column to year
 map_year <- \(yr) recode(yr, !!!YEAR_MAP) |> coalesce(yr)
@@ -64,6 +135,39 @@ map_cause <- c(
   "All causes" = "ALLCAUSE"
 )
 
+# Country mapping is expensive and depends on an external LLM. Cache the
+# result so later rebuilds do not depend on API availability.
+read_or_build_country_map <- function(
+  grid_df,
+  target_df,
+  key1,
+  key2,
+  cache_path
+) {
+  if (file.exists(cache_path)) {
+    mapping <- read_csv(cache_path, show_col_types = FALSE)
+  } else {
+    mapping <- llmjoin::build_joint(
+      grid_df,
+      target_df,
+      key1 = key1,
+      key2 = key2
+    )
+    write_csv(mapping, cache_path)
+  }
+  required <- c("Country", "domain")
+  if (!all(required %in% names(mapping))) {
+    stop(
+      "Country mapping must contain Country and domain. Found: ",
+      paste(names(mapping), collapse = ", ")
+    )
+  }
+  if (anyDuplicated(mapping$Country) > 0 || anyDuplicated(mapping$domain) > 0) {
+    stop("Country mapping contains duplicated Country or domain keys.")
+  }
+  mapping
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════════════
 #  1 Grid information (terra::rasterize country polygons) ----
@@ -76,6 +180,12 @@ nc_files <- list.files(PM25_RAW_DIR, pattern = "\\.nc$", full.names = TRUE)
 
 if (length(nc_files) == 0) {
   stop("No .nc files found in ", PM25_RAW_DIR)
+}
+if (length(list.files(MORT_RAW_DIR, pattern = "\\.(csv|zip)$")) == 0) {
+  stop("No mortality CSV/ZIP files found in ", MORT_RAW_DIR)
+}
+if (length(list.files(AGESTRUC_RAW_DIR, pattern = "(csv|zip)$")) == 0) {
+  stop("No age-structure CSV/ZIP files found in ", AGESTRUC_RAW_DIR)
 }
 
 ref_rast <- rast(nc_files[[1]])
@@ -147,8 +257,17 @@ pm25 <- map(
   }
 ) |>
   reduce(c) |>
-  as.data.frame(r, xy = TRUE, na.rm = TRUE) |>
+  as.data.frame(xy = TRUE, na.rm = TRUE) |>
   mutate(across(x:y, ~ round(.x, 3) |> as.character()))
+
+pm25_scenarios <- setdiff(names(pm25), c("x", "y"))
+if (!setequal(pm25_scenarios, SCENARIO_YEAR_SPEC$scenario)) {
+  stop(
+    "PM2.5 files produce scenarios [", paste(pm25_scenarios, collapse = ", "),
+    "], but SCENARIO_YEAR_SPEC declares [",
+    paste(SCENARIO_YEAR_SPEC$scenario, collapse = ", "), "]."
+  )
+}
 
 write_xlsx(
   pm25,
@@ -161,17 +280,6 @@ cat(str_glue("  → {nrow(pm25)} grids, {ncol(pm25) - 2} scenarios\n"))
 # ══════════════════════════════════════════════════════════════════════════════════════
 
 cat("\n── 3. Population ──\n")
-
-pop_files <- list.files(
-  POP_RAW_DIR,
-  pattern = "\\d+\\.(tif|tiff)$",
-  full.names = TRUE,
-  recursive = TRUE
-)
-
-if (length(pop_files) == 0) {
-  stop("No .tif files found in ", POP_RAW_DIR)
-}
 
 pop <- pop_files |>
   map(
@@ -194,7 +302,7 @@ pop <- pop_files |>
     }
   ) |>
   reduce(c) |>
-  as.data.frame(r, xy = TRUE, na.rm = TRUE) |>
+  as.data.frame(xy = TRUE, na.rm = TRUE) |>
   mutate(across(x:y, ~ round(.x, 3) |> as.character()))
 
 write_xlsx(
@@ -243,11 +351,12 @@ cat(str_glue(
   " → {length(unique(mortrate$domain))} IHME locations ...\n"
 ))
 
-mortality_country_map <- llmjoin::build_joint(
+mortality_country_map <- read_or_build_country_map(
   grid_info,
   mortrate,
   key1 = "Country",
-  key2 = "domain"
+  key2 = "domain",
+  cache_path = "./Data/country_map_mortality.csv"
 )
 
 missing_countries <- setdiff(mortrate$domain, mortality_country_map$domain)
@@ -280,7 +389,9 @@ write_xlsx(
   mortrate_val,
   file.path(OUT_DIR, str_glue("GBD_mortality_instance_{OUT_SUFFIX}.xlsx"))
 )
-cat(str_glue("  → {nrow(mortrate)} rows, {ncol(mortrate) - 3} scenarios\n"))
+cat(str_glue(
+  "  → {nrow(mortrate_val)} rows, {ncol(mortrate_val) - 3} scenarios\n"
+))
 
 # ══════════════════════════════════════════════════════════════════════════════════════
 #  5 Age structure ----
@@ -291,6 +402,34 @@ pop_year_map <- c(
   "2015" = "base2015",
   "2019" = "SSP1-Baseline_2030"
 )
+
+year_map_matches <- function(year_map, years, scenarios) {
+  identical(
+    unname(year_map[as.character(years)]),
+    scenarios
+  )
+}
+if (!year_map_matches(
+  YEAR_MAP,
+  SCENARIO_YEAR_SPEC$mortality_year,
+  SCENARIO_YEAR_SPEC$scenario
+)) {
+  stop("YEAR_MAP does not match SCENARIO_YEAR_SPEC mortality years.")
+}
+if (!year_map_matches(
+  YEAR_MAP,
+  SCENARIO_YEAR_SPEC$population_year,
+  SCENARIO_YEAR_SPEC$scenario
+)) {
+  stop("YEAR_MAP does not match SCENARIO_YEAR_SPEC population years.")
+}
+if (!year_map_matches(
+  pop_year_map,
+  SCENARIO_YEAR_SPEC$age_year,
+  SCENARIO_YEAR_SPEC$scenario
+)) {
+  stop("pop_year_map does not match SCENARIO_YEAR_SPEC age years.")
+}
 
 # fmt: skip
 agegroups <- c(
@@ -323,11 +462,12 @@ agestruc <- list.files(
 
 cat(str_glue("  llm_join: matching grid countries to IHME locations ...\n"))
 
-agegroup_country_map <- llmjoin::build_joint(
+agegroup_country_map <- read_or_build_country_map(
   grid_info,
   agestruc,
   key1 = "Country",
-  key2 = "domain"
+  key2 = "domain",
+  cache_path = "./Data/country_map_age.csv"
 )
 
 agestruc_prop <- agestruc |>
@@ -362,15 +502,40 @@ cat(str_glue(
 
 # ══════════════════════════════════════════════════════════════════════════════════════
 
+# Write the instance manifest used by HealthBurdenCalc.R and DrivingFactors.R.
+instance_files <- list(
+  Grids = str_glue("./Data/Grid_info_instance_{OUT_SUFFIX}.xlsx"),
+  Pop = str_glue("./Data/GridPop_instance_{OUT_SUFFIX}.xlsx"),
+  Conc_real = str_glue("./Data/GridPM25_instance_{OUT_SUFFIX}.xlsx"),
+  MortRate = str_glue("./Data/GBD_mortality_instance_{OUT_SUFFIX}.xlsx"),
+  AgeGroup = str_glue("./Data/GBD_agestructure_instance_{OUT_SUFFIX}.xlsx")
+)
+missing_outputs <- instance_files[!file.exists(unlist(instance_files))]
+if (length(missing_outputs) > 0) {
+  stop(
+    "Instance build did not produce: ",
+    paste(unlist(missing_outputs), collapse = ", ")
+  )
+}
+
+manifest <- list(
+  suffix = OUT_SUFFIX,
+  created = format(Sys.Date(), "%Y-%m-%d"),
+  mixed_scenario_years = ALLOW_MIXED_SCENARIO_YEARS,
+  scenario_years = SCENARIO_YEAR_SPEC,
+  files = instance_files
+)
+write_json(
+  manifest,
+  file.path(OUT_DIR, "instance_manifest.json"),
+  pretty = TRUE,
+  auto_unbox = TRUE
+)
+
 cat("\nDone. Instance files → ", OUT_DIR, "\n", sep = "")
-
-
-# suppose you have a cf scenario
-
-readxl::read_xlsx("Data/GridPM25_instance_260617.xlsx") |>
-  mutate(
-    base2015 = base2015 * rnorm(row_number(), mean = 1, sd = 0.5),
-    `SSP1-Baseline_2030` = `SSP1-Baseline_2030` *
-      rnorm(row_number(), mean = 1, sd = 0.2),
-  ) |>
-  write_xlsx(str_glue("Data/GridPM25_cf_instance_{OUT_SUFFIX}.xlsx"))
+cat("Manifest → ", file.path(OUT_DIR, "instance_manifest.json"), "\n", sep = "")
+cat(
+  "Counterfactual concentration is not generated. Supply an approved ",
+  "Conc_cf file separately and register it in the manifest.\n",
+  sep = ""
+)

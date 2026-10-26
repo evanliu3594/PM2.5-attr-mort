@@ -86,6 +86,7 @@ read_curve <- function(file) {
 }
 
 curves <- map(curve_files, read_curve)
+names(curves) <- names(endpoint_patterns)
 
 # Detect RR vs log(RR). Old files start near 1; new files start near 0.
 is_log_curve <- function(df) {
@@ -94,6 +95,22 @@ is_log_curve <- function(df) {
 }
 
 is_log <- map_lgl(curves, is_log_curve)
+
+expected_log <- c(
+  copd = FALSE,
+  dm2 = FALSE,
+  ihd = TRUE,
+  lc = FALSE,
+  lri = TRUE,
+  stroke = TRUE
+)
+if (!identical(unname(is_log), unname(expected_log[names(is_log)]))) {
+  cli::cli_abort(c(
+    "x" = "Curve scale differs from the registered GBD 2023 source layout.",
+    "i" = "Detected log scale: {str_c(names(is_log)[is_log], collapse = ', ')}.",
+    "i" = "Expected log scale: {str_c(names(expected_log)[expected_log], collapse = ', ')}."
+  ))
+}
 
 if (any(is_log)) {
   cli::cli_inform(
@@ -125,12 +142,19 @@ curves <- map2(curves, is_log, to_log_scale)
 
 # Interpolate log(RR) so the result stays positive and smooth.
 interp_log <- function(df, column) {
+  source_range <- range(df$exposure)
+  if (min(target_dose) < source_range[1] || max(target_dose) > source_range[2]) {
+    cli::cli_abort(
+      "Target dose range {min(target_dose)}-{max(target_dose)} exceeds ",
+      "source range {source_range[1]}-{source_range[2]}."
+    )
+  }
   approx(
     x = df$exposure,
     y = df[[column]],
     xout = target_dose,
     method = "linear",
-    rule = 2
+    rule = 1
   )$y
 }
 
@@ -163,6 +187,8 @@ check_sheet <- function(df) {
 walk(sheets, check_sheet)
 
 stopifnot(all(abs(sheets$MEAN[sheets$MEAN$dose == 0, -1] - 1) < 1e-10))
+stopifnot(all(as.matrix(sheets$LOW[-1]) <= as.matrix(sheets$MEAN[-1]) + 1e-10))
+stopifnot(all(as.matrix(sheets$MEAN[-1]) <= as.matrix(sheets$UP[-1]) + 1e-10))
 
 # ---------- write ----------
 

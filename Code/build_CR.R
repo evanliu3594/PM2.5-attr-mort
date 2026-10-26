@@ -6,7 +6,7 @@ library(writexl)
 
 simpledate <- \() format(Sys.Date(), '%y%m%d')
 
-matchable <- \(num, dgt = 1) num |> round(digits = dgt) |> str_c
+matchable <- \(num, dgt = 1) num |> round(digits = dgt) |> str_c()
 
 # utils ----
 
@@ -29,14 +29,19 @@ compute_RR_index <- function(ERL, write = F) {
   }
 
   RR_table <- if (str_detect(ERL, 'IER')) {
-    read_csv(para.file) |>
+    raw_params <- read_csv(para.file, show_col_types = FALSE)
+    if (any(str_detect(names(raw_params), 'zcf'))) {
+      raw_params <- rename_with(raw_params, ~'tmrel', matches('zcf'))
+    }
+    if (any(str_detect(names(raw_params), 'delta'))) {
+      raw_params <- rename_with(raw_params, ~'gamma', matches('delta'))
+    }
+    raw_params |>
       mutate(
         age = str_replace(age, '(A|a)ll ?(A|a)ge', 'ALL'),
         cause = str_replace(cause, 'ALRI', 'LRI')
       ) |>
-      rename_with(~'tmrel', matches('zcf')) |>
-      rename_with(~'gamma', matches('delta')) |>
-      mutate(RR = pmap(select(., alpha, beta, gamma, tmrel), ier_iter_conc)) |>
+      mutate(RR = pmap(pick(alpha, beta, gamma, tmrel), ier_iter_conc)) |>
       unnest_longer(RR, values_to = 'RR', indices_to = 'concentration') |>
       group_by(cause, age, concentration) |>
       summarise(
@@ -53,7 +58,7 @@ compute_RR_index <- function(ERL, write = F) {
         Causes = str_replace(Causes, 'ALRI', 'LRI'),
         Age = str_replace(Age, '(A|a)ll ?(A|a)ge', 'ALL'),
         z = pmax(concentration - 2.4, 0),
-        concentration = concentration |> matchable
+        concentration = concentration |> matchable()
       ) |>
       mutate(
         .keep = 'unused',
@@ -116,19 +121,24 @@ compute_RR_index. <- function(ERL, write = F) {
   }
 
   RR_table <- if (str_detect(ERL, 'IER')) {
-    expand_grid(Concentration = iter_conc, read_csv(para.file)) |>
+    raw_params <- read_csv(para.file, show_col_types = FALSE)
+    if (any(str_detect(names(raw_params), 'zcf'))) {
+      raw_params <- rename_with(raw_params, ~'tmrel', matches('zcf'))
+    }
+    if (any(str_detect(names(raw_params), 'delta'))) {
+      raw_params <- rename_with(raw_params, ~'gamma', matches('delta'))
+    }
+    expand_grid(Concentration = iter_conc, raw_params) |>
       mutate(
         age = str_replace(age, '(A|a)ll ?(A|a)ge', 'ALL'),
         cause = str_replace(cause, 'ALRI', 'LRI')
       ) |>
-      rename_with(~'tmrel', matches('zcf')) |>
-      rename_with(~'gamma', matches('delta')) |>
       mutate(
         .keep = 'unused',
         RR = alpha *
           (1 - exp(-1 * beta * pmax(Concentration - tmrel, 0)^gamma)) +
           1,
-        concentration = Concentration |> matchable
+        concentration = Concentration |> matchable()
       ) |>
       summarise(
         .by = c(cause, age, concentration),
@@ -145,7 +155,7 @@ compute_RR_index. <- function(ERL, write = F) {
         Causes = str_replace(Causes, 'ALRI', 'LRI'),
         Age = str_replace(Age, '(A|a)ll ?(A|a)ge', 'ALL'),
         z = pmax(concentration - 2.4, 0),
-        concentration = concentration |> matchable
+        concentration = concentration |> matchable()
       ) |>
       mutate(
         .keep = 'unused',

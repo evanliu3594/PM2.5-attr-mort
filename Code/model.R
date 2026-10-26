@@ -2,6 +2,8 @@
 #   - tell_Model() — format the active C-R model name for output filenames
 #   - set_Model()  — set the global .CR_Model and cache the standardised RR table
 #   - RR_std()     — build the standardised RR table from the lookup xlsx
+#   Modified 261026b: dgt_conc, unit, and range metadata propagate through
+#     set_Model()/RR_std(); new tables are checked for key, range, and CI order.
 
 library(tidyverse)
 library(writexl)
@@ -48,10 +50,20 @@ tell_Model <- function() {
 #'   the MEAN sheet is read and its `{endpoint}_{agegroup}` columns are parsed
 #'   to auto-generate a standardisation config. Review and add to
 #'   `Data/RR_std_config.json`.
+#' @param dgt_conc Non-negative integer concentration precision. Defaults to the
+#'   current `.DGT_CONC` value, which starts at 1.
 #'
 #' @export
-set_Model <- function(Model, path = NULL) {
+set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
+  if (is.null(dgt_conc)) {
+    dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
+  }
+  if (length(dgt_conc) != 1 || dgt_conc < 0 || dgt_conc != as.integer(dgt_conc)) {
+    stop("dgt_conc must be one non-negative integer.")
+  }
+
   assign(".CR_Model", Model, envir = globalenv())
+  assign(".DGT_CONC", dgt_conc, envir = globalenv())
   log_msg(INFO, "C-R Model \"{tell_Model()}\" is set.")
 
   # Auto-generate standardisation config from custom lookup table
@@ -182,7 +194,7 @@ set_Model <- function(Model, path = NULL) {
   }
 
   # ---- Build standardised RR table via RR_std() ----
-  assign(".RR_std_tbl", RR_std(path), envir = globalenv())
+  assign(".RR_std_tbl", RR_std(path, dgt_conc = dgt_conc), envir = globalenv())
 }
 
 #' Build the standardised C-R lookup table
@@ -198,9 +210,17 @@ set_Model <- function(Model, path = NULL) {
 #'
 #' @param custom_path Optional path to a custom RR lookup xlsx.
 #'   When \code{NULL} (default), resolves from \code{RR_std_config.json}.
-#' @return A data frame in long format.
+#' @param dgt_conc Optional concentration precision. Defaults to `.DGT_CONC`.
+#' @return A data frame in long format with `dgt_conc` and metadata attributes.
 #' @export
-RR_std <- function(custom_path = NULL) {
+RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
+  if (is.null(dgt_conc)) {
+    dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
+  }
+  if (length(dgt_conc) != 1 || dgt_conc < 0 || dgt_conc != as.integer(dgt_conc)) {
+    stop("dgt_conc must be one non-negative integer.")
+  }
+
   # Read config once at the top
   cfg_path <- './Data/RR_std_config.json'
   if (!file.exists(cfg_path)) stop("RR_std config not found: ", cfg_path)
@@ -212,9 +232,25 @@ RR_std <- function(custom_path = NULL) {
 
   # PWRR branch mode: "branch" = one PWRR per CI branch; "mean" = common
   # MEAN PWRR for all branches (keeps CI ordered for very wide curves).
-  assign(".PWRR_branch", cfg$pwr_branch %||% "branch", envir = globalenv())
+  pwr_branch <- cfg$pwr_branch %||% "branch"
+  if (!pwr_branch %in% c("branch", "mean")) {
+    stop("pwr_branch must be 'branch' or 'mean' for model ", CR, ".")
+  }
+  assign(".PWRR_branch", pwr_branch, envir = globalenv())
 
   conc_col <- cfg$conc_col %||% "concentration"
+  conc_unit <- cfg$conc_unit %||% NULL
+  conc_range <- cfg$conc_range %||% NULL
+  assign(
+    ".RR_meta",
+    list(
+      model = CR,
+      conc_unit = conc_unit,
+      conc_range = conc_range,
+      pwr_branch = pwr_branch
+    ),
+    envir = globalenv()
+  )
 
   # Resolve lookup path
   lookup <- if (!is.null(custom_path)) custom_path else cfg$lookup
@@ -223,11 +259,57 @@ RR_std <- function(custom_path = NULL) {
 
   # Load all sheets, convert concentration column to string (matchable) for join
   sheets <- readxl::excel_sheets(lookup)
+  required_sheets <- c("MEAN", "LOW", "UP")
+  missing_sheets <- setdiff(required_sheets, sheets)
+  if (length(missing_sheets) > 0) {
+    stop(
+      "RR lookup is missing sheet(s): ", paste(missing_sheets, collapse = ", "),
+      ". Found: ", paste(sheets, collapse = ", ")
+    )
+  }
+  sheets <- required_sheets
+
   .raw <- set_names(
-    map(sheets, ~ readxl::read_excel(lookup, sheet = .x) |>
-          mutate(!!sym(conc_col) := matchable(as.numeric(!!sym(conc_col)), 1))),
+    map(sheets, function(sheet) {
+      df <- readxl::read_excel(lookup, sheet = sheet)
+      if (!conc_col %in% names(df)) {
+        stop("RR sheet \"", sheet, "\" has no concentration column \"", conc_col, "\".")
+      }
+      conc_num <- as.numeric(df[[conc_col]])
+      if (any(!is.finite(conc_num))) {
+        stop("RR sheet \"", sheet, "\" has non-finite concentration values.")
+      }
+      if (anyDuplicated(conc_num)) {
+        stop("RR sheet \"", sheet, "\" has duplicated concentration values.")
+      }
+      df |>
+        mutate(!!sym(conc_col) := matchable(conc_num, dgt_conc))
+    }),
     sheets
   )
+
+  conc_vectors <- map(.raw, ~ as.character(.x[[conc_col]]))
+  if (!all(map_lgl(conc_vectors, identical, conc_vectors[[1]]))) {
+    stop("RR sheets do not share the same concentration grid.")
+  }
+
+  if (!is.null(conc_range)) {
+    actual_range <- as.numeric(conc_vectors[[1]]) |> range()
+    expected_range <- as.numeric(unlist(conc_range))
+    if (
+      length(expected_range) != 2 ||
+        any(!is.finite(expected_range)) ||
+        any(abs(actual_range - expected_range) > 10^(-dgt_conc))
+    ) {
+      stop(
+        "RR concentration range mismatch: config expects ",
+        paste(expected_range, collapse = " to "),
+        ", lookup contains ",
+        paste(actual_range, collapse = " to "),
+        "."
+      )
+    }
+  }
 
   # Process each sheet independently (pivot → expand → join → fill → filter),
   # then stack. This avoids the need for complete() and handles missing age
@@ -265,12 +347,42 @@ RR_std <- function(custom_path = NULL) {
       mutate(CI = ci)
   }) |>
     mutate(
-      !!sym(conc_col) := matchable(as.numeric(!!sym(conc_col)), 1),
+      !!sym(conc_col) := matchable(as.numeric(!!sym(conc_col)), dgt_conc),
       agegroup = matchable(as.numeric(agegroup), 0)
     ) |>
     rename(concentration = !!sym(conc_col)) |>
     select(concentration, endpoint, agegroup, CI, RR)
 
+  n_bad_rr <- sum(!is.finite(result$RR))
+  if (n_bad_rr > 0) {
+    log_msg(
+      WARN,
+      "{n_bad_rr} non-finite RR value(s) in {lookup}. ",
+      "Legacy tables load unchanged; Mortality() drops affected rows."
+    )
+  }
+  if (anyDuplicated(result[c("concentration", "endpoint", "agegroup", "CI")])) {
+    stop("RR table contains duplicated concentration/endpoint/agegroup/CI keys.")
+  }
+
+  ci_order <- result |>
+    select(concentration, endpoint, agegroup, CI, RR) |>
+    pivot_wider(names_from = CI, values_from = RR)
+  n_ci_order <- sum(ci_order$LOW > ci_order$MEAN + 1e-10, na.rm = TRUE) +
+    sum(ci_order$MEAN > ci_order$UP + 1e-10, na.rm = TRUE)
+  if (n_ci_order > 0) {
+    log_msg(
+      WARN,
+      "{n_ci_order} RR row(s) violate LOW <= MEAN <= UP in {lookup}. ",
+      "This legacy table is loaded unchanged; rebuilds must pass the strict guard."
+    )
+  }
+
+  attr(result, "dgt_conc") <- dgt_conc
+  attr(result, "conc_unit") <- conc_unit
+  attr(result, "conc_range") <- conc_range
+  attr(result, "pwr_branch") <- pwr_branch
+
   log_msg(INFO, "RR table built: {lookup} ({nrow(result)} rows)")
-  return(result)
+  result
 }

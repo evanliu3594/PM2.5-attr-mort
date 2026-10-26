@@ -1,6 +1,8 @@
 {
   "NCD+LRI": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 300],
     "label": "PM2.5_GEMM_NCD+LRI",
     "lookup": "./Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx",
     "endpoints": [
@@ -9,6 +11,8 @@
   },
   "5COD": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 300],
     "label": "PM2.5_GEMM_5COD",
     "lookup": "./Data/RR_index/GEMM_Lookup_Table_Build_220914.xlsx",
     "endpoints": [
@@ -21,6 +25,8 @@
   },
   "IER": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 200],
     "label": "PM2.5_IER2017",
     "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -33,6 +39,8 @@
   },
   "IER2010": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 200],
     "label": "PM2.5_IER2010",
     "lookup": "./Data/RR_index/IER2010_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -45,6 +53,8 @@
   },
   "IER2013": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 200],
     "label": "PM2.5_IER2013",
     "lookup": "./Data/RR_index/IER2013_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -57,6 +67,8 @@
   },
   "IER2015": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 200],
     "label": "PM2.5_IER2015",
     "lookup": "./Data/RR_index/IER2015_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -69,6 +81,8 @@
   },
   "IER2017": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 200],
     "label": "PM2.5_IER2017",
     "lookup": "./Data/RR_index/IER2017_Lookup_Table_Build_220601.xlsx",
     "endpoints": [
@@ -81,6 +95,8 @@
   },
   "MRBRT": {
     "conc_col": "dose",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 300],
     "label": "PM2.5_MRBRT2023",
     "lookup": "./Data/RR_index/MRBRT2023_Lookup_Table_Build_261026.xlsx",
     "endpoints": [
@@ -94,6 +110,8 @@
   },
   "MRBRT2019": {
     "conc_col": "concentration",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 600],
     "label": "PM2.5_MRBRT2019",
     "lookup": "./Data/RR_index/MRBRT2019_Lookup_Table_LYF220601.xlsx",
     "endpoints": [
@@ -107,6 +125,8 @@
   },
   "MRBRT2021": {
     "conc_col": "dose",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 300],
     "label": "PM2.5_MRBRT2021",
     "lookup": "./Data/RR_index/MRBRT2021_Lookup_Table_LYF250716.xlsx",
     "endpoints": [
@@ -120,6 +140,8 @@
   },
   "MRBRT2023": {
     "conc_col": "dose",
+    "conc_unit": "ug/m3",
+    "conc_range": [0, 300],
     "label": "PM2.5_MRBRT2023",
     "lookup": "./Data/RR_index/MRBRT2023_Lookup_Table_Build_261026.xlsx",
     "endpoints": [
@@ -133,6 +155,8 @@
   },
   "O3": {
     "conc_col": "concentration",
+    "conc_unit": "ppb",
+    "conc_range": [0, 50],
     "pwr_branch": "mean",
     "label": "O3_GBD2023",
     "lookup": "./Data/RR_index/O3_Lookup_Table_GBD2023_Build_261026.xlsx",
@@ -142,6 +166,8 @@
   },
   "O3_legacy": {
     "conc_col": "concentration",
+    "conc_unit": "unknown",
+    "conc_range": [30, 300],
     "pwr_branch": "mean",
     "label": "O3_legacy",
     "lookup": "./Data/RR_index/O3_CR_Lookup_Table.xlsx",
@@ -151,6 +177,8 @@
   },
   "NO2": {
     "conc_col": "concentration",
+    "conc_unit": "ppb",
+    "conc_range": [0, 100],
     "pwr_branch": "mean",
     "label": "NO2_GBD2023_Asthma",
     "lookup": "./Data/RR_index/NO2_Lookup_Table_GBD2023_Build_261026.xlsx",
@@ -160,6 +188,8 @@
   },
   "NO2_allcause": {
     "conc_col": "concentration",
+    "conc_unit": "unknown",
+    "conc_range": [2, 80],
     "pwr_branch": "mean",
     "label": "NO2_allcause",
     "lookup": "./Data/RR_index/NO2_CR_Lookup_Table.xlsx",

@@ -4,9 +4,16 @@
 #   - getMortRate(), getConc_real(), getConc_cf(), getPop(), getAgeGroup() — accessors
 #   Modified 260618: type-agnostic coordinate matching (any_of + as.numeric),
 #     Conc_cf defaults to NULL, domain column auto-normalisation (Country→domain).
+#   Modified 261026b: case-insensitive coordinates, unique-key guards, strict
+#     Conc_cf paths, dgt_conc/conc_unit propagation, instance manifest helpers.
 
-# Standardised RR lookup table (built by set_Model() via RR_std(), read by Mortality/Uncertainty)
+# Standardised RR lookup table (built by set_Model() via RR_std())
 .RR_std_tbl <- NULL
+
+# Concentration precision and unit shared by RR lookup, Mortality, and inputs
+.DGT_CONC <- 1
+.CONC_UNIT <- NULL
+.RR_meta <- list()
 
 #' format numbers to a string at a specified digit
 #'
@@ -35,40 +42,29 @@ matchable <- function(num, dgt = 1) {
 #' @keywords internal
 normalize_coords <- function(df) {
   nms <- names(df)
+  lower_nms <- tolower(nms)
 
-  # Longitude candidates (order: most specific first to avoid partial matches)
-  lon_candidates <- c(
-    "longitude",
-    "Longitude",
-    "LONGITUDE",
-    "long",
-    "Long",
-    "LONG",
-    "lon",
-    "Lon",
-    "LON",
-    "x",
-    "X"
-  )
+  find_coord_col <- function(aliases, label) {
+    hits <- which(lower_nms %in% aliases)
+    if (length(hits) == 0) {
+      return(NA_character_)
+    }
+    if (length(hits) > 1) {
+      stop(
+        "Ambiguous ", label, " columns: ",
+        paste(nms[hits], collapse = ", "),
+        ". Keep exactly one."
+      )
+    }
+    nms[hits]
+  }
 
-  # Latitude candidates
-  lat_candidates <- c(
-    "latitude",
-    "Latitude",
-    "LATITUDE",
-    "lat",
-    "Lat",
-    "LAT",
-    "y",
-    "Y"
-  )
-
-  lon_col <- intersect(lon_candidates, nms)[1]
-  lat_col <- intersect(lat_candidates, nms)[1]
+  lon_col <- find_coord_col(c("longitude", "long", "lon", "x"), "longitude")
+  lat_col <- find_coord_col(c("latitude", "lat", "y"), "latitude")
 
   if (is.na(lon_col) || is.na(lat_col)) {
-    found_lon <- intersect(lon_candidates, nms)
-    found_lat <- intersect(lat_candidates, nms)
+    found_lon <- nms[lower_nms %in% c("longitude", "long", "lon", "x")]
+    found_lat <- nms[lower_nms %in% c("latitude", "lat", "y")]
     stop(
       "Cannot identify geographic coordinate columns.\n",
       "  Found longitude-like columns: ",
@@ -85,19 +81,64 @@ normalize_coords <- function(df) {
         "(none)"
       },
       "\n",
-      "  Expected columns named like: x/lon/long/longitude and y/lat/latitude."
+      "  Expected columns named like: x/lon/long/longitude and y/lat/latitude, ",
+      "in any letter case."
     )
   }
 
   if (lon_col != "x" || lat_col != "y") {
-    df <- df |> rename(x = !!lon_col, y = !!lat_col)
+    df <- df |>
+      rename(x = all_of(lon_col), y = all_of(lat_col))
     log_msg(
       INFO,
       "Coordinates normalized: \"{lon_col}\" -> \"x\", \"{lat_col}\" -> \"y\""
     )
   }
 
-  return(df)
+  df
+}
+
+#' Assert that a data frame has unique, non-missing join keys
+#'
+#' @param df A data frame.
+#' @param keys Character vector of key columns.
+#' @param label Label used in the error message.
+#'
+#' @return Invisibly `TRUE`; aborts when a key is missing, NA, or duplicated.
+#' @keywords internal
+assert_unique_key <- function(df, keys, label) {
+  missing_cols <- setdiff(keys, names(df))
+  if (length(missing_cols) > 0) {
+    stop(
+      label, " is missing key column(s): ",
+      paste(missing_cols, collapse = ", ")
+    )
+  }
+
+  na_rows <- df |>
+    filter(if_any(all_of(keys), is.na)) |>
+    nrow()
+  if (na_rows > 0) {
+    stop(label, " has ", na_rows, " row(s) with NA in key columns.")
+  }
+
+  duplicates <- df |>
+    count(across(all_of(keys)), name = "n") |>
+    filter(n > 1)
+  if (nrow(duplicates) > 0) {
+    examples <- duplicates |>
+      head(3) |>
+      unite("key", all_of(keys), sep = "/") |>
+      pull(key)
+    stop(
+      label, " has ", nrow(duplicates), " duplicated key combination(s) on ",
+      paste(keys, collapse = "/"), ". Examples: ",
+      paste(examples, collapse = ", "),
+      ". Aggregate or deduplicate the input before reading."
+    )
+  }
+
+  invisible(TRUE)
 }
 
 #' Load all input data into the global environment
@@ -115,7 +156,10 @@ normalize_coords <- function(df) {
 #' @param MortRate path to mortality rate (.xlsx or .csv)
 #' @param AgeGroup path to population age structure (.xlsx or .csv)
 #' @param dgt_grid int, digit of map grid coordinates (default 2)
-#' @param dgt_conc int, digit of concentrations (default 1)
+#' @param dgt_conc int, digit of concentrations (default 1). Must match the
+#'   precision used when the active RR table was built.
+#' @param conc_unit Optional concentration unit, such as `"ug/m3"` or `"ppb"`.
+#'   When supplied, it must match the active RR table metadata.
 #'
 #' @return assign data to global env.
 #' @export
@@ -127,16 +171,56 @@ read_files <- function(
   MortRate,
   AgeGroup,
   dgt_grid = 2,
-  dgt_conc = 1
+  dgt_conc = 1,
+  conc_unit = NULL
 ) {
+  if (length(dgt_grid) != 1 || dgt_grid < 0 || dgt_grid != as.integer(dgt_grid)) {
+    stop("dgt_grid must be one non-negative integer.")
+  }
+  if (length(dgt_conc) != 1 || dgt_conc < 0 || dgt_conc != as.integer(dgt_conc)) {
+    stop("dgt_conc must be one non-negative integer.")
+  }
+
+  rr_dgt <- attr(.RR_std_tbl, "dgt_conc", exact = TRUE)
+  if (!is.null(.RR_std_tbl) && !is.null(rr_dgt) && rr_dgt != dgt_conc) {
+    stop(
+      "The active RR table was built at dgt_conc = ", rr_dgt,
+      ", but read_files() requested dgt_conc = ", dgt_conc,
+      ". Call set_Model(..., dgt_conc = ", dgt_conc, ") first."
+    )
+  }
+
+  if (!is.null(conc_unit)) {
+    if (length(conc_unit) != 1 || !nzchar(conc_unit)) {
+      stop("conc_unit must be one non-empty string when supplied.")
+    }
+    rr_unit <- .RR_meta$conc_unit %||% NULL
+    if (!is.null(rr_unit) && !identical(rr_unit, conc_unit)) {
+      stop(
+        "Concentration unit mismatch: model expects \"", rr_unit,
+        "\", read_files() received \"", conc_unit, "\"."
+      )
+    }
+  }
+
   #  Guard: file existence
-  for (f in list(
+  if (!is.null(Conc_cf) && !file.exists(Conc_cf)) {
+    stop(
+      "Conc_cf file not found: \"", Conc_cf,
+      "\". Supply an existing file or omit Conc_cf explicitly."
+    )
+  }
+  required_files <- list(
     Grids = Grids,
     Pop = Pop,
     Conc_real = Conc_real,
     MortRate = MortRate,
     AgeGroup = AgeGroup
-  )) {
+  )
+  if (!is.null(Conc_cf)) {
+    required_files[["Conc_cf"]] <- Conc_cf
+  }
+  for (f in required_files) {
     if (!file.exists(f)) {
       stop(
         "File not found: \"",
@@ -168,6 +252,7 @@ read_files <- function(
       paste(names(grid_df), collapse = ", ")
     )
   }
+  assert_unique_key(grid_df, c("x", "y"), "Grid_info after coordinate rounding")
 
   assign('Grid_info', envir = globalenv(), grid_df)
 
@@ -182,6 +267,7 @@ read_files <- function(
       paste(names(pop_df), collapse = ", ")
     )
   }
+  assert_unique_key(pop_df, c("x", "y"), "Pop after coordinate rounding")
 
   assign("Pop", envir = globalenv(), pop_df)
 
@@ -199,12 +285,17 @@ read_files <- function(
       paste(names(conc_real_df), collapse = ", ")
     )
   }
+  assert_unique_key(conc_real_df, c("x", "y"), "Conc_real after coordinate rounding")
 
   assign('Conc_real', envir = globalenv(), conc_real_df)
 
-  # Specify UNREAL PM2.5 data, used for only counter-fact scenario.
-
-  if (!is.null(Conc_cf) && file.exists(Conc_cf)) {
+  if (!is.null(Conc_cf)) {
+    if (!file.exists(Conc_cf)) {
+      stop(
+        "Conc_cf file not found: \"", Conc_cf,
+        "\". Supply an existing file or omit Conc_cf explicitly."
+      )
+    }
     conc_cf_df <- fuse_read(Conc_cf) |>
       normalize_coords() |>
       mutate(
@@ -218,19 +309,13 @@ read_files <- function(
         paste(names(conc_cf_df), collapse = ", ")
       )
     }
+    assert_unique_key(conc_cf_df, c("x", "y"), "Conc_cf after coordinate rounding")
   } else {
     conc_cf_df <- NULL
+    log_msg(INFO, "Conc_cf not supplied; counterfactual data are unavailable.")
   }
 
   assign('Conc_cf', envir = globalenv(), conc_cf_df)
-
-  if (is.null(conc_cf_df)) {
-    log_msg(
-      WARN,
-      "Conc_cf file \"{Conc_cf}\" not found — set to NULL. ",
-      "Counterfactual scenarios will fall back to real concentrations."
-    )
-  }
 
   mort_rate_raw <- fuse_read(MortRate)
 
@@ -247,12 +332,17 @@ read_files <- function(
     )
   }
 
-  assign(
-    'MortRate',
-    envir = globalenv(),
-    mort_rate_raw |>
-      mutate(across(where(is.numeric) & agegroup, ~ matchable(.x, dgt = 0)))
+  mort_rate_df <- mort_rate_raw |>
+    mutate(
+      endpoint = tolower(endpoint),
+      across(where(is.numeric) & agegroup, ~ matchable(.x, dgt = 0))
+    )
+  assert_unique_key(
+    mort_rate_df,
+    c("domain", "endpoint", "agegroup"),
+    "MortRate"
   )
+  assign('MortRate', envir = globalenv(), mort_rate_df)
 
   age_group_raw <- fuse_read(AgeGroup)
 
@@ -269,12 +359,13 @@ read_files <- function(
     )
   }
 
-  assign(
-    "AgeGroup",
-    envir = globalenv(),
-    age_group_raw |>
-      mutate(across(where(is.numeric) & agegroup, ~ matchable(.x, dgt = 0)))
-  )
+  age_group_df <- age_group_raw |>
+    mutate(across(where(is.numeric) & agegroup, ~ matchable(.x, dgt = 0)))
+  assert_unique_key(age_group_df, c("domain", "agegroup"), "AgeGroup")
+  assign("AgeGroup", envir = globalenv(), age_group_df)
+
+  assign(".DGT_CONC", dgt_conc, envir = globalenv())
+  assign(".CONC_UNIT", conc_unit, envir = globalenv())
 
   #  Guard: .CR_Model must be set
   if (!exists('.CR_Model', envir = globalenv())) {
@@ -457,4 +548,87 @@ getAgeGroup <- function(at) {
 
   # fmt: skip
   AgeGroup |> select(domain, agegroup, AgeStruc = {at})
+}
+
+#' List scenario columns in a gridded data frame
+#'
+#' @param df A data frame with `x` and `y`. Defaults to `Conc_real`.
+#'
+#' @return Character vector of non-coordinate columns.
+#' @export
+get_scenarios <- function(df = NULL) {
+  if (is.null(df)) {
+    if (!exists("Conc_real", envir = globalenv())) {
+      stop("Conc_real not found. Run read_files() first or supply df.")
+    }
+    df <- Conc_real
+  }
+  scenarios <- setdiff(names(df), c("x", "y"))
+  if (length(scenarios) == 0) {
+    stop("No scenario columns found outside x and y.")
+  }
+  scenarios
+}
+
+#' Resolve instance file paths from the build manifest
+#'
+#' @param manifest_path Path to `Data/instance_manifest.json`.
+#' @param suffix Optional six-digit instance suffix. When supplied, the
+#'   manifest is ignored and standard paths are constructed.
+#'
+#' @return Named list with `Grids`, `Pop`, `Conc_real`, `Conc_cf`, `MortRate`,
+#'   and `AgeGroup`.
+#' @export
+resolve_instance_files <- function(
+  manifest_path = "./Data/instance_manifest.json",
+  suffix = NULL
+) {
+  if (!is.null(suffix)) {
+    if (!str_detect(suffix, "^[0-9]{6}$")) {
+      stop("suffix must contain exactly six digits, for example 260617.")
+    }
+    files <- list(
+      Grids = str_glue("./Data/Grid_info_instance_{suffix}.xlsx"),
+      Pop = str_glue("./Data/GridPop_instance_{suffix}.xlsx"),
+      Conc_real = str_glue("./Data/GridPM25_instance_{suffix}.xlsx"),
+      Conc_cf = str_glue("./Data/GridPM25_cf_instance_{suffix}.xlsx"),
+      MortRate = str_glue("./Data/GBD_mortality_instance_{suffix}.xlsx"),
+      AgeGroup = str_glue("./Data/GBD_agestructure_instance_{suffix}.xlsx")
+    )
+    if (!file.exists(files$Conc_cf)) {
+      files$Conc_cf <- NULL
+    }
+  } else {
+    if (!file.exists(manifest_path)) {
+      stop(
+        "Instance manifest not found: ", manifest_path,
+        ". Run build_instance.R or pass suffix explicitly."
+      )
+    }
+    manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = TRUE)
+    files <- as.list(unlist(manifest$files, use.names = TRUE))
+    required <- c("Grids", "Pop", "Conc_real", "MortRate", "AgeGroup")
+    missing_entries <- setdiff(required, names(files))
+    if (length(missing_entries) > 0) {
+      stop(
+        "Instance manifest is missing: ",
+        paste(missing_entries, collapse = ", ")
+      )
+    }
+    if (!"Conc_cf" %in% names(files)) {
+      files$Conc_cf <- NULL
+    }
+  }
+
+  missing_files <- files |>
+    unlist(use.names = FALSE) |>
+    keep(~ !is.null(.x) && !file.exists(.x))
+  if (length(missing_files) > 0) {
+    stop(
+      "Instance file(s) not found: ",
+      paste(missing_files, collapse = ", ")
+    )
+  }
+
+  files
 }
