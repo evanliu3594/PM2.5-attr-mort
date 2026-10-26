@@ -241,7 +241,14 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.8 (current)
+## v5.9 (current)
+- **DrivingFactors state cache**: the 24 decomposition sequences share 16 unique factor states. States are cached by sorted factor set and reused across sequences.
+- **Country-level summaries**: `aggregate_drivers()` now uses `Decomposition_summary()` and country × Cause_Age state summaries. It no longer rebuilds the 805,695-row grid table for every sequence.
+- **Trusted-input fast path**: `Mortality(..., validate_keys = FALSE)` skips repeated input key checks after `read_files()` validation. The default remains `TRUE`.
+- **Measured performance**: full NCD+LRI 24-sequence run fell from about 725 seconds to 65.54 seconds, an 11.06× speedup. The workbook remains 26 sheets; maximum absolute difference from the pre-optimization workbook is 1.16×10^-10, with no new NA.
+- **Tests**: local tests cover the 16-state count, `validate_keys` equivalence, cached grid-level decomposition, country summaries, and workbook structure.
+
+## v5.8
 - **Repository layout**: data results go to `Results/`; figures go to `Figures/`. `tests/`, `handoff/`, and `Code/build/` stay local and are excluded from Git via `.gitignore`.
 - **Builder location**: CR builders moved to `Code/build/`. Documentation now uses the new paths.
 

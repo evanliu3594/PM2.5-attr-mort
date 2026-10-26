@@ -99,7 +99,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合、输入契约、精度和构建链修复（v5.7）；目录布局调整（v5.8）；`NCD+LRI` 完整 24 序列已运行并通过守恒与健康负担交叉验收。最新交接：`handoff/261026_drivingfactors-full-test.md`。
+GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合与输入契约修复（v5.7）；目录布局（v5.8）；24 序列状态缓存与键校验优化（v5.9，65.54 秒）。最新交接：`handoff/261026_drivingfactors-optimization.md`。
 
 ## 7. 联系与来源
 

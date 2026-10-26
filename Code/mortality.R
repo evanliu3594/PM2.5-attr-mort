@@ -170,6 +170,10 @@ join_report <- function(
 #' @param domain spatial aggregation column name (e.g. \code{"Country"}). Auto-detected when \code{NULL}.
 #' @param verbose when \code{FALSE} (default), truncate domain names in warnings to 6; \code{TRUE} shows all
 #' @param debug when \code{FALSE} (default), use plain \code{left_join}; \code{TRUE} enables \code{join_report()} NA diagnostics
+#' @param validate_keys when \code{TRUE} (default), check input keys for missing values
+#'   and duplicates. Set to \code{FALSE} only for inputs already validated by
+#'   \code{read_files()}. Required columns, RR keys, output keys, precision, and
+#'   unit checks remain active.
 #'
 #' @return Wide data frame with one column per endpoint–agegroup–CI combination per grid cell.
 #'   When \code{CI = "RANGE"}, columns are suffixed \verb{_MEAN}, \verb{_UP}, \verb{_LOW}.
@@ -183,7 +187,8 @@ Mortality <- function(
   CI = "MEAN",
   domain = NULL,
   verbose = FALSE,
-  debug = FALSE
+  debug = FALSE,
+  validate_keys = TRUE
 ) {
   show_n <- if (verbose) Inf else 6
   CI <- match.arg(CI, c("MEAN", "UP", "LOW", "RANGE"))
@@ -207,10 +212,12 @@ Mortality <- function(
   require_columns(mRate, c("domain", "endpoint", "agegroup", "MortRate"), "mRate")
   require_columns(ag, c("domain", "agegroup", "AgeStruc"), "ag")
 
-  assert_unique_key(Grids, c("x", "y"), "Grids")
-  assert_unique_key(Conc_r, c("x", "y"), "Conc_r")
-  assert_unique_key(Conc_c, c("x", "y"), "Conc_c")
-  assert_unique_key(pop, c("x", "y"), "pop")
+  if (validate_keys) {
+    assert_unique_key(Grids, c("x", "y"), "Grids")
+    assert_unique_key(Conc_r, c("x", "y"), "Conc_r")
+    assert_unique_key(Conc_c, c("x", "y"), "Conc_c")
+    assert_unique_key(pop, c("x", "y"), "pop")
+  }
 
   mRate <- mRate |>
     mutate(
@@ -225,12 +232,14 @@ Mortality <- function(
     )
   pop <- pop |>
     mutate(Pop = as.numeric(Pop))
-  assert_unique_key(
-    mRate,
-    c("domain", "endpoint", "agegroup"),
-    "mRate"
-  )
-  assert_unique_key(ag, c("domain", "agegroup"), "ag")
+  if (validate_keys) {
+    assert_unique_key(
+      mRate,
+      c("domain", "endpoint", "agegroup"),
+      "mRate"
+    )
+    assert_unique_key(ag, c("domain", "agegroup"), "ag")
+  }
 
   if (any(pop$Pop < 0, na.rm = TRUE)) {
     stop("Population contains negative values.")

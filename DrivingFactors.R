@@ -5,6 +5,8 @@
 # Decomposition outputs produced before this date are invalid; rerun this script.
 # NOTE 261026: the 24 sequences are written explicitly in the documented order;
 # the state of each prefix is derived by one explicit mapping, not by an if chain.
+# NOTE 261026b: the 24 sequences share 16 unique factor states. States are cached
+# by sorted factor set; aggregate_drivers() uses country-level state summaries.
 
 # Core Module Load ----
 
@@ -123,11 +125,74 @@ mort_at_prefix <- function(prefix, start.y, end.y, domain) {
     Conc_r = Conc_real |>
       select(x, y, concentration = !!sym(state$conc_r)),
     mRate = getMortRate(state$mrate),
-    domain = domain
+    domain = domain,
+    validate_keys = FALSE
   )
 }
 
-Decomposition <- function(serie, start.y, end.y, domain = NULL) {
+# Cache states within one decomposition run; sorted prefixes identify equivalent inputs.
+new_decomp_cache <- function() {
+  cache <- new.env(parent = emptyenv())
+  cache$states <- new.env(parent = emptyenv())
+  cache$n_mortality <- 0L
+  cache
+}
+
+decomp_state_key <- function(prefix, start.y, end.y, domain) {
+  factors <- if (length(prefix) == 0) {
+    "<start>"
+  } else {
+    str_c(sort(prefix), collapse = "+")
+  }
+  str_c(start.y, end.y, str_c(domain, collapse = "+"), factors, sep = "::")
+}
+
+get_decomp_state <- function(prefix, start.y, end.y, domain, cache) {
+  key <- decomp_state_key(prefix, start.y, end.y, domain)
+  if (exists(key, envir = cache$states, inherits = FALSE)) {
+    return(get(key, envir = cache$states, inherits = FALSE))
+  }
+
+  mort <- mort_at_prefix(prefix, start.y, end.y, domain) |>
+    add_domain(domain = domain)
+  entry <- list(grid = mort, summary = NULL)
+  assign(key, entry, envir = cache$states)
+  cache$n_mortality <- cache$n_mortality + 1L
+  entry
+}
+
+decomp_state_summary <- function(prefix, start.y, end.y, domain, cache) {
+  entry <- get_decomp_state(prefix, start.y, end.y, domain, cache)
+  if (is.null(entry$summary)) {
+    entry$summary <- entry$grid |>
+      pivot_longer(
+        cols = -all_of(c("x", "y", domain)),
+        names_to = "Cause_Age",
+        values_to = "Mort"
+      ) |>
+      group_by(across(all_of(c(domain, "Cause_Age")))) |>
+      summarise(Mort = sum(Mort), .groups = "drop")
+    key <- decomp_state_key(prefix, start.y, end.y, domain)
+    assign(key, entry, envir = cache$states)
+  }
+  entry$summary
+}
+
+print_decomp_drivers <- function(Decomp, steps, start.y, end.y) {
+  cat(str_c("Drivers Between ", start.y, " and ", end.y, ":\n"))
+  for (step_name in steps) {
+    cat(
+      str_c(
+        step_name,
+        ":\t",
+        sum(Decomp[[step_name]] |> sum() |> round())
+      ),
+      "\n"
+    )
+  }
+}
+
+Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
   validate_scenario_columns(start.y, end.y)
   if (is.null(domain)) {
     domain <- detect_domain()
@@ -150,14 +215,19 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL) {
     steps[1:4]
   )
 
+  if (is.null(cache)) {
+    cache <- new_decomp_cache()
+  }
+
   Decomp <- prefixes |>
     map(
-      mort_at_prefix,
+      get_decomp_state,
       start.y = start.y,
       end.y = end.y,
-      domain = domain
+      domain = domain,
+      cache = cache
     ) |>
-    map(add_domain, domain = domain) |>
+    map("grid") |>
     set_names(str_c("Mort_", 0:4))
 
   Decomp <- Decomp |>
@@ -181,22 +251,75 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL) {
       .keep = "unused"
     )
 
-  # Print Result ----
-  {
-    cat(str_c("Drivers Between ", start.y, " and ", end.y, ":\n"))
-    for (step_name in steps) {
-      cat(
-        str_c(
-          step_name,
-          ":\t",
-          sum(Decomp[[step_name]] |> sum() |> round())
-        ),
-        "\n"
-      )
-    }
-  }
+  print_decomp_drivers(Decomp, steps, start.y, end.y)
 
   return(Decomp)
+}
+
+# Build country-level sequence contributions from cached state summaries.
+# Decomposition() keeps the grid-level output; aggregate_drivers() uses this path.
+Decomposition_summary <- function(
+  serie,
+  start.y,
+  end.y,
+  domain = NULL,
+  cache = NULL
+) {
+  validate_scenario_columns(start.y, end.y)
+  if (is.null(domain)) {
+    domain <- detect_domain()
+  }
+
+  seq_row <- decomp_sequences |> filter(serie == .env$serie)
+  if (nrow(seq_row) != 1) {
+    stop("serie must be one of 1:24.")
+  }
+
+  steps <- seq_row |>
+    select(step1:step4) |>
+    unlist(use.names = FALSE)
+
+  prefixes <- list(
+    character(0),
+    steps[1],
+    steps[1:2],
+    steps[1:3],
+    steps[1:4]
+  )
+
+  if (is.null(cache)) {
+    cache <- new_decomp_cache()
+  }
+
+  Decomp <- prefixes |>
+    map(
+      decomp_state_summary,
+      start.y = start.y,
+      end.y = end.y,
+      domain = domain,
+      cache = cache
+    ) |>
+    set_names(str_c("Mort_", 0:4))
+
+  Decomp <- Decomp |>
+    imap_dfr(
+      ~ .x |>
+        mutate(Step = .y)
+    ) |>
+    pivot_wider(names_from = "Step", values_from = "Mort") |>
+    mutate(
+      Start = Mort_0,
+      !!steps[1] := Mort_1 - Mort_0,
+      !!steps[2] := Mort_2 - Mort_1,
+      !!steps[3] := Mort_3 - Mort_2,
+      !!steps[4] := Mort_4 - Mort_3,
+      End = Mort_4,
+      .keep = "unused"
+    )
+
+  print_decomp_drivers(Decomp, steps, start.y, end.y)
+
+  Decomp
 }
 
 aggregate_drivers <- function(
@@ -211,15 +334,17 @@ aggregate_drivers <- function(
   }
 
   n <- if (RUN24) 1:24 else 1
+  cache <- new_decomp_cache()
 
   ls1 <- n |>
     set_names() |>
     map(
-      ~ Decomposition(
+      ~ Decomposition_summary(
         serie = .x,
         start.y = start.year,
         end.y = end.year,
-        domain = domain
+        domain = domain,
+        cache = cache
       ) |>
         group_by(across(all_of(domain))) |>
         summarise(across(Start:End, sum))
