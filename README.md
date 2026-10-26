@@ -292,10 +292,11 @@ plan.
 Two kernel rules matter for performance:
 
 - A mapping call with one task never starts a future; it runs in the main process.
-- The R Future API re-serialises the exported closure once per future. One
-  `Mortality()` call exports about 40 MB per future, so parallel group execution
-  is slower than serial on the 260,617 sample: 6.08 s serial vs 8.365 s with four
-  workers (0.73×). The kernel pays off for multi-call runs: the 24-sequence
+- `Mortality()` spends most of its time in per-call fixed work: input key
+  validation, then RR-table and base-table preparation. Its endpoint × agegroup
+  loop is only about 1.8 s of a call, so parallel group execution is slower than
+  serial on the 260,617 sample: about 6 s serial vs about 7.8 s with four
+  workers. The kernel pays off for multi-call runs: the 24-sequence
   decomposition fell from 66.45 s to 29.88 s with four workers (2.22×).
 
 `kernel_info()$payload_mb_last` reports only the mapping inputs (`.x`, `.y`,
@@ -308,7 +309,7 @@ Two kernel rules matter for performance:
 - **Default stays sequential**: entry scripts read `PM25_KERNEL_WORKERS` (default `1`). Serial results are unchanged; `Mortality()` output is identical with or without a plan.
 - **Mortality() groups use the kernel**: `map2()` is replaced by `kernel_map2()` with `endpoint/agegroup` task labels. Parallel output is identical to serial output in all nine measured worker configurations.
 - **DrivingFactors state precompute**: when a plan is active, the 16 unique factor states are summarised once in parallel, and workers return only country × Cause_Age summaries. The serial cache path is unchanged.
-- **Measured performance**: the full 24-sequence run fell from 66.45 s to 29.88 s with four workers (2.22×; two alternating rounds, maximum absolute workbook difference 0). One `Mortality()` call does not speed up: 6.08 s serial vs 8.365 s with four workers (0.73×). Every future re-serialises about 40 MB of closure environment, and 15 groups are too little work to repay it. Enable the kernel for multi-call runs, not for a single call.
+- **Measured performance**: the full 24-sequence run fell from 66.45 s to 29.88 s with four workers (2.22×; two alternating rounds, maximum absolute workbook difference 0). One `Mortality()` call does not speed up: about 6 s serial vs about 7.8 s with four workers (0.77×). The endpoint × agegroup loop is only about 1.8 s of one call (15 groups, about 0.12 s each). The rest is per-call fixed work: input key validation about 2.9 s (skippable with `validate_keys = FALSE`) and RR-table/base-table preparation about 2.7 s. Even with zero overhead, four workers would cap near 1.2×. Enable the kernel for multi-call runs, not for a single call.
 - **Tests**: `tests/run_tests.R` runs nine files with 370 assertions, including new kernel contract, Mortality equivalence, and DrivingFactors equivalence tests. The original 183 assertions are unchanged.
 - **Boundaries**: the development sandbox blocks process pipes, so all timing measurements used `multisession`. A separate elevated run verified the `future.callr` backend in a normal R session: both backends return identical output (maximum absolute difference 0), and both are slower than serial for one `Mortality()` call (callr four workers 11.53 s vs serial 6.14 s). `Decomposition()` (grid-level) and `aggregate_sigma()` are not parallelised.
 
