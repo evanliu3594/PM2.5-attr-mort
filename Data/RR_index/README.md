@@ -84,7 +84,7 @@ source('./Code/build_CR_MRBRT2023.R')
 
 The script reads `Data/IHME_GBD_2023_AIR_POLLUTION_1990_2021_RR_CURVES.zip`, extracts the six `..._MEAN_...` curves, detects whether each curve is on the RR or log(RR) scale, and interpolates log(RR) linearly to 0–300 µg/m³ at 0.1 steps. It writes `MRBRT2023_Lookup_Table_Build_261026.xlsx` and reminds you to add the config entry. Download the archive from [GHDx](https://ghdx.healthdata.org/record/ihme-data/gbd-2023-air-pollution-exposure-estimates-1990-2023) with an IHME account. The 185 MB archive is excluded from git.
 
-`MRBRT2023` uses the GBD 2023 curves for IHD, stroke, and LRI; the archive's Y2022 COPD, diabetes, and lung cancer files are close to the GBD 2021 curves (≤1.1% difference at 300 µg/m³). The archive also contains dementia, birth weight, and gestational age curves; these are not compiled into the six-endpoint mortality table. `MRBRT` remains an alias for the GBD 2021 table.
+`MRBRT2023` uses the GBD 2023 curves for IHD, stroke, and LRI; the archive's Y2022 COPD, diabetes, and lung cancer files are close to the GBD 2021 curves (≤1.1% difference at 300 µg/m³). The archive also contains dementia, birth weight, and gestational age curves; these are not compiled into the six-endpoint mortality table. `MRBRT` is an alias for the GBD 2023 table; `MRBRT2021` remains available for legacy runs.
 
 ### From the GBD 2023 O3/NO2 archive
 

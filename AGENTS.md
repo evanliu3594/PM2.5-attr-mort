@@ -66,18 +66,19 @@
 
 ### 3.3 当前缺口（摘要）
 
-- 未用 `MRBRT2023` 重跑完整健康负担；影响幅度未量化。
-- `DrivingFactors.R` 已重写为 24 序列明文表；完整 24 序列（120 次 `Mortality()`）未跑，仅做状态审计与 200 格真实子集测试。
-- `Mortality()` 已改为 endpoint × agegroup 分组遍历；未在 0.1° 全球格网压测，`future` 并发未启用；最终宽表仍随 格数 × 组合数 增长。
-- 旧健康负担结果基于单域 PWRR，已失效；需用 v5.2 重跑 `HealthBurdenCalc.R` 与 `DrivingFactors.R`，并更新结果表、图件与稿件。
+- `MRBRT2023` 已通过 `base2015` 全样本测试；两情景正式结果未生成。
+- 完整 24 序列（120 次 `Mortality()`）未跑；仅有状态审计与小样本测试。
+- `Mortality()` 已分组遍历；0.1° 全球压测与 `future` 并发未做。
+- 旧健康负担结果已失效；需用 v5.2 重跑并更新下游。
 - `NO2` 默认用 asthma 终点；当前样本死亡率表无 asthma，`Mortality()` 不能直接用样本跑 NO2。`NO2_allcause` 保留旧 all-cause 口径。
 - O3/NO2 输入浓度必须用 ppb；O3 表只覆盖 0–50 ppb，超过会 clamp。NO2 LOW 分支截到 1，CI 下限退化为无效应。
 - O3/NO2 没有真实浓度数据，未做真实 burden 测试；仅做 `set_Model` 与 200 格合成浓度测试。
 - dementia、birth weight、gestational age 曲线未编译。
-- `Code/README.md`、`Result/README.md` 与目录级 `AGENTS.md` 未建；本次为最小收口。
+- `Code/README.md` 与目录级 `AGENTS.md` 未建；`Result/README.md` 仅 1 行，仍需补全。
 - `CLAUDE.md` 已于 261026 删除；详细架构正文仅存于 git 历史（commit `405fd74`）。
 - 研究意图基线、成功标准与服务对象未经用户确认。
 - `Result/` 下有未入库的 MRBRT2023 对比图（`MRBRT2023_vs_2021.png`）。
+- 261026 评审发现聚合、mean 单分支与 sigma 缺陷。通用输入与 sigma 未通过验收，详见最新 handoff。
 
 ## 4. 基本规则（全局）
 
@@ -97,12 +98,12 @@
 2. MR-BRT 曲线只提供全年龄 RR，按 `_ALL` 填到各年龄档；这不是年龄特异曲线。
 3. GBD 2023 与 2021：IHD、Stroke、LRI 更新；COPD、DM2、LC 与 2021 接近，300 µg/m³ 处差异 ≤1.1%。
 4. IHME 免费非商业许可；原始 zip 不入库，重下需 IHME 账号。
-5. 查找表覆盖 0–300 µg/m³；超过 300 的格无法匹配（与现有 MRBRT2021 一致）。
+5. PM2.5 查找表覆盖 0–300 µg/m3；`Mortality()` 当前将超范围浓度 clamp 到边界，目标口径待用户确认。
 6. O3/NO2 查找表使用 ppb；O3 覆盖 0–50 ppb，NO2 覆盖 0–100 ppb；NO2 LOW 分支截到 1。
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；DrivingFactors 24 序列明文表（v5.3）；Mortality 按 endpoint × agegroup 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）。完整负担未重跑。最新交接：`handoff/261026_o3-no2-gbd2023.md`。
+GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；DrivingFactors 24 序列明文表（v5.3）；Mortality 按 endpoint × agegroup 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）。两情景正式健康负担与完整分解未生成。最新交接：`handoff/261026_design-implementation-review.md`。
 
 ## 7. 联系与来源
 
