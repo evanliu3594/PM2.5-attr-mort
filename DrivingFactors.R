@@ -7,9 +7,10 @@
 # the state of each prefix is derived by one explicit mapping, not by an if chain.
 # NOTE 261026b: the 24 sequences share 16 unique factor states. States are cached
 # by sorted factor set; aggregate_drivers() uses country-level state summaries.
-# NOTE 261027: when the Future kernel plan is active, the unique factor states are
-# summarised once in parallel (one small domain x Cause_Age table per state); the
-# serial cache path stays unchanged when the plan is sequential.
+# NOTE 261027: when the Future kernel plan is active, missing factor states are
+# built in parallel once and cached; Decomposition() and Decomposition_summary()
+# share the same cache. aggregate_drivers() summarises the 16 unique states in
+# parallel. The serial cache path stays unchanged when the plan is sequential.
 
 # Core Module Load ----
 
@@ -21,11 +22,12 @@ source('./Code/data.R', encoding = 'UTF8')
 source('./Code/mortality.R', encoding = 'UTF8')
 source('./Code/uncertainty.R', encoding = 'UTF8')
 source('./Code/aggregation.R', encoding = 'UTF8')
+source('./Code/kernel.R', encoding = 'UTF8')
 
 # Concurrency (optional) ----
-# Sequential by default. Export PM25_KERNEL_WORKERS = 8 to run Mortality()
-# groups in parallel. The plan stays active for this R session; kernel_off()
-# restores the sequential plan.
+# Sequential by default. Export PM25_KERNEL_WORKERS = 8 to build the factor
+# states of Decomposition() in parallel; aggregate_drivers() uses the same plan.
+# The plan stays active for this R session; kernel_off() restores it.
 
 worker_n <- as.integer(Sys.getenv("PM25_KERNEL_WORKERS", unset = "1"))
 if (!is.na(worker_n) && worker_n > 1) {
@@ -230,14 +232,68 @@ precompute_state_summaries <- function(states, start.y, end.y, domain) {
   set_names(summaries, names(states))
 }
 
+# Grid-level state: the mortality table for one cumulative factor prefix.
+decomp_state_grid <- function(prefix, start.y, end.y, domain) {
+  mort_at_prefix(prefix, start.y, end.y, domain) |>
+    add_domain(domain = domain)
+}
+
+# Fill cache entries that are still missing, one kernel task per state.
+# No-op when no kernel plan is active, so the serial path is unchanged.
+decomp_fill_cache <- function(prefixes, start.y, end.y, domain, cache) {
+  kernel_on <- exists("kernel_active", mode = "function") &&
+    isTRUE(kernel_active())
+  if (!kernel_on) {
+    return(invisible(cache))
+  }
+
+  keys <- prefixes |>
+    map_chr(
+      decomp_state_key,
+      start.y = start.y,
+      end.y = end.y,
+      domain = domain
+    )
+  is_cached <- vapply(
+    keys,
+    function(key) exists(key, envir = cache$states, inherits = FALSE),
+    logical(1)
+  )
+  if (all(is_cached)) {
+    return(invisible(cache))
+  }
+
+  states <- prefixes[!is_cached] |> set_names(keys[!is_cached])
+  grids <- kernel_map(
+    states,
+    decomp_state_grid,
+    start.y = start.y,
+    end.y = end.y,
+    domain = domain,
+    .labels = names(states),
+    .label = "Decomposition states",
+    .error = "stop"
+  )
+
+  # Store fetched grids under their canonical keys and count the Mortality calls.
+  for (index in seq_along(grids)) {
+    assign(
+      names(grids)[[index]],
+      list(grid = grids[[index]], summary = NULL),
+      envir = cache$states
+    )
+  }
+  cache$n_mortality <- cache$n_mortality + length(grids)
+  invisible(cache)
+}
+
 get_decomp_state <- function(prefix, start.y, end.y, domain, cache) {
   key <- decomp_state_key(prefix, start.y, end.y, domain)
   if (exists(key, envir = cache$states, inherits = FALSE)) {
     return(get(key, envir = cache$states, inherits = FALSE))
   }
 
-  mort <- mort_at_prefix(prefix, start.y, end.y, domain) |>
-    add_domain(domain = domain)
+  mort <- decomp_state_grid(prefix, start.y, end.y, domain)
   entry <- list(grid = mort, summary = NULL)
   assign(key, entry, envir = cache$states)
   cache$n_mortality <- cache$n_mortality + 1L
@@ -287,6 +343,9 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
   if (is.null(cache)) {
     cache <- new_decomp_cache()
   }
+
+  # Build missing states in parallel when a plan is active; no-op otherwise.
+  decomp_fill_cache(prefixes, start.y, end.y, domain, cache)
 
   Decomp <- prefixes |>
     map(
@@ -350,6 +409,8 @@ Decomposition_summary <- function(
   }
 
   if (is.null(state_summaries)) {
+    # Build missing states in parallel when a plan is active; no-op otherwise.
+    decomp_fill_cache(prefixes, start.y, end.y, domain, cache)
     summaries <- prefixes |>
       map(
         decomp_state_summary,
