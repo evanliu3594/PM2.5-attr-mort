@@ -1,16 +1,19 @@
 # AGENTS.md — PM2.5-attr-mort（项目总纲）
 
 > 本文件是项目总纲（路标）。详细架构与函数说明见 `README.md` 与 `Code/*.R` 内注释；文件清单见各目录 `README.md`；沿革见 `handoff/`。
-> 目录契约：本项目沿用 `Code/`、`Data/`、`Result/`，不迁移到 A 型默认的 `R/`、`data/`、`output/`（用户 261026 拍板）。
+> 目录契约：数据结果放 `Results/`，图件放 `Figures/`；`tests/`、`handoff/`、`Code/build/` 保留本地但不入 git（用户 261026 拍板）。
 
 ## 0. 目录结构
 
 | 目录 / 文件 | 职责 | 明细位置 |
 |---|---|---|
-| `Code/` | 计算引擎、CR 构建脚本 | `Code/README.md`（待补）；函数说明见 `README.md` 与代码注释 |
+| `Code/` | 计算引擎 | `Code/README.md`（待补）；函数说明见 `README.md` 与代码注释 |
+| `Code/build/` | CR 构建脚本，本地保留，不入 git | `Data/RR_index/README.md` |
 | `Data/` | 原始数据、实例表、CRF 系数、RR 查找表 | `Data/README.md`、`Data/RR_index/README.md` |
-| `Result/` | 结果表与图件 | `Result/README.md` |
-| `handoff/` | 会话交接记录；最新一份 = 当前状态入口 | — |
+| `Results/` | 数据结果表，不入 git | `README.md` |
+| `Figures/` | 图件，不入 git | `README.md` |
+| `tests/` | 本地回归测试，不入 git | `tests/run_tests.R` |
+| `handoff/` | 本地会话交接，不入 git；最新一份 = 当前状态入口 | — |
 | 根脚本 | `build_instance.R`、`HealthBurdenCalc.R`、`DrivingFactors.R` | `README.md` |
 
 `Data/` 内部分层：原始只读（`PM25_raw/`、`IHME_Pop_raw/`、`IHME_MortRate_raw/`）；实例表（`*_instance_260617.xlsx`）；`CRF_coefficients/`；`RR_index/`。原始数据与原始 zip 只读。
@@ -35,13 +38,13 @@
 
 ## 3. 研究方案与计算逻辑（概要）
 
-管线：`build_instance.R` 生成实例表 → `Code/build_CR.R`、`Code/build_CR_MRBRT2023.R` 或 `Code/build_CR_GBD2023_gas.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `DrivingFactors.R` 做 24 排列分解。公式、函数契约与数据流见 `README.md` 与 `Code/*.R` 内注释。
+管线：`build_instance.R` 生成实例表 → `Code/build/build_CR.R`、`build_CR_MRBRT2023.R` 或 `build_CR_GBD2023_gas.R` 生成 RR 查找表 → `set_Model()` / `RR_std()` 建 `.RR_std_tbl` → `read_files()` 读数据 → `Mortality()` / `Mortality_at()` 算 PWRR 与归因死亡 → `aggregate_range()` / `aggregate_sigma()` 聚合 → `DrivingFactors.R` 做 24 排列分解。公式、函数契约与数据流见 `README.md` 与 `Code/*.R` 内注释。
 
 ### 3.1 已拍板口径（用户确认，勿再改）
 
 | # | 口径 | 决定 | 日期 |
 |---|---|---|---|
-| ① | 目录命名 | 保留 `Code/Data/Result`，不迁移 A 型默认契约 | 261026 |
+| ① | 目录命名 | 数据结果 `Results/`；图件 `Figures/`；`tests/`、`handoff/`、`Code/build/` 不入 git | 261026 |
 | ② | GBD 2023 RR 接入 | 下载 GHDx 曲线并编译为项目可用 CR 表 | 261026 |
 | ③ | PWRR 归一化 | 按域 × 终点 × 年龄档计算；CI 分支用对应 PWRR | 261026 |
 | ④ | DrivingFactors 24 序列 | 按注释顺序明文表；state 规则显式；domain 注入 | 261026 |
@@ -77,13 +80,13 @@
 
 - **环境**：Windows；R 4.6.1，`C:\Program Files\R\R-4.6.1\bin\Rscript.exe`；从项目根 `source()` 运行。
 - **原始数据只读**：任何脚本不得写 `Data/*_raw/` 或原始 zip。
-- **目录**：脚本写 `Code/`；实例表与查找表写 `Data/`；结果与图写 `Result/`。临时件用完即删；退役件移入根 `deprecated/<原目录>/`，只归档不删除。
+- **目录**：脚本写 `Code/`；实例表与查找表写 `Data/`；数据结果写 `Results/`；图件写 `Figures/`。`tests/`、`handoff/`、`Code/build/` 只保留本地。临时件用完即删；退役件移入根 `deprecated/<原目录>/`，只归档不删除。
 - **文档分层**：本文件只写定位、必守、指向（≤9 KB）；文件清单归各目录 `README.md`；细节归专门规范文件或代码注释；沿革归 `handoff/`。
 - **变更必同步**：计算/数据、口径、结论、规划、目标变更后，全项目非归档件同轮同步；未同步项写进当次 handoff。规程用 skill `downstream-sync`。
 - **HDD（强制）**：代码改动先提可证伪假设与验证方式，再动手；改完以验证结果收口。机械改动可简化，但须声明“预期不变/预期值”并核对。
 - **需求确认（先听后问）**：目标或口径有歧义时先开放问，再回放，最后确认；代理决定必须说出口并登记 3.2。
 - **写作**：直白、朴素、准确；先结论后证据；不编造未验证数值。
-- **交接**：开工建 `handoff/<yyMMdd>_<主题>.md`，收口定稿；有 git 时必须提交入库。
+- **交接**：开工建 `handoff/<yyMMdd>_<主题>.md`，收口定稿；`handoff/` 保留本地，不入 git。
 
 ## 5. 主要假设与当前约束
 
@@ -96,7 +99,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合、输入契约、精度和构建链修复（v5.7）。最新交接：`handoff/261026_issue-fix.md`。
+GBD 2023 MR-BRT 已接入；PWRR 按域 × 终点 × 年龄档（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合、输入契约、精度和构建链修复（v5.7）；目录布局调整（v5.8）。最新交接：`handoff/261026_repo-layout.md`。
 
 ## 7. 联系与来源
 

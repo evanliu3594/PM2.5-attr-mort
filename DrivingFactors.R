@@ -234,7 +234,7 @@ aggregate_drivers <- function(
 
   ls1 |>
     write_xlsx(str_glue(
-      "./Result/{tell_Model()}_DrivingFactors_",
+      "./Results/{tell_Model()}_DrivingFactors_",
       "{start.year}-{end.year}_Build{format(Sys.Date(), '%y%m%d')}.xlsx"
     ))
 }

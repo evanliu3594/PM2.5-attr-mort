@@ -15,9 +15,9 @@ These files are the bridge between raw epidemiological coefficients and the mort
 | `GEMM_Lookup_Table_Build_220914.xlsx` | GEMM (NCD+LRI & 5COD) | `Data/CRF_coefficients/GEMM-parameters.csv` |
 | `MRBRT2019_Lookup_Table_LYF220601.xlsx` | MR-BRT GBD 2019 | External |
 | `MRBRT2021_Lookup_Table_LYF250716.xlsx` | MR-BRT GBD 2021 | External |
-| `MRBRT2023_Lookup_Table_Build_261026.xlsx` | MR-BRT GBD 2023 | GHDx archive, built by `Code/build_CR_MRBRT2023.R` |
-| `O3_Lookup_Table_GBD2023_Build_261026.xlsx` | O<sub>3</sub> GBD 2023 (COPD) | GHDx archive, built by `Code/build_CR_GBD2023_gas.R` |
-| `NO2_Lookup_Table_GBD2023_Build_261026.xlsx` | NO<sub>2</sub> GBD 2023 (asthma) | GHDx archive, built by `Code/build_CR_GBD2023_gas.R` |
+| `MRBRT2023_Lookup_Table_Build_261026.xlsx` | MR-BRT GBD 2023 | GHDx archive, built by `Code/build/build_CR_MRBRT2023.R` |
+| `O3_Lookup_Table_GBD2023_Build_261026.xlsx` | O<sub>3</sub> GBD 2023 (COPD) | GHDx archive, built by `Code/build/build_CR_GBD2023_gas.R` |
+| `NO2_Lookup_Table_GBD2023_Build_261026.xlsx` | NO<sub>2</sub> GBD 2023 (asthma) | GHDx archive, built by `Code/build/build_CR_GBD2023_gas.R` |
 | `O3_CR_Lookup_Table.xlsx` | O<sub>3</sub> legacy | External |
 | `NO2_CR_Lookup_Table.xlsx` | NO<sub>2</sub> legacy all-cause | External |
 
@@ -56,20 +56,20 @@ A column named `copd_25` contains RR values for COPD mortality in the 25–29 ag
 
 ## How these files are consumed
 
-1. `set_Model()` (in `Code/model.R`) calls `RR_std()` with the lookup path recorded in `Data/RR_std_config.json`. `RR_std()` reads all three sheets, pivots the wide table into long format (`concentration × endpoint × agegroup × CI × RR`), fills age-group-specific values from the `ALL` row where needed, and applies endpoint/age-group filtering defined in the config.
+1. `set_Model()` (in `Code/model.R`) calls `RR_std()` with the lookup path recorded in `Data/RR_std_config.json`. `RR_std()` reads all three sheets, pivots the wide table into long format (`concentration × endpoint × agegroup × CI × RR`), fills missing ages from the `ALL` column suffix where needed, and applies endpoint/age-group filtering defined in the config.
 
 2. The result is stored in the global variable `.RR_std_tbl`. Columns: `concentration`, `endpoint`, `agegroup`, `CI` (`"MEAN"`, `"UP"`, or `"LOW"`), `RR`.
 
-3. `Mortality()` and `Uncertainty()` (in `Code/mortality.R` and `Code/uncertainty.R`) read `.RR_std_tbl` directly — they filter or pivot the `CI` column as needed.
+3. `Mortality()` and `aggregate_sigma()` read `.RR_std_tbl` directly. They filter or pivot the `CI` column as needed. `Uncertainty()` is retired.
 
 ## How to generate or replace a lookup table
 
 ### From CRF coefficients (built-in models)
 
-Run `Code/build_CR.R`:
+Run `Code/build/build_CR.R`:
 
 ```r
-source('./Code/build_CR.R')
+source('./Code/build/build_CR.R')
 compute_RR_index("IER2017", write = TRUE)
 ```
 
@@ -77,10 +77,10 @@ This reads the coefficient CSV, evaluates the RR formula at every concentration 
 
 ### From the GBD 2023 air pollution RR archive
 
-`Code/build_CR_MRBRT2023.R` compiles the six PM<sub>2.5</sub> mortality endpoints from the GHDx GBD 2023 archive:
+`Code/build/build_CR_MRBRT2023.R` compiles the six PM<sub>2.5</sub> mortality endpoints from the GHDx GBD 2023 archive:
 
 ```r
-source('./Code/build_CR_MRBRT2023.R')
+source('./Code/build/build_CR_MRBRT2023.R')
 ```
 
 The script reads `Data/IHME_GBD_2023_AIR_POLLUTION_1990_2021_RR_CURVES.zip`, extracts the six `..._MEAN_...` curves, detects whether each curve is on the RR or log(RR) scale, and interpolates log(RR) linearly to 0–300 µg/m³ at 0.1 steps. It writes `MRBRT2023_Lookup_Table_Build_261026.xlsx` and reminds you to add the config entry. Download the archive from [GHDx](https://ghdx.healthdata.org/record/ihme-data/gbd-2023-air-pollution-exposure-estimates-1990-2023) with an IHME account. The 185 MB archive is excluded from git.
@@ -89,10 +89,10 @@ The script reads `Data/IHME_GBD_2023_AIR_POLLUTION_1990_2021_RR_CURVES.zip`, ext
 
 ### From the GBD 2023 O3/NO2 archive
 
-`Code/build_CR_GBD2023_gas.R` compiles the two gas curves from the same GHDx zip:
+`Code/build/build_CR_GBD2023_gas.R` compiles the two gas curves from the same GHDx zip:
 
 ```r
-source('./Code/build_CR_GBD2023_gas.R')
+source('./Code/build/build_CR_GBD2023_gas.R')
 ```
 
 - O<sub>3</sub>: ozone–COPD, 0–50 ppb.
@@ -135,7 +135,7 @@ If your lookup table uses a different column name for concentration (e.g., `"pm2
 
 ### Key constraints
 
-- Concentration values must be **rounded to one decimal place** (matching `dgt_conc = 1` in `read_files()`). The `matchable()` helper is used to ensure string-identical join keys.
+- Concentration values must be rounded to the chosen `dgt_conc` used by `set_Model()` and `read_files()`; the project default is one decimal place. The `matchable()` helper ensures string-identical join keys.
 - All three sheets must cover the **same concentration range** and **same endpoint × agegroup columns**.
 - The `ALL` age-group column suffix (for example `LRI_ALL`) is used as a fallback when age-specific columns are missing; `RR_std()` fills these via `tidyr::fill()`.
 
@@ -144,12 +144,13 @@ If your lookup table uses a different column name for concentration (e.g., `"pm2
 ```
 Data/CRF_coefficients/*.csv          →  Raw epidemiological parameters
 Data/IHME_..._RR_CURVES.zip          →  Raw GBD 2023 RR curves
-    ↓ (Code/build_CR.R / Code/build_CR_MRBRT2023.R / Code/build_CR_GBD2023_gas.R)
+    ↓ (Code/build/build_CR.R / build_CR_MRBRT2023.R / build_CR_GBD2023_gas.R)
 Data/RR_index/*.xlsx                 ←  You are here
     ↓ (set_Model() → RR_std() → .RR_std_tbl)
 Code/*.R                             →  Mortality calculation
     ↓
-Result/                              →  Aggregated output
+Results/                             →  Aggregated data output
+Figures/                             →  Figure output
 ```
 
 The mapping from model name to lookup-table path and endpoint definitions is maintained in `Data/RR_std_config.json`, which serves as the central registry.

@@ -93,7 +93,7 @@ if (WRITE_RESULTS) {
 # Uncomment the level(s) and breakdown(s) you need.
 # at  = "grid" | "geo" | "x" | "y" | "Country" | or any column in Grid_info
 # by  = "total" (Total only) | "all" | "endpoint" | "agegroup"
-# write = FALSE | TRUE (write to ./Result/xxx)
+# write = FALSE | TRUE (write to ./Results/xxx)
 
 ## Grid-level ----
 # aggregate_range(grid_ci, at = "grid", by = "total", write = FALSE)

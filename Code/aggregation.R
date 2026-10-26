@@ -91,7 +91,7 @@ domain_columns <- function(at_cols) {
 #'   the `_MEAN` columns are used for the central estimate.
 #' @param at A single Grid_info column used for spatial aggregation.
 #' @param by Must be `"total"`.
-#' @param write Write the result to `./Result/`.
+#' @param write Write the result to `./Results/`.
 #' @param ... `includeConc`, `Conc_ERR`, and `verbose`.
 #'
 #' @return A data frame with `year`, the domain column, `total_MEAN`, `total_UP`,
@@ -266,11 +266,11 @@ aggregate_sigma <- function(
 
   if (write) {
     outpath <- str_glue(
-      "./Result/{tell_Model()}_{at}_bytotal_sigma_",
+      "./Results/{tell_Model()}_{at}_bytotal_sigma_",
       "{head(scenarios, 1)}-{tail(scenarios, 1)}_",
       "Build{format(Sys.Date(), '%y%m%d')}.xlsx"
     )
-    dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
+    dir.create("./Results", showWarnings = FALSE, recursive = TRUE)
     writexl::write_xlsx(rows, outpath)
     log_msg(INFO, "  Written: ", outpath)
   }
@@ -289,7 +289,7 @@ aggregate_sigma <- function(
 #' @param at Aggregation level: `"grid"`, `"geo"`, or one or more Grid_info
 #'   column names.
 #' @param by `"total"`, `"endpoint"`, `"agegroup"`, or `"all"`.
-#' @param write Write each result to `./Result/`.
+#' @param write Write each result to `./Results/`.
 #'
 #' @return A named list of data frames, one per `at` value.
 #' @export
@@ -368,9 +368,9 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
       pivot_wider(names_from = "key", values_from = "mort")
 
     if (write) {
-      dir.create("./Result", showWarnings = FALSE, recursive = TRUE)
+      dir.create("./Results", showWarnings = FALSE, recursive = TRUE)
       outpath <- file.path(
-        "./Result",
+        "./Results",
         str_glue(
           "{tell_Model()}_{str_c(at_cols, collapse='+')}_{str_c(by_cols, collapse='+')}_",
           "Build{format(Sys.Date(), '%y%m%d')}.xlsx"
@@ -378,7 +378,7 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
       )
       if (length(by_cols) == 0) {
         outpath <- file.path(
-          "./Result",
+          "./Results",
           str_glue(
             "{tell_Model()}_{str_c(at_cols, collapse='+')}_total_",
             "Build{format(Sys.Date(), '%y%m%d')}.xlsx"

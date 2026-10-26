@@ -84,6 +84,12 @@ P.S.: the **PM2.5-attr-mort** refers to the **PM<sub>2.5</sub>-attributable-mort
 
 4. **Decomposition analysis** — `source('DrivingFactors.R')` to attribute mortality changes to Population Growth, Population Aging, Exposure change, and Other Risk Factors. Set `PM25_RUN_DRIVERS=false` to load functions without running all 24 sequences.
 
+## Output layout
+
+- `Results/` stores data result workbooks only. It is gitignored.
+- `Figures/` stores figures only. It is gitignored.
+- `tests/`, `handoff/`, and `Code/build/` are local working materials and are gitignored.
+
 ## Instance file format reference
 
 If you prepare instance files manually (without `build_instance.R`), each file must follow the column format below. Coordinate columns accept any case variant of `x`/`lon`/`long`/`longitude` and `y`/`lat`/`latitude`. Domain columns accept `Country`/`country`/`location`/`Location` (auto-normalised to `domain` internally).
@@ -96,7 +102,7 @@ If you prepare instance files manually (without `build_instance.R`), each file m
 | **GridPM25_cf** _(optional)_ | same as GridPM25 | Counterfactual PM<sub>2.5</sub>; omit `Conc_cf` argument for absolute burden mode |
 | **GBD_mortality** | `Country` _(or `domain`)_, `endpoint`, `agegroup`, plus year/scenario columns | Baseline mortality rate (deaths per 100,000) by region, disease, and age group |
 | **GBD_agestructure** | `Country` _(or `domain`)_, `agegroup`, plus year/scenario columns | Proportion of population in each age group by region |
-| **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. Regenerate IER/GEMM via `Code/build_CR.R`; build the GBD 2023 MR-BRT table via `Code/build_CR_MRBRT2023.R`. |
+| **RR_index** | sheets `MEAN`, `LOW`, `UP`; concentration column (name configurable via `conc_col` in `RR_std_config.json`) + `{endpoint}_{agegroup}` columns (e.g. `copd_25`) | Concentration–response lookup table, auto-selected by `set_Model()`. Regenerate IER/GEMM via `Code/build/build_CR.R`; build the GBD 2023 MR-BRT table via `Code/build/build_CR_MRBRT2023.R`. |
 
 All gridded files must share the same `(x, y)` coordinate system. `read_files()` normalises coordinates to `matchable(dgt_grid)` precision regardless of whether they are stored as numeric or text. Concentration values are matched to the RR lookup table at the precision set by `dgt_conc`. Duplicate `(x, y)` or domain keys stop the load.
 
@@ -181,7 +187,7 @@ All gridded files must share the same `(x, y)` coordinate system. `read_files()`
  │   x │ y │ copd_25_MEAN │ copd_25_UP │ copd_25_LOW │ ... │ Total  │
  │   ──┼───┼──────────────┼────────────┼─────────────┼─────┼─────── │
  │                                                                  │
- │   Then aggregated by aggregate_range(at, by) → ./Result/         │
+ │   Then aggregated by aggregate_range(at, by) → ./Results/        │
  └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -235,7 +241,11 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 # Release notes
 
-## v5.7 (current)
+## v5.8 (current)
+- **Repository layout**: data results go to `Results/`; figures go to `Figures/`. `tests/`, `handoff/`, and `Code/build/` stay local and are excluded from Git via `.gitignore`.
+- **Builder location**: CR builders moved to `Code/build/`. Documentation now uses the new paths.
+
+## v5.7
 - **Aggregation correctness**: `aggregate_range()` sums only mortality columns. Numeric Grid_info metadata no longer enters totals, and missing mortality stays `NA` instead of becoming zero.
 - **Input contracts**: duplicated grid/domain keys abort. Irrelevant metadata `NA` no longer drops grids. Explicit missing `Conc_cf` paths abort.
 - **PWRR consistency**: single `CI = "UP"/"LOW"` calls now use the same PWRR denominator as the corresponding `RANGE` branch, including `pwr_branch = "mean"`.
@@ -246,7 +256,7 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 - **Tests**: `Rscript tests/run_tests.R` covers aggregation, missing values, duplicate keys, PWRR branch consistency, precision, units, manifest, and builders.
 
 ## v5.6
-- **GBD 2023 O3/NO2 defaults**: `O3` now uses the GBD 2023 ozone–COPD curve; `NO2` now uses the GBD 2023 NO2–asthma curve. Both lookups are built by `Code/build_CR_GBD2023_gas.R`.
+- **GBD 2023 O3/NO2 defaults**: `O3` now uses the GBD 2023 ozone–COPD curve; `NO2` now uses the GBD 2023 NO2–asthma curve. Both lookups are built by `Code/build/build_CR_GBD2023_gas.R`.
 - **Legacy retained**: `O3_legacy` and `NO2_allcause` keep the previous lookups and endpoints.
 - **Units/ranges**: GBD 2023 O3 and NO2 source concentrations are in ppb. O3 covers 0–50 ppb; NO2 covers 0–100 ppb. Input concentration data must use ppb.
 - **NO2 endpoint change**: GBD 2023 NO2 is an asthma curve. The current sample mortality instance has no asthma, so `NO2` can build its RR table but cannot run `Mortality()` on the sample; use `NO2_allcause` for the legacy all-cause endpoint.
@@ -277,7 +287,7 @@ Mortality_at(at = "base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 ## v5.1
 - **GBD 2023 MR-BRT CRF**: added the `MRBRT2023` lookup, built from the GHDx GBD 2023 air pollution RR archive. IHD, stroke, and LRI curves are updated; the Y2022 COPD, diabetes, and lung cancer curves are carried forward and differ from GBD 2021 by ≤1.1% at 300 µg/m³.
-- **Reproducible builder**: `Code/build_CR_MRBRT2023.R` extracts the six PM<sub>2.5</sub> mean curves, detects RR vs log(RR), and interpolates to the 0.1 µg/m³ grid.
+- **Reproducible builder**: `Code/build/build_CR_MRBRT2023.R` extracts the six PM<sub>2.5</sub> mean curves, detects RR vs log(RR), and interpolates to the 0.1 µg/m³ grid.
 - **Backward compatible (at v5.1)**: `MRBRT` pointed to the GBD 2021 table; v5.5 changes the default to 2023. `MRBRT2021` remains available for legacy runs.
 
 ## v5.0
