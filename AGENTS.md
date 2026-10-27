@@ -68,6 +68,7 @@
 | ⑨ | O3/NO2 曲线口径 | GBD 2023；ppb；O3 0–50、NO2 0–100；NO2 为 asthma；NO2 LOW 截到 1；保留 legacy | 与源表一致；RR ≥ 1 要求 | 261026 |
 | ⑩ | O3/NO2 CI 分母 | `pwr_branch: "mean"`；其余模型默认 `"branch"` | NO2 UP 极宽，分支 PWRR 会产生 UP < MEAN；共用 MEAN PWRR 保序 | 261026 |
 | ⑪ | 并发范围 | 内核 `Code/kernel.R`；默认串行；`PM25_KERNEL_WORKERS` 开启；对象为 `Decomposition()` 状态与状态摘要 | Mortality 组级并发收益不足，已撤回 | 261027 |
+| ⑫ | RR 表归一化位置 | `RR_std()` 归一化一次并打 `rr_normalized` 标记；`Mortality()` 据此跳过重复归一化；手工赋值的表仍走原路径 | 每次调用省 0.37 秒；输出逐位不变 | 261027 |
 
 ### 3.3 当前缺口（摘要）
 
@@ -75,7 +76,6 @@
 - 现有 260617 实例的 2030 列混用 exposure 2030、population 2020、age 2019、mortality 2020。重建默认阻止混合年份，正式分解待用户批准代理或换真 2030 输入。
 - NO2 0–14 岁、IER LRI 年龄、legacy 气体单位、超范围 clamp 口径待确认。
 - `Code/README.md` 与目录级 `AGENTS.md` 未建。
-- 回归测试 `tests/run_tests.R` 通过；v5.7 修复见 `CHANGELOG.md`。
 - 旧健康负担结果失效；`MRBRT2023` 仅完成 `base2015` 评审测试。研究意图未确认；对比图未入库。
 
 ## 4. 基本规则（全局）
@@ -101,7 +101,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合与输入契约修复（v5.7）；目录布局（v5.8）；24 序列状态缓存与键校验优化（v5.9，65.54 秒）；并发内核与 Decomposition 状态并行（v6.0；Mortality 组级并发已撤回）。最新交接：`handoff/261027_decomposition-kernel.md`。
+GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合与输入契约修复（v5.7）；目录布局（v5.8）；状态缓存与键校验优化（v5.9）；并发内核与 Decomposition 状态并行（v6.0）；键校验向量化与 RR 归一化复用（v6.1，串行 31.21 秒）。最新交接：`handoff/261027_perf-review.md`。
 
 ## 7. 联系与来源
 

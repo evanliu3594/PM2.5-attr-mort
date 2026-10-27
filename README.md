@@ -168,12 +168,14 @@ stays sequential. Parallel work happens in `Decomposition()` and
 build in parallel. `Mortality()` stays sequential; its group-level parallelism
 was measured and reverted.
 
-Measured: one `Decomposition()` series 23.22 s → 15.39 s with four workers
-(1.51×); the 24-sequence workbook 72.49 s → 33.90 s end-to-end (2.14×). Outputs
-are identical to the sequential run. Backends: `callr` (one process per future),
+Measured on the 260617 instance (NCD+LRI, 68,302 grids): a sequential
+24-sequence run takes about 31 s, and about 15 s with four workers (2.07×). A
+single `Mortality()` call with `validate_keys = TRUE` takes about 2.4 s (5.9 s
+before v6.1). Outputs are identical across backends and to the pre-optimisation
+run (maximum absolute difference 0). Backends: `callr` (one process per future),
 `multisession` (persistent workers), and `sequential`. Mapping calls accept three
 error policies: `stop`, `warn`, and `collect`. Implementation notes are in
-`Code/kernel.R`.
+`Code/kernel.R`; the v6.1 measurements are in `handoff/261027_perf-review.md`.
 
 ## Testing
 

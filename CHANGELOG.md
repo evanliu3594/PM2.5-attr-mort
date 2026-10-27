@@ -2,7 +2,16 @@
 
 Version history for PM2.5-attr-mort. Newest first.
 
-## v6.0 (current)
+## v6.1 (current)
+- **Key validation vectorised**: `assert_unique_key()` scans the key columns once with base R (`complete.cases()` + `anyDuplicated()`); the dplyr `count()` pipeline now runs only to build a duplicate-key message. A 135,045-row four-key check fell 0.92 s → 0.19 s, a 68,302-row two-key check 0.45 s → 0.04 s. Error text is unchanged.
+- **RR normalisation runs once**: `RR_std()` marks its output with `rr_normalized`; `Mortality()` skips the per-call re-normalisation for those tables and keeps the old path for hand-assigned tables. The per-call uniqueness check stays active and uses the fast path.
+- **Duplicate check dropped when `Conc_c = Conc_r`**: `Conc_c` defaults to `Conc_r`, so one check covers both.
+- **Wide table assembled by column bind**: when every endpoint × agegroup group keeps the same (x, y) rows, the groups are bound directly instead of 14 `full_join()` calls; otherwise the full join is used.
+- **Measured (260617 instance, NCD+LRI, serial)**: `Mortality()` MEAN with `validate_keys = TRUE` 5.94 s → 2.37 s (2.50×); 16 unique decomposition states 56.47 s → 28.97 s; the 24-sequence run 58.94 s → 31.21 s (1.89×); the same run with four workers 15.07 s; the `HealthBurdenCalc.R` path 22.21 s → 13.88 s (1.60×).
+- **Output unchanged**: 17 snapshot objects (MEAN/RANGE × 2 scenarios, `Decomposition(1)`, `aggregate_range`, 26-sheet workbook) compare `identical()`; maximum absolute difference 0; warning text unchanged. Full suite: 8 files, 367 assertions.
+- **Remaining bottleneck**: the 16 repeated `Mortality()` calls are 92.8% of the run. Two follow-ups are prototyped and bit-identical: a vectorised group engine (3.55 s → 0.63 s per call) and state-level RR/PWRR reuse (56.47 s → 4.42 s for 16 states). See `handoff/261027_perf-review.md`.
+
+## v6.0
 - **Explicit input paths**: both entry scripts carry an input-data block with five file paths (`GRIDS_FILE`, `POP_FILE`, `CONC_REAL_FILE`, `MORT_RATE_FILE`, `AGE_GROUP_FILE`; `CONC_CF_FILE` optional). Edit those paths to switch instance. `resolve_instance_files()` remains available for scripts that prefer `Data/instance_manifest.json`.
 - **Concurrency kernel**: `Code/kernel.R` adds one Future-based kernel for the project: plan management (`kernel_plan()`, `kernel_off()`, `kernel_probe()`, `kernel_info()`, `kernel_active()`, `kernel_workers()`) and mapping functions (`kernel_map()`, `kernel_map2()`, `kernel_imap()`, `kernel_pmap()`, `kernel_walk()`). Every task runs through `tryCatch()`; the parallel path dispatches `furrr` functions with `do.call()`. The default backend is `future.callr`, followed by `multisession` and sequential fallbacks.
 - **Default stays sequential**: entry scripts read `PM25_KERNEL_WORKERS` (default `1`). Serial results are unchanged.

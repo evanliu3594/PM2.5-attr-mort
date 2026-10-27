@@ -89,3 +89,5 @@
 | All ↔ Domain stats | `domain` (e.g. `Country`) | string, must match Grid_info column names | `Mortality()`, `aggregate_sigma()` |
 
 All join keys are **strings** (not floats) to avoid floating-point mismatch. The `matchable()` helper does `round(dgt) |> as.character()`.
+
+`RR_std()` normalises its own keys at build time (concentration and agegroup `matchable`, endpoint lower-case) and marks the result `rr_normalized`. `Mortality()` reuses those keys and only re-normalises tables assigned by hand.
