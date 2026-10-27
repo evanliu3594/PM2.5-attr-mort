@@ -14,6 +14,8 @@
 #     RANGE uses branch-specific or common MEAN PWRR.
 #   Modified 261026b: single branches reuse the RANGE denominator; required
 #     columns only; key guards; dgt_conc and unit checks; missing groups stay NA.
+#   Modified 261027: reuse the RR_std() key normalisation (rr_normalized flag);
+#     check Conc_c only when it differs from Conc_r.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -215,7 +217,10 @@ Mortality <- function(
   if (validate_keys) {
     assert_unique_key(Grids, c("x", "y"), "Grids")
     assert_unique_key(Conc_r, c("x", "y"), "Conc_r")
-    assert_unique_key(Conc_c, c("x", "y"), "Conc_c")
+    # Conc_c defaults to Conc_r; one check covers both in that case.
+    if (!identical(Conc_c, Conc_r)) {
+      assert_unique_key(Conc_c, c("x", "y"), "Conc_c")
+    }
     assert_unique_key(pop, c("x", "y"), "pop")
   }
 
@@ -275,12 +280,17 @@ Mortality <- function(
     )
   }
 
-  RR_raw <- RR_raw |>
-    mutate(
-      concentration = matchable(as.numeric(concentration), conc_dgt),
-      endpoint = tolower(endpoint),
-      agegroup = matchable(as.numeric(agegroup), 0)
-    )
+  # RR_std() returns canonical keys and a duplicate-free table, so tables built
+  # by set_Model() skip the re-normalisation. Tables assigned by hand keep the
+  # original path.
+  if (!isTRUE(attr(RR_raw, "rr_normalized", exact = TRUE))) {
+    RR_raw <- RR_raw |>
+      mutate(
+        concentration = matchable(as.numeric(concentration), conc_dgt),
+        endpoint = tolower(endpoint),
+        agegroup = matchable(as.numeric(agegroup), 0)
+      )
+  }
   assert_unique_key(
     RR_raw,
     c("concentration", "endpoint", "agegroup", "CI"),
@@ -655,12 +665,27 @@ Mortality <- function(
   }
 
   data_list <- map(group_results, "data")
-  result <- reduce(
-    data_list,
-    full_join,
-    by = c("x", "y"),
-    relationship = "one-to-one"
-  )
+  # Groups normally keep exactly the same (x, y) rows, so the wide result is a
+  # column bind. Fall back to a full join when a group dropped or reordered rows.
+  key_cols <- c("x", "y")
+  keys_ref <- data_list[[1]][key_cols]
+  same_keys <- all(map_lgl(
+    data_list[-1],
+    function(one) identical(one[key_cols], keys_ref)
+  ))
+  result <- if (same_keys) {
+    bind_cols(
+      keys_ref,
+      bind_cols(map(data_list, function(one) one[setdiff(names(one), key_cols)]))
+    )
+  } else {
+    reduce(
+      data_list,
+      full_join,
+      by = key_cols,
+      relationship = "one-to-one"
+    )
+  }
 
   if (nrow(result) == 0) {
     stop("Mortality result has 0 rows. Check input coverage.")

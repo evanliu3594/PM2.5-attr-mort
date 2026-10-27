@@ -382,6 +382,10 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
   attr(result, "conc_unit") <- conc_unit
   attr(result, "conc_range") <- conc_range
   attr(result, "pwr_branch") <- pwr_branch
+  # Keys are canonical here (concentration and agegroup matchable, endpoint
+  # lower-case, CI checked, duplicate-free). Mortality() uses this flag to
+  # skip re-normalising tables that RR_std() already built.
+  attr(result, "rr_normalized") <- TRUE
 
   log_msg(INFO, "RR table built: {lookup} ({nrow(result)} rows)")
   result
