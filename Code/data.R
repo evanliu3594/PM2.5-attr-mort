@@ -6,6 +6,8 @@
 #     Conc_cf defaults to NULL, domain column auto-normalisation (Country→domain).
 #   Modified 261026b: case-insensitive coordinates, unique-key guards, strict
 #     Conc_cf paths, dgt_conc/conc_unit propagation, instance manifest helpers.
+#   Modified 261027: assert_unique_key() performs one vectorised base R scan;
+#     the dplyr count() pipeline runs only to build the duplicate-key message.
 
 # Standardised RR lookup table (built by set_Model() via RR_std())
 .RR_std_tbl <- NULL
@@ -115,11 +117,16 @@ assert_unique_key <- function(df, keys, label) {
     )
   }
 
-  na_rows <- df |>
-    filter(if_any(all_of(keys), is.na)) |>
-    nrow()
+  # Vectorised guard: one base R pass over the key columns. The dplyr pipeline
+  # below runs only when a problem exists, to build the diagnostic message.
+  key_df <- df[keys]
+  na_rows <- sum(!stats::complete.cases(key_df))
   if (na_rows > 0) {
     stop(label, " has ", na_rows, " row(s) with NA in key columns.")
+  }
+
+  if (anyDuplicated(key_df) == 0L) {
+    return(invisible(TRUE))
   }
 
   duplicates <- df |>
