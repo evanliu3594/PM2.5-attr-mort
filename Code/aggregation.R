@@ -84,36 +84,27 @@ domain_columns <- function(at_cols) {
 
 # ---------- aggregate_sigma ----------
 
-#' Aggregate total mortality with PWRR-consistent uncertainty
-#'
-#' Computes the total attributable mortality and uncertainty bounds for one
-#' spatial domain column. The bounds combine RR-branch differences from
-#' `Mortality(CI = "RANGE")` with optional concentration uncertainty. Both
-#' components use the same PWRR-normalised estimator as `Mortality()`.
-#'
-#' `by` is restricted to `"total"`. Use [aggregate_range()] for endpoint or
-#' agegroup breakdowns.
-#'
-#' @param full_result A named list of grid-level mortality data frames, or a
-#'   character vector of scenario names. List elements must carry the full
-#'   RANGE set (`_MEAN`, `_UP`, `_LOW`); the supplied `_UP`/`_LOW` columns are
-#'   used as-is for the bounds. A `_MEAN`-only element aborts, because bounds
-#'   cannot be derived from it: pass scenario names instead so the bounds are
-#'   computed from the loaded session.
-#' @param at A single Grid_info column used for spatial aggregation.
-#' @param by Must be `"total"`.
-#' @param write Write the result to `./Results/`.
-#' @param pwr_domain PWRR domain column passed to `Mortality()` and
-#'   `Mortality_at()`. `NULL` (default) auto-detects it. It is never `at`:
-#'   `at` only controls spatial aggregation.
-#' @param ... Named extras only: `includeConc` (logical; adds a concentration
-#'   perturbation computed from the loaded scenario data), `Conc_ERR` (percent
-#'   concentration perturbation in `[0, 100]`), and `verbose` (logical).
-#'   Unknown names abort.
-#'
-#' @return A data frame with `year`, the domain column, `total_MEAN`, `total_UP`,
-#'   and `total_LOW`.
-#' @export
+# Total attributable mortality with PWRR-consistent uncertainty bounds for one
+# spatial domain column. Bounds combine the RR branches of
+# Mortality(CI = "RANGE") with optional concentration uncertainty, both through
+# the same PWRR-normalised estimator as Mortality(). by is restricted to
+# "total": use aggregate_range() for endpoint or agegroup breakdowns.
+#   full_result  named list of grid-level mortality frames, or scenario names.
+#                List elements must carry the full RANGE set (_MEAN, _UP,
+#                _LOW), and the supplied _UP/_LOW columns are used as-is for
+#                the bounds. A _MEAN-only element aborts, because bounds cannot
+#                be derived from it: pass scenario names instead so the bounds
+#                come from the loaded session.
+#   at           one Grid_info column used for spatial aggregation.
+#   write        write the result to ./Results/.
+#   pwr_domain   PWRR domain passed to Mortality() and Mortality_at(); NULL
+#                auto-detects it. It is never at, which only controls spatial
+#                aggregation.
+#   ...          named extras only: includeConc (logical; adds a concentration
+#                perturbation from the loaded scenario data), Conc_ERR (percent
+#                concentration perturbation in [0, 100]), and verbose (logical).
+#                Unknown names abort.
+# Returns a frame with year, the domain column, total_MEAN, total_UP, total_LOW.
 aggregate_sigma <- function(
   full_result,
   at = "Country",
@@ -354,19 +345,13 @@ aggregate_sigma <- function(
 
 # ---------- aggregate_range ----------
 
-#' Aggregate mortality results
-#'
-#' Accepts output from `Mortality()` with any CI branch (MEAN, UP, LOW, or
-#' RANGE). Only mortality columns are summed. Missing mortality remains NA.
-#'
-#' @param x A data frame from `Mortality()`, or a named list of them.
-#' @param at Aggregation level: `"grid"`, `"geo"`, or one or more Grid_info
-#'   column names.
-#' @param by `"total"`, `"endpoint"`, `"agegroup"`, or `"all"`.
-#' @param write Write each result to `./Results/`.
-#'
-#' @return A named list of data frames, one per `at` value.
-#' @export
+# Aggregate Mortality() output over grid cells. Accepts any CI branch (MEAN, UP,
+# LOW, or RANGE). Only mortality columns are summed; missing mortality stays NA.
+#   x      a Mortality() frame, or a named list of them (one per scenario).
+#   at     aggregation level: "grid", "geo", or one or more Grid_info columns.
+#   by     "total", "endpoint", "agegroup", or "all".
+#   write  write each result to ./Results/.
+# Returns a named list of frames, one per at value.
 aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
   x <- normalise_mortality_list(x)
   scenarios <- names(x)

@@ -35,7 +35,7 @@
 - `Data/IHME_MortRate_raw/`：IHME GBD 死亡率与年龄结构。
 - `Data/CRF_coefficients/`：IER/GEMM 参数 CSV。
 - `Data/RR_index/`：预构建 RR 查找表。
-- `Data/IHME_GBD_2023_AIR_POLLUTION_1990_2021_RR_CURVES.zip`：GBD 2023 空气污染 RR 原始包，185 MB，不入 git，重下需 IHME 登录。
+- `Data/IHME_GBD_2023_…_RR_CURVES.zip`：GBD 2023 RR 原始包（185 MB，不入 git，重下需 IHME 登录）。
 - 版本、年份、来源明细见 `Data/README.md` 与 `Data/RR_index/README.md`。
 
 ## 3. 研究方案与计算逻辑（概要）
@@ -77,7 +77,7 @@
 
 ### 3.3 当前缺口（摘要）
 
-- 完整健康负担、真实 O3/NO2 burden 与 0.1° 压测未完成；`NCD+LRI` 完整 24 序列已完成。
+- 完整健康负担、真实 O3/NO2 burden 与 0.1° 压测未完成。
 - 现有 260617 实例的 2030 列混用 exposure 2030、population 2020、age 2019、mortality 2020。重建默认阻止混合年份，正式分解待用户批准代理或换真 2030 输入。
 - NO2 0–14 岁、IER LRI 年龄、legacy 气体单位、超范围 clamp 口径待确认。
 - `Code/README.md` 与目录级 `AGENTS.md` 未建。
@@ -93,20 +93,21 @@
 - **HDD（强制）**：代码改动先提可证伪假设与验证方式，再动手；改完以验证结果收口。机械改动可简化，但须声明“预期不变/预期值”并核对。
 - **需求确认（先听后问）**：目标或口径有歧义时先开放问，再回放，最后确认；代理决定必须说出口并登记 3.2。
 - **写作**：直白、朴素、准确；先结论后证据；不编造未验证数值。
+- **代码注释**：按 `yifan-r-code-style` §3（文件头写说明与版本记录；函数与块顶写输入、步骤、输出和口径）。本项目不是 R 包，不使用 roxygen 标签。
 - **交接**：开工建 `handoff/<yyMMdd>_<主题>.md`，收口定稿；`handoff/` 保留本地，不入 git。
 
 ## 5. 主要假设与当前约束
 
-1. PWRR 归一化：按域 × 终点 × 年龄档计算；域内零 PM2.5 基线一致；归因死亡与 `RR−1` 成正比。
+1. PWRR 归一化：按域×终点×年龄档计算；域内零 PM2.5 基线一致；归因死亡与 `RR−1` 成正比。
 2. MR-BRT 曲线只提供全年龄 RR，按 `_ALL` 填到各年龄档；这不是年龄特异曲线。
-3. GBD 2023 与 2021：IHD/Stroke/LRI 更新；COPD/DM2/LC 接近，300 µg/m³ 处差异 ≤1.1%。
+3. GBD 2023 与 2021：IHD/Stroke/LRI 更新；COPD/DM2/LC 在 300 µg/m³ 处差 ≤1.1%。
 4. IHME 免费非商业许可；原始 zip 不入库，重下需 IHME 账号。
 5. 查找表范围随模型不同：IER 0–200、GEMM/MRBRT2021/2023 0–300、MRBRT2019 0–600；`Mortality()` 当前将超范围浓度 clamp 到边界，目标口径待用户确认。
 6. GBD 2023 O3/NO2 用 ppb；O3 0–50、NO2 0–100；NO2 LOW 截到 1。legacy 单位未核实。
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；v5.2–v6.3 功能与指标沿革见 `CHANGELOG.md`。v6.3 串行 24 序列计算约 6.4 秒（脚本墙钟 11.9 秒）；最新交接：`handoff/261101_perf-round2.md`。
+GBD 2023 MR-BRT 已接入；v5.2–v6.3 沿革见 `CHANGELOG.md`。v6.3 串行 24 序列 6.4 秒；最新交接：`handoff/261101_perf-round2.md`。
 
 ## 7. 联系与来源
 

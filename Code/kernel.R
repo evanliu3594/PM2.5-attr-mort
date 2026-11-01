@@ -369,17 +369,17 @@ kernel_apply_options <- function() {
 
 # ---------- Public plan API ----------
 
-#' Set the project concurrency plan
-#'
-#' @param workers Worker count. Resolution order: argument,
-#'   `getOption("pm25.kernel.workers")`, environment variable
-#'   `PM25_KERNEL_WORKERS`, then `min(4L, physical cores)`. `workers <= 1`
-#'   switches to sequential.
-#' @param backend One of `"callr"`, `"multisession"`, `"sequential"`. Resolution
-#'   order: argument, `getOption("pm25.kernel.backend")`, then `"callr"`.
-#' @param fallback When `TRUE`, a failing backend falls back to multisession and
-#'   then to sequential, with one warning. When `FALSE`, it stops.
-#' @return `kernel_info()`, invisibly.
+# Set the project concurrency plan. Only this function enables parallel
+# dispatch; a sequential result leaves the kernel off.
+#   workers   worker count. Resolution order: argument,
+#             getOption("pm25.kernel.workers"), env var PM25_KERNEL_WORKERS,
+#             then min(4L, physical cores). workers <= 1 goes sequential.
+#   backend   "callr", "multisession", or "sequential". Resolution order:
+#             argument, getOption("pm25.kernel.backend"), then "callr".
+#   fallback  TRUE falls back to multisession and then sequential with one
+#             warning; FALSE stops.
+# Inside a worker it stays sequential and warns. Aborts when future is missing
+# or no backend starts. Returns kernel_info() invisibly.
 kernel_plan <- function(workers = NULL, backend = NULL, fallback = TRUE) {
   # Inside a worker, nested process creation is forbidden: stay sequential.
   if (isTRUE(getOption("pm25.kernel.in_worker"))) {
@@ -461,9 +461,8 @@ kernel_plan <- function(workers = NULL, backend = NULL, fallback = TRUE) {
   invisible(kernel_info())
 }
 
-#' Restore the sequential plan and the options kernel_plan() changed
-#'
-#' @return `kernel_info()`, invisibly.
+# Restore the sequential plan, clear the enabled flag, and restore the options
+# kernel_plan() changed. Returns kernel_info() invisibly.
 kernel_off <- function() {
   if (kernel_future_available()) {
     future::plan(future::sequential)
@@ -476,15 +475,10 @@ kernel_off <- function() {
   invisible(kernel_info())
 }
 
-#' Probe one backend without keeping it
-#'
-#' Sets the requested plan, runs one smoke future, then restores the previous
-#' plan. Returns `list(ok, message, elapsed)`; it never throws for a backend
-#' failure, so a sandboxed or headless session can be inspected safely.
-#'
-#' @param backend Backend name, default `"callr"`.
-#' @param workers Worker count, default `2L`.
-#' @return `list(ok, message, elapsed)`.
+# Probe one backend without keeping it: set the requested plan, run one smoke
+# future, then restore the previous plan. backend defaults to "callr" and workers
+# to 2L. Returns list(ok, message, elapsed) and never throws on a backend
+# failure, so a sandboxed or headless session can be inspected safely.
 kernel_probe <- function(backend = "callr", workers = 2L) {
   if (!kernel_future_available()) {
     return(list(
@@ -1012,22 +1006,24 @@ kernel_dispatch <- function(variant, payload, .f, dots, .chunk_size, .error,
 
 # ---------- Public mapping API ----------
 
-#' Map over one vector with the project concurrency kernel
-#'
-#' @param .x A vector or list.
-#' @param .f A function taking one element plus any `...` arguments.
-#' @param ... Extra arguments passed to `.f` unchanged.
-#' @param .chunk_size Tasks per future. `NULL` uses one chunk per worker.
-#' @param .error One of `"stop"`, `"warn"`, `"collect"`. `NULL` reads
-#'   `getOption("pm25.kernel.on_error", "stop")`.
-#' @param .seed Seed control passed to `furrr::furrr_options()`. `NULL` reads
-#'   `getOption("pm25.kernel.seed", TRUE)`.
-#' @param .label Label for logs and error messages.
-#' @param .labels Character vector of task keys, one per task.
-#' @param .verbose Print one progress line per parallel call. `NULL` reads
-#'   `getOption("pm25.kernel.verbose", FALSE)`, so the kernel is silent by default.
-#' @return A list with `purrr::map()` semantics; a `kernel_result` when
-#'   `.error = "collect"`.
+# Map one vector through the project concurrency kernel. Runs serially when the
+# plan is inactive or there is at most one task; the serial path mirrors purrr
+# result order, names, and walk() invisibility.
+#   .x            a vector or list.
+#   .f            a function taking one element plus any ... arguments.
+#   ...           extra arguments passed to .f unchanged.
+#   .chunk_size   tasks per future; NULL uses one chunk per worker.
+#   .error        "stop", "warn", or "collect"; NULL reads
+#                 getOption("pm25.kernel.on_error", "stop").
+#   .seed         seed control for furrr::furrr_options(); NULL reads
+#                 getOption("pm25.kernel.seed", TRUE).
+#   .label        label for logs and error messages.
+#   .labels       task keys, one per task.
+#   .verbose      print one progress line per parallel call; NULL reads
+#                 getOption("pm25.kernel.verbose", FALSE), so the kernel is
+#                 silent by default.
+# Returns a list with purrr::map() semantics, or a kernel_result when
+# .error = "collect".
 kernel_map <- function(.x, .f, ..., .chunk_size = NULL, .error = NULL,
                        .seed = NULL, .label = NULL, .labels = NULL,
                        .verbose = NULL) {
@@ -1045,11 +1041,9 @@ kernel_map <- function(.x, .f, ..., .chunk_size = NULL, .error = NULL,
   )
 }
 
-#' Map over two vectors with the project concurrency kernel
-#'
-#' @inheritParams kernel_map
-#' @param .x,.y Vectors or lists of the same length. A size-1 side is recycled.
-#' @return A list with `purrr::map2()` semantics.
+# Map two vectors through the project concurrency kernel. .x and .y are vectors
+# or lists of the same length, and a size-1 side is recycled. Remaining arguments
+# are shared with kernel_map(). Returns a list with purrr::map2() semantics.
 kernel_map2 <- function(.x, .y, .f, ..., .chunk_size = NULL, .error = NULL,
                         .seed = NULL, .label = NULL, .labels = NULL,
                         .verbose = NULL) {
@@ -1067,10 +1061,9 @@ kernel_map2 <- function(.x, .y, .f, ..., .chunk_size = NULL, .error = NULL,
   )
 }
 
-#' Map over one vector with its names or index
-#'
-#' @inheritParams kernel_map
-#' @return A list with `purrr::imap()` semantics; `.f` receives `(value, name)`.
+# Map one vector with its names or index through the project concurrency kernel.
+# .f receives (value, name); remaining arguments are shared with kernel_map().
+# Returns a list with purrr::imap() semantics.
 kernel_imap <- function(.x, .f, ..., .chunk_size = NULL, .error = NULL,
                         .seed = NULL, .label = NULL, .labels = NULL,
                         .verbose = NULL) {
@@ -1088,11 +1081,9 @@ kernel_imap <- function(.x, .f, ..., .chunk_size = NULL, .error = NULL,
   )
 }
 
-#' Map over several vectors in parallel
-#'
-#' @inheritParams kernel_map
-#' @param .l A list or data frame of vectors, one task per index.
-#' @return A list with `purrr::pmap()` semantics.
+# Map several vectors in parallel through the project concurrency kernel. .l is a
+# list or data frame of vectors, one task per index; remaining arguments are
+# shared with kernel_map(). Returns a list with purrr::pmap() semantics.
 kernel_pmap <- function(.l, .f, ..., .chunk_size = NULL, .error = NULL,
                         .seed = NULL, .label = NULL, .labels = NULL,
                         .verbose = NULL) {
@@ -1110,10 +1101,9 @@ kernel_pmap <- function(.l, .f, ..., .chunk_size = NULL, .error = NULL,
   )
 }
 
-#' Walk over one vector with the project concurrency kernel
-#'
-#' @inheritParams kernel_map
-#' @return `.x`, invisibly; a `kernel_result` when `.error = "collect"`.
+# Walk one vector for its side effects through the project concurrency kernel.
+# Remaining arguments are shared with kernel_map(). Returns .x invisibly, or a
+# kernel_result when .error = "collect".
 kernel_walk <- function(.x, .f, ..., .chunk_size = NULL, .error = NULL,
                         .seed = NULL, .label = NULL, .labels = NULL,
                         .verbose = NULL) {

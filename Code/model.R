@@ -27,14 +27,8 @@ log_msg <- function(level, ...) {
   )
 }
 
-#' detect CRF model name and generate a name for file output
-#'
-#' Reads the label from RR_std_config.json. Falls back to .CR_Model
-#' if the config or label is unavailable.
-#'
-#' @return formatted string of CRF name
-#' @export
-#'
+# C-R model name for output filenames. Reads the label from RR_std_config.json;
+# falls back to .CR_Model when the config or the label is unavailable.
 tell_Model <- function() {
   cfg_path <- './Data/RR_std_config.json'
   if (file.exists(cfg_path)) {
@@ -45,18 +39,15 @@ tell_Model <- function() {
   .CR_Model
 }
 
-#' set CRF for calculation
-#'
-#' @param Model string — model name matching an entry in `RR_std_config.json`,
-#'   or a custom name (pair with `path` for auto-config).
-#' @param path Optional path to a custom RR lookup table (xlsx). When provided,
-#'   the MEAN sheet is read and its `{endpoint}_{agegroup}` columns are parsed
-#'   to auto-generate a standardisation config. Review and add to
-#'   `Data/RR_std_config.json`.
-#' @param dgt_conc Non-negative integer concentration precision. Defaults to the
-#'   current `.DGT_CONC` value, which starts at 1.
-#'
-#' @export
+# Activate a C-R model for the session: set the globals .CR_Model and
+# .DGT_CONC, then cache the standardised RR table in .RR_std_tbl.
+#   Model     a label from RR_std_config.json, or a custom name.
+#   path      optional custom RR lookup xlsx; when given, the MEAN sheet's
+#             {endpoint}_{agegroup} columns seed a standardisation config that
+#             must be reviewed and added to Data/RR_std_config.json.
+#   dgt_conc  one non-negative integer concentration precision; defaults to the
+#             current .DGT_CONC, which starts at 1.
+# Aborts on a bad dgt_conc or a missing lookup file.
 set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
   if (is.null(dgt_conc)) {
     dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
@@ -200,22 +191,16 @@ set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
   assign(".RR_std_tbl", RR_std(path, dgt_conc = dgt_conc), envir = globalenv())
 }
 
-#' Build the standardised C-R lookup table
-#'
-#' Reads the RR lookup xlsx (sheets MEAN/LOW/UP), pivots to long format,
-#' expands to the endpoint × agegroup grid defined in
-#' \code{RR_std_config.json}, and returns a table with columns
-#' \code{concentration}, \code{endpoint}, \code{agegroup},
-#' \code{CI} (\code{"MEAN"}, \code{"UP"}, \code{"LOW"}), \code{RR}.
-#'
-#' Called automatically by \code{set_Model()}. The result is stored in
-#' the global variable \code{.RR_std_tbl} for downstream consumers.
-#'
-#' @param custom_path Optional path to a custom RR lookup xlsx.
-#'   When \code{NULL} (default), resolves from \code{RR_std_config.json}.
-#' @param dgt_conc Optional concentration precision. Defaults to `.DGT_CONC`.
-#' @return A data frame in long format with `dgt_conc` and metadata attributes.
-#' @export
+# Build the standardised C-R lookup table: read the RR xlsx sheets MEAN/LOW/UP,
+# pivot to long format, expand to the endpoint x agegroup grid declared in
+# RR_std_config.json, and return long-format concentration, endpoint, agegroup,
+# CI (MEAN/UP/LOW), RR, carrying dgt_conc and metadata attributes.
+#   custom_path  optional custom RR lookup xlsx; NULL resolves it from
+#                RR_std_config.json.
+#   dgt_conc     one non-negative integer precision; defaults to .DGT_CONC.
+# Also sets the globals .PWRR_branch and .RR_meta; set_Model() stores the
+# result in .RR_std_tbl. Aborts on a missing config or lookup, missing sheets,
+# bad concentrations, or a grid or range mismatch.
 RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
   if (is.null(dgt_conc)) {
     dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)

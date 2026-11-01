@@ -615,54 +615,42 @@ mortality_coverage_cached <- function(base_c, usable_groups, mrate, ag, domain,
   reports
 }
 
-#' Calculate gridded PM2.5 attributed mortality
-#'
-#' **PAF methodology — PWRR normalization:**
-#'
-#' Baseline mortality rates (`mRate`) are domain-level survey data (e.g., national or
-#' provincial statistics), not grid-specific rates. Under the relative-risk principle:
-#'
-#'   I_g / I_domain = RR_e,a(C_g) / PWRR_domain,e,a
-#'
-#' where `I_g` is the mortality rate at grid concentration C_g, and `I_domain` is the
-#' observed domain-average rate for endpoint e and age group a. This gives a uniform
-#' zero-PM2.5 baseline within each domain × endpoint × age group:
-#'
-#'   I_0 = I_domain / PWRR_domain,e,a    (same for all grids in the domain)
-#'
-#'   PWRR_domain,e,a = Σ_g Pop_g × RR_e,a(C_g) / Σ_g Pop_g
-#'
-#' Attributable mortality for grid g vs. zero-PM2.5 (TMREL):
-#'
-#'   ΔMort_g = Pop_g × AgeStruc_a × (I_g − I_0)
-#'           = Pop_g × AgeStruc_a × MortRate_domain,e,a × (RR_e,a(C_g) − 1) / PWRR_domain,e,a
-#'
-#' Age structure is constant within domain × age group, so it cancels from PWRR.
-#' A single PWRR per domain (averaged across endpoints/ages) is invalid: it mixes
-#' curves with different RR levels and biases each endpoint in opposite directions.
-#' For `CI = "RANGE"`, each branch uses its own PWRR (MEAN/UP/LOW).
-#'
-#' Compared to the standard grid-level PAF `(RR_g−1)/RR_g`, which implies I_0 = MortRate/RR_g
-#' (varying per grid), the PWRR approach gives a physically consistent I_0 within each
-#' domain × endpoint × age group.
-#'
-#' @param Grids grid information data frame with x, y, and domain columns
-#' @param Conc_r data frame with columns x, y, concentration — real PM2.5, used for PWRR calculation
-#' @param Conc_c data frame with columns x, y, concentration — counterfactual PM2.5 for the RR numerator. Defaults to \code{Conc_r}.
-#' @param ag age structure proportions by domain and age group
-#' @param mRate baseline mortality rates by domain, endpoint, and age group
-#' @param pop population counts by grid (columns x, y, Pop)
-#' @param CI RR branch: \code{"MEAN"} (default), \code{"UP"}, \code{"LOW"}, or \code{"RANGE"}
-#' @param domain spatial aggregation column name (e.g. \code{"Country"}). Auto-detected when \code{NULL}.
-#' @param verbose when \code{FALSE} (default), truncate domain names in warnings to 6; \code{TRUE} shows all
-#' @param debug when \code{FALSE} (default), use plain \code{left_join}; \code{TRUE} enables \code{join_report()} NA diagnostics
-#' @param validate_keys when \code{TRUE} (default), check input keys for missing values
-#'   and duplicates. Set to \code{FALSE} only for inputs already validated by
-#'   \code{read_files()}. Required columns, RR keys, output keys, precision, and
-#'   unit checks remain active.
-#'
-#' @return Wide data frame with one column per endpoint–agegroup–CI combination per grid cell.
-#'   When \code{CI = "RANGE"}, columns are suffixed \verb{_MEAN}, \verb{_UP}, \verb{_LOW}.
+# Gridded PM2.5 attributable mortality, PWRR-normalised.
+#
+# mRate is domain-level survey data, not a grid-level rate. Under the
+# relative-risk principle I_g / I_domain = RR_e,a(C_g) / PWRR_domain,e,a, so the
+# zero-PM2.5 baseline is uniform within a domain x endpoint x age group:
+#   I_0 = I_domain / PWRR_domain,e,a
+#   PWRR_domain,e,a = sum_g(Pop_g * RR_e,a(C_g)) / sum_g(Pop_g)
+# Attributable deaths per grid against the TMREL:
+#   Mort_g = Pop_g * AgeStruc_a * (I_g - I_0)
+#          = Pop_g * AgeStruc_a * MortRate_domain,e,a * (RR_e,a(C_g) - 1)
+#            / PWRR_domain,e,a
+# AgeStruc is constant within a domain x age group, so it cancels from PWRR. One
+# PWRR per domain, averaged across endpoints or ages, is invalid: it mixes curves
+# with different RR levels and biases each endpoint in the opposite direction.
+# CI = "RANGE" gives each branch its own PWRR (MEAN/UP/LOW). The grid-level PAF
+# (RR_g - 1) / RR_g implies I_0 = MortRate / RR_g per grid; the PWRR route keeps
+# one physically consistent I_0 per domain x endpoint x age group.
+#
+#   Grids    grid table with x, y, and the domain column.
+#   Conc_r   real concentration, x/y/concentration; defines PWRR.
+#   Conc_c   counterfactual concentration for the RR numerator; defaults to
+#            Conc_r.
+#   ag       age structure proportions by domain and age group.
+#   mRate    baseline rates by domain, endpoint, and age group.
+#   pop      grid population, x/y/Pop.
+#   CI       "MEAN" (default), "UP", "LOW", or "RANGE".
+#   domain   spatial column such as "Country"; NULL auto-detects it.
+#   verbose  FALSE truncates domain names in warnings to 6; TRUE shows all.
+#   debug    FALSE uses a plain left_join; TRUE adds join_report() NA
+#            diagnostics.
+#   validate_keys  TRUE (default) checks input keys for NA and duplicates; set
+#            FALSE only for input already checked by read_files(). Column, RR
+#            key, output key, precision, and unit checks stay active.
+#
+# Returns a wide frame with one column per endpoint-agegroup-CI per grid cell,
+# suffixed _MEAN, _UP, _LOW when CI = "RANGE".
 Mortality <- function(
   Grids,
   Conc_r,
@@ -1457,25 +1445,17 @@ detect_domain <- function(Grids = Grid_info, mRate = MortRate) {
   best_geo
 }
 
-#' Calculate Attributable Mortality at a certain year/scenario
-#'
-#' Convenience wrapper that auto-detects the PWRR domain and calls
-#' \code{Mortality()} with the currently loaded global data.
-#'
-#' @param at year/scenario
-#' @param CI RR branch: \code{"MEAN"} (default), \code{"UP"}, \code{"LOW"}, or \code{"RANGE"}
-#' @param domain grid domain column. Auto-detected from Grid_info and MortRate
-#'   overlap when \code{NULL} (default).
-#' @param verbose when \code{FALSE} (default), truncate domain names in warnings to 6; \code{TRUE} shows all
-#' @param debug when \code{FALSE} (default), use plain \code{left_join}; \code{TRUE} enables \code{join_report()} diagnostics
-#' @param validate_keys passed to \code{Mortality()}. \code{TRUE} (default) re-checks
-#'   the input keys; set \code{FALSE} only after \code{read_files()} validated them.
-#'
-#' @return data frame of grid-level mortality estimates
-#' @export
-#'
-#' @examples
-#' grid_mean <- Mortality_at(at = "base2015", CI = "MEAN")
+# Grid-level attributable mortality for one loaded year/scenario. Thin wrapper:
+# pulls the loaded globals, auto-detects the PWRR domain, and calls Mortality().
+#   at       year/scenario, e.g. "base2015".
+#   CI       "MEAN" (default), "UP", "LOW", or "RANGE".
+#   domain   grid domain column; NULL (default) auto-detects it from the
+#            Grid_info x MortRate overlap.
+#   verbose  FALSE truncates domain names in warnings to 6; TRUE shows all.
+#   debug    FALSE uses a plain left_join; TRUE adds join_report() diagnostics.
+#   validate_keys  TRUE (default) re-checks input keys; FALSE only after
+#            read_files() validated them.
+# Returns the Mortality() wide grid frame.
 Mortality_at <- function(
   at,
   CI = "MEAN",

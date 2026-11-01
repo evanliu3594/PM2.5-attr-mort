@@ -20,31 +20,16 @@
 .CONC_UNIT <- NULL
 .RR_meta <- list()
 
-#' format numbers to a string at a specified digit
-#'
-#' @param num input number
-#' @param dgt int, refers to rounding digit
-#'
-#' @return string of number
-#' @export
-#'
-#' @examples
-#' matchable(3.33333, 1)
+# Format a number to a string rounded at dgt digits, so join keys compare as
+# strings. matchable(3.33333, 1) returns "3.3".
 matchable <- function(num, dgt = 1) {
   num |> round(dgt) |> str_c()
 }
 
-#' Normalize geographic coordinate column names to "x" and "y"
-#'
-#' Detects common longitude/latitude column name variants (case-insensitive)
-#' and renames them to the canonical `x` (longitude) and `y` (latitude).
-#'
-#' Recognized longitude names: x, lon, long, longitude
-#' Recognized latitude names:  y, lat, latitude
-#'
-#' @param df a data frame
-#' @return the data frame with coordinate columns renamed to `x` and `y`
-#' @keywords internal
+# Rename geographic coordinate columns to the canonical x (longitude) and
+# y (latitude). Matching ignores letter case. Longitude aliases: x, lon, long,
+# longitude. Latitude aliases: y, lat, latitude. Aborts when a side is absent or
+# carries more than one alias; returns df unchanged when already canonical.
 normalize_coords <- function(df) {
   nms <- names(df)
   lower_nms <- tolower(nms)
@@ -103,14 +88,9 @@ normalize_coords <- function(df) {
   df
 }
 
-#' Assert that a data frame has unique, non-missing join keys
-#'
-#' @param df A data frame.
-#' @param keys Character vector of key columns.
-#' @param label Label used in the error message.
-#'
-#' @return Invisibly `TRUE`; aborts when a key is missing, NA, or duplicated.
-#' @keywords internal
+# Guard: assert that df has unique, non-missing join keys. keys holds the key
+# columns; label prefixes the error message. Aborts on a missing column, an NA
+# key, or a duplicated key. Returns TRUE invisibly.
 assert_unique_key <- function(df, keys, label) {
   missing_cols <- setdiff(keys, names(df))
   if (length(missing_cols) > 0) {
@@ -151,28 +131,18 @@ assert_unique_key <- function(df, keys, label) {
   invisible(TRUE)
 }
 
-#' Load all input data into the global environment
-#'
-#' Reads gridded (Grid_info, Pop, Conc_real, Conc_cf) and domain-level
-#' (MortRate, AgeGroup) Excel/CSV files, normalises coordinate and domain
-#' column names, converts join keys to matchable strings, and assigns the
-#' resulting data frames to \code{globalenv()}.
-#'
-#' @param Grids path to grid information (.xlsx or .csv)
-#' @param Pop path to population (.xlsx or .csv)
-#' @param Conc_real path to real concentration (.xlsx or .csv)
-#' @param Conc_cf path to counter-fact concentration (.xlsx or .csv).
-#'   Default \code{NULL} — counterfactual scenarios fall back to Conc_real.
-#' @param MortRate path to mortality rate (.xlsx or .csv)
-#' @param AgeGroup path to population age structure (.xlsx or .csv)
-#' @param dgt_grid int, digit of map grid coordinates (default 2)
-#' @param dgt_conc int, digit of concentrations (default 1). Must match the
-#'   precision used when the active RR table was built.
-#' @param conc_unit Optional concentration unit, such as `"ug/m3"` or `"ppb"`.
-#'   When supplied, it must match the active RR table metadata.
-#'
-#' @return assign data to global env.
-#' @export
+# Load all input data into the global environment. Reads the gridded files
+# (Grid_info, Pop, Conc_real, Conc_cf) and the domain-level files (MortRate,
+# AgeGroup) from xlsx or csv, normalises coordinate and domain column names,
+# converts join keys to matchable strings, and assigns the frames globally.
+#   Grids, Pop, Conc_real, MortRate, AgeGroup  input paths.
+#   Conc_cf    counterfactual path; NULL falls back to Conc_real.
+#   dgt_grid   coordinate precision, default 2.
+#   dgt_conc   concentration precision, default 1; must equal the precision the
+#              active RR table was built at.
+#   conc_unit  optional unit such as "ug/m3" or "ppb"; must match the active RR
+#              table metadata.
+# Returns nothing: the only output is the global assignment.
 read_files <- function(
   Grids,
   Pop,
@@ -429,11 +399,9 @@ read_files <- function(
   }
 }
 
-#' format mortality rate data
-#'
-#' @param at the year/scenario name to choose
-#'
-#' @return data.frame with columns: domain, endpoint, agegroup, MortRate
+# MortRate accessor: pick one year/scenario column as MortRate and lower-case
+# endpoint. Returns domain, endpoint, agegroup, MortRate. Aborts when MortRate is
+# not loaded or at is not a column.
 getMortRate <- function(at) {
   #  Guard: MortRate loaded
   if (!exists('MortRate', envir = globalenv())) {
@@ -459,13 +427,8 @@ getMortRate <- function(at) {
     select(domain, endpoint, agegroup, MortRate = {at})
 }
 
-#' get Conc_real data
-#'
-#' @param at the year/scenario name to choose
-#'
-#' @return data.frame, contains x-y and the concentration
-#'
-#' @examples
+# Conc_real accessor: pick one year/scenario column as concentration. Returns
+# x, y, concentration. Aborts when Conc_real is not loaded or at is not a column.
 getConc_real <- function(at) {
   if (!exists('Conc_real', envir = globalenv())) {
     stop("Conc_real not found in global environment. Run read_files() first.")
@@ -483,13 +446,9 @@ getConc_real <- function(at) {
   Conc_real |> select(x, y, concentration = {at})
 }
 
-#' get Conc_cf data
-#'
-#' @param at the year/scenario name to choose
-#'
-#' @return data.frame, contains x-y and the concentration
-#'
-#' @examples
+# Conc_cf accessor: pick one year/scenario column as concentration. Returns
+# x, y, concentration. Aborts when Conc_cf is not loaded or was NULL, or when at
+# is not a column.
 getConc_cf <- function(at) {
   if (!exists('Conc_cf', envir = globalenv()) || is.null(Conc_cf)) {
     stop(
@@ -511,13 +470,8 @@ getConc_cf <- function(at) {
   Conc_cf |> select(x, y, concentration = {at})
 }
 
-#' get Pop data
-#'
-#' @param at the year/scenario name to choose
-#'
-#' @return data.frame, contains x-y and the population
-#'
-#' @examples
+# Pop accessor: pick one year/scenario column as Pop. Returns x, y, Pop. Aborts
+# when Pop is not loaded or at is not a column.
 getPop <- function(at) {
   if (!exists('Pop', envir = globalenv())) {
     stop("Pop not found in global environment. Run read_files() first.")
@@ -535,13 +489,8 @@ getPop <- function(at) {
   Pop |> select(x, y, Pop = {at})
 }
 
-#' get AgeGroup data
-#'
-#' @param at the year/scenario name to choose
-#'
-#' @return data.frame with columns: domain, agegroup, and age structure proportion
-#'
-#' @examples
+# AgeGroup accessor: pick one year/scenario column as AgeStruc. Returns domain,
+# agegroup, AgeStruc. Aborts when AgeGroup is not loaded or at is not a column.
 getAgeGroup <- function(at) {
   if (!exists('AgeGroup', envir = globalenv())) {
     stop("AgeGroup not found in global environment. Run read_files() first.")
@@ -560,12 +509,9 @@ getAgeGroup <- function(at) {
   AgeGroup |> select(domain, agegroup, AgeStruc = {at})
 }
 
-#' List scenario columns in a gridded data frame
-#'
-#' @param df A data frame with `x` and `y`. Defaults to `Conc_real`.
-#'
-#' @return Character vector of non-coordinate columns.
-#' @export
+# List the scenario columns of a gridded data frame: every column except x and
+# y. df defaults to the global Conc_real. Aborts when df is not loaded or has no
+# scenario column.
 get_scenarios <- function(df = NULL) {
   if (is.null(df)) {
     if (!exists("Conc_real", envir = globalenv())) {
@@ -580,17 +526,16 @@ get_scenarios <- function(df = NULL) {
   scenarios
 }
 
-#' Resolve instance file paths from the build manifest
-#'
-#' @param manifest_path Path to `Data/instance_manifest.json`.
-#' @param suffix Optional six-digit instance suffix. When supplied, the
-#'   manifest is ignored and standard paths are constructed. The counterfactual
-#'   file is never auto-included; its `Conc_cf` entry stays `NULL` and callers
-#'   must supply an approved path explicitly.
-#'
-#' @return Named list with `Grids`, `Pop`, `Conc_real`, `Conc_cf`, `MortRate`,
-#'   and `AgeGroup`. `Conc_cf` is populated only when the manifest registers it.
-#' @export
+# Resolve the instance input paths, either from the build manifest or from an
+# instance suffix. Returns a named list with Grids, Pop, Conc_real, Conc_cf,
+# MortRate, and AgeGroup.
+#   manifest_path  path to Data/instance_manifest.json.
+#   suffix         optional six-digit instance suffix; when supplied the manifest
+#                  is ignored and standard paths are built. The counterfactual
+#                  file is never auto-included: Conc_cf stays NULL and callers
+#                  must pass an approved path explicitly.
+# Conc_cf is populated only when the manifest registers it. Aborts on a bad
+# suffix, a missing manifest or entry, or a missing file.
 resolve_instance_files <- function(
   manifest_path = "./Data/instance_manifest.json",
   suffix = NULL

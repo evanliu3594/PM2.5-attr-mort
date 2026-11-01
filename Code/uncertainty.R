@@ -3,12 +3,8 @@
 #   match the PWRR estimator. Uncertainty is now computed by aggregate_sigma()
 #   from grid-level Mortality() branches and the same PWRR formula.
 
-#' Retired PAF/PWE uncertainty function
-#'
-#' @param ... Ignored.
-#'
-#' @return This function always aborts.
-#' @export
+# Retired PAF/PWE uncertainty entry point. ... is ignored and the call always
+# aborts, pointing to aggregate_sigma() with scenario names.
 Uncertainty <- function(...) {
   cli::cli_abort(c(
     "x" = "Uncertainty() has been retired.",
