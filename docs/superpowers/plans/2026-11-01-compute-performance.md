@@ -435,8 +435,18 @@ Task 1–7 完成，Task 8 的文档与提交完成；独立验收由外部复�
 
 1. RANGE 目标从 1.2 放宽到 1.4：RANGE 走三分支，引擎实现后单次 1.16–1.26 s 已接近该结构的下限；1.2 是无原型依据的估计。
 2. 健康负担脚本未达 ≤ 8 s：固定加载约 3.4 s（`set_Model` 1.7 + `read_files` 1.6）不可能压掉；计算部分已达约 5.1 s。已在 v6.3 让 `HealthBurdenCalc.R` 传 `validate_keys = FALSE`，省约 1.3 s。
-3. 并发改为缓存串行：加入输入缓存后，4 workers（12.3 s）慢于串行（6.4 s）。`precompute_state_summaries()` 与 `decomp_fill_cache()` 在引擎可用时走缓存串行路径，plan 只服务无引擎的 fallback；实测改路由后 4 workers 6.99 s。
-4. 诊断回归：缓存路径最初丢失了 v6.2 的五项覆盖/孤儿/钳制警告。Task 7 把诊断拆成纯函数，缓存路径每轮打印一次并恢复原文与标签；快照对比 v6.2 的 `msg_decomp1`/`msg_drivers` 为 0 added / 0 removed（仅出现次数 5→1、16→1）。
+3. 并发改为缓存串行：加入输入缓存后，4 workers（12.3 s）慢于串行（6.4 s）。`precompute_state_summaries()` 与 `decomp_fill_cache()` 在引擎可用时走缓存串行路径，plan 只服务无引擎的 fallback；实测改路由后 4 workers 7.34–7.58 s，仍比串行慢 13–16%。
+4. 诊断回归：缓存路径最初丢失了 v6.2 的五项覆盖/孤儿/钳制警告。Task 7 把诊断拆成纯函数，缓存路径每轮打印一次并恢复原文与标签。快照对比 v6.2：`msg_decomp1` 0 added / 0 removed；`msg_drivers` 有 1 added / 1 removed，唯一差异是刻意新增的 INFO 行 "summarising … on the serial input cache"，替换原来的路径行；五项诊断文本不变，出现次数 5→1、16→1。
+
+### 独立验收（E6，提交 74de5d0）
+
+| 门 | 结果 |
+|---|---|
+| 全量测试 | 13 文件 / 117 块 / 706 断言（705 通过 + 1 skip），0 失败 |
+| 值等价 | 8/8 值对象 `identical`，26/26 sheet 差 0；消息仅上述 1 行 INFO 差异 |
+| 基准 | 六项全部达标：0.86 / 1.21–1.23 / 5.65–5.72 / 6.50–6.52 / 2.39–2.42 s |
+| 干净检出 | `git archive 74de5d0`：两脚本 exit 0（12.6 s / 11.9 s），5 个工作簿与 261026 冻结件差 0 |
+| 并发 | 4 workers 与串行 26 sheet 差 0；4 workers 7.34–7.58 s，慢于串行 6.50 s（缓存串行路由） |
 
 ### 提交
 
