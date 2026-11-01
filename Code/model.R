@@ -4,6 +4,9 @@
 #   - RR_std()     — build the standardised RR table from the lookup xlsx
 #   Modified 261026b: dgt_conc, unit, and range metadata propagate through
 #     set_Model()/RR_std(); new tables are checked for key, range, and CI order.
+#   Modified 261101: RR_std() fills only configured age columns that are absent
+#     from the lookup sheet (empty cells stay NA for the non-finite guard) and
+#     lower-cases the retained endpoint before setting the rr_normalized flag.
 
 library(tidyverse)
 library(writexl)
@@ -312,8 +315,10 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
   }
 
   # Process each sheet independently (pivot → expand → join → fill → filter),
-  # then stack. This avoids the need for complete() and handles missing age
-  # columns (e.g. GEMM 85/90/95 use age 80's RR via fill) naturally.
+  # then stack. This avoids complete() and handles missing age columns (e.g.
+  # GEMM 85/90/95 use age 80's RR) without filling empty cells: a configured age
+  # with no column takes the RR of the preceding available age, while a present
+  # column with an empty cell stays NA for the non-finite guard below.
   result <- imap_dfr(.raw, function(df, ci) {
     RR_one <- df |>
       pivot_longer(
@@ -329,26 +334,56 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
     }
 
     conc_vals <- df |> pull(!!sym(conc_col))
-    lapply(cfg$endpoints, function(ep) {
-      ages <- c('ALL', matchable(unlist(ep$ages), 0))
+    present <- RR_one |> distinct(endpoint, agegroup)
+    endpoint_specs <- map(cfg$endpoints, function(ep) {
+      list(
+        name = tolower(ep$name),
+        ages = c('ALL', matchable(unlist(ep$ages), 0))
+      )
+    })
+    fill_map <- map_dfr(endpoint_specs, function(spec) {
+      available <- present$agegroup[present$endpoint == spec$name]
+      source_age <- rep(NA_character_, length(spec$ages))
+      previous <- NA_character_
+      for (i in seq_along(spec$ages)) {
+        if (spec$ages[i] %in% available) {
+          source_age[i] <- spec$ages[i]
+          previous <- spec$ages[i]
+        } else {
+          source_age[i] <- previous
+        }
+      }
+      tibble(
+        endpoint = spec$name,
+        agegroup = spec$ages,
+        source_agegroup = source_age
+      )
+    })
+    map_dfr(endpoint_specs, function(spec) {
       expand_grid(
-        endpoint = ep$name,
-        agegroup = ages,
+        endpoint = spec$name,
+        agegroup = spec$ages,
         .conc = conc_vals
-      ) |>
-        rename(!!conc_col := .conc)
+      )
     }) |>
-      bind_rows() |>
+      rename(!!conc_col := .conc) |>
       left_join(RR_one, by = c(conc_col, "endpoint", "agegroup")) |>
-      group_by(!!sym(conc_col), endpoint) |>
-      fill(RR) |>
-      ungroup() |>
+      left_join(fill_map, by = c("endpoint", "agegroup")) |>
+      left_join(
+        RR_one |>
+          select(all_of(conc_col), endpoint, agegroup, RR_source = RR) |>
+          rename(source_agegroup = agegroup),
+        by = c(conc_col, "endpoint", "source_agegroup")
+      ) |>
+      mutate(RR = coalesce(RR, RR_source)) |>
+      select(-source_agegroup, -RR_source) |>
       filter(agegroup != 'ALL') |>
       mutate(CI = ci)
   }) |>
     mutate(
       !!sym(conc_col) := matchable(as.numeric(!!sym(conc_col)), dgt_conc),
-      agegroup = matchable(as.numeric(agegroup), 0)
+      agegroup = matchable(as.numeric(agegroup), 0),
+      endpoint = tolower(endpoint)
     ) |>
     rename(concentration = !!sym(conc_col)) |>
     select(concentration, endpoint, agegroup, CI, RR)

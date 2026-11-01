@@ -8,6 +8,9 @@
 #     Conc_cf paths, dgt_conc/conc_unit propagation, instance manifest helpers.
 #   Modified 261027: assert_unique_key() performs one vectorised base R scan;
 #     the dplyr count() pipeline runs only to build the duplicate-key message.
+#   Modified 261101: resolve_instance_files(suffix=) no longer auto-includes the
+#     legacy counterfactual file; Conc_cf stays NULL unless the caller passes it
+#     or the manifest registers it.
 
 # Standardised RR lookup table (built by set_Model() via RR_std())
 .RR_std_tbl <- NULL
@@ -581,10 +584,12 @@ get_scenarios <- function(df = NULL) {
 #'
 #' @param manifest_path Path to `Data/instance_manifest.json`.
 #' @param suffix Optional six-digit instance suffix. When supplied, the
-#'   manifest is ignored and standard paths are constructed.
+#'   manifest is ignored and standard paths are constructed. The counterfactual
+#'   file is never auto-included; its `Conc_cf` entry stays `NULL` and callers
+#'   must supply an approved path explicitly.
 #'
 #' @return Named list with `Grids`, `Pop`, `Conc_real`, `Conc_cf`, `MortRate`,
-#'   and `AgeGroup`.
+#'   and `AgeGroup`. `Conc_cf` is populated only when the manifest registers it.
 #' @export
 resolve_instance_files <- function(
   manifest_path = "./Data/instance_manifest.json",
@@ -598,13 +603,17 @@ resolve_instance_files <- function(
       Grids = str_glue("./Data/Grid_info_instance_{suffix}.xlsx"),
       Pop = str_glue("./Data/GridPop_instance_{suffix}.xlsx"),
       Conc_real = str_glue("./Data/GridPM25_instance_{suffix}.xlsx"),
-      Conc_cf = str_glue("./Data/GridPM25_cf_instance_{suffix}.xlsx"),
+      # The legacy GridPM25_cf_instance_*.xlsx is documented as unusable
+      # (negative concentrations), so it is never picked up automatically.
+      Conc_cf = NULL,
       MortRate = str_glue("./Data/GBD_mortality_instance_{suffix}.xlsx"),
       AgeGroup = str_glue("./Data/GBD_agestructure_instance_{suffix}.xlsx")
     )
-    if (!file.exists(files$Conc_cf)) {
-      files$Conc_cf <- NULL
-    }
+    log_msg(
+      INFO,
+      "Conc_cf is not auto-included for instance {suffix}; ",
+      "pass an approved counterfactual file explicitly."
+    )
   } else {
     if (!file.exists(manifest_path)) {
       stop(

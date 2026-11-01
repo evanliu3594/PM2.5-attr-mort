@@ -16,6 +16,11 @@
 #     columns only; key guards; dgt_conc and unit checks; missing groups stay NA.
 #   Modified 261027: reuse the RR_std() key normalisation (rr_normalized flag);
 #     check Conc_c only when it differs from Conc_r.
+#   Modified 261101: join_report() resolves the breakdown against the joined
+#     frame, so debug = TRUE no longer aborts; grid drops from missing
+#     MortRate/AgeGroup coverage or NA concentrations are reported; RR table
+#     attributes win over global unit/branch settings; detect_domain() takes
+#     (Grids, mRate) arguments and Mortality() passes its own inputs.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -34,8 +39,11 @@ require_columns <- function(df, columns, label) {
 }
 
 # ── join_report ────────────────────────────────────────────────────────────────
-# left_join + hierarchical NA report.  breakdown = c(domain, endpoint, agegroup).
-# Reports: L1 = domain entirely missing → L2 = domain/endpoint missing → L3 = rest.
+# left_join + hierarchical NA report.  breakdown lists the join levels to report
+# (e.g. c("domain", "concentration")); levels absent from the joined frame are
+# ignored, so a stale breakdown cannot abort a diagnostic call.
+# Reports: L1 = level-1 value entirely missing → L2 = level-1/2 entirely missing
+# → L3 = remaining level values missing.
 join_report <- function(
   x,
   y,
@@ -55,28 +63,30 @@ join_report <- function(
   x <- x |> mutate(.key_ok = rowSums(across(all_of(by), is.na)) == 0)
   result <- left_join(x, y, by = by, relationship = relationship)
   show_n <- if (verbose) Inf else 6
+  # The grid-level frame has domain and concentration but no endpoint/agegroup
+  # columns; only levels present after the join can feed distinct().
+  bd <- intersect(breakdown %||% character(), names(result))
   for (col in new_cols) {
     na_rows <- result |> filter(.key_ok, is.na(.data[[col]]))
     n_na <- nrow(na_rows)
     if (n_na == 0) {
       next
     }
-    if (is.null(breakdown) || length(breakdown) < 2) {
+    if (length(bd) == 0) {
       log_msg(
         WARN,
         "{n_na} row(s) with NA in \"{col}\" after joining {label}. These rows will be dropped by the required-column filter."
       )
       next
     }
-    bd <- breakdown
     matched <- result |> filter(.key_ok, !is.na(.data[[col]]))
-    # L1 — domains with zero matches
-    na_dom <- na_rows |> distinct(across(all_of(bd[1]))) |> pull(1)
-    ok_dom <- matched |> distinct(across(all_of(bd[1]))) |> pull(1)
-    l1 <- setdiff(na_dom, ok_dom)
-    # L2 / L3 — partially-matching domains
-    partial <- intersect(na_dom, ok_dom)
-    if (length(partial) > 0 && length(bd) >= 3) {
+    # L1 — level-1 values with zero matches
+    na_lvl1 <- na_rows |> distinct(across(all_of(bd[1]))) |> pull(1)
+    ok_lvl1 <- matched |> distinct(across(all_of(bd[1]))) |> pull(1)
+    l1 <- setdiff(na_lvl1, ok_lvl1)
+    # L2 / L3 — partially matching level-1 values
+    partial <- intersect(na_lvl1, ok_lvl1)
+    if (length(bd) >= 3 && length(partial) > 0) {
       ok_ep <- matched |>
         filter(.data[[bd[1]]] %in% partial) |>
         distinct(across(all_of(bd[1:2])))
@@ -93,19 +103,14 @@ join_report <- function(
         distinct(across(all_of(bd)))
     }
     # format
+    l1_label <- str_c(bd[1], "(s) entirely missing")
     l2_label <- str_c(str_c(bd[1:2], collapse = "/"), "(s) entirely missing")
     l3_label <- str_c(str_c(bd, collapse = "/"), "(s) missing")
     parts <- character()
     if (length(l1) > 0) {
       parts <- c(
         parts,
-        str_c(
-          length(l1),
-          " ",
-          bd[1],
-          "(s) entirely missing: ",
-          trunc_fmt(l1, n = show_n)
-        )
+        str_c(length(l1), " ", l1_label, ": ", trunc_fmt(l1, n = show_n))
       )
     }
     if (nrow(l2) > 0) {
@@ -200,7 +205,7 @@ Mortality <- function(
   }
 
   if (is.null(domain)) {
-    domain <- detect_domain()
+    domain <- detect_domain(Grids = Grids, mRate = mRate)
   }
   if (length(domain) != 1) {
     stop("domain must be one Grid_info column name.")
@@ -270,9 +275,13 @@ Mortality <- function(
     )
   }
 
+  # RR table metadata wins over the globals so a hand-assigned table cannot run
+  # with the unit or PWRR branch of a different model.
   rr_meta <- get0(".RR_meta", envir = globalenv(), ifnotfound = list())
   conc_unit <- get0(".CONC_UNIT", envir = globalenv(), ifnotfound = NULL)
-  rr_unit <- rr_meta$conc_unit %||% NULL
+  rr_unit <- attr(RR_raw, "conc_unit", exact = TRUE) %||%
+    rr_meta$conc_unit %||%
+    NULL
   if (!is.null(conc_unit) && !is.null(rr_unit) && !identical(conc_unit, rr_unit)) {
     stop(
       "Concentration unit mismatch: RR model expects \"", rr_unit,
@@ -301,7 +310,8 @@ Mortality <- function(
   }
 
   rr_conc_range <- range(as.numeric(RR_raw$concentration), na.rm = TRUE)
-  pwr_branch <- get0(".PWRR_branch", envir = globalenv(), ifnotfound = "branch")
+  pwr_branch <- attr(RR_raw, "pwr_branch", exact = TRUE) %||%
+    get0(".PWRR_branch", envir = globalenv(), ifnotfound = "branch")
   if (!pwr_branch %in% c("branch", "mean")) {
     stop("PWRR branch mode must be 'branch' or 'mean'.")
   }
@@ -469,6 +479,92 @@ Mortality <- function(
     )
   }
 
+  # ---- Report silent grid drops from the required-column filter ----
+  # The filter below drops grid rows without a word. Two input causes are
+  # reported here; values, row order, and the NA pattern stay unchanged.
+  grid_domain <- base_c |>
+    filter(!is.na(domain)) |>
+    count(domain, name = "n_grid")
+  if (nrow(grid_domain) > 0) {
+    group_coverage <- usable_groups |>
+      inner_join(
+        mRate |> distinct(domain, endpoint, agegroup),
+        by = c("endpoint", "agegroup"),
+        relationship = "many-to-many"
+      ) |>
+      semi_join(ag |> distinct(domain, agegroup), by = c("domain", "agegroup")) |>
+      count(domain, name = "n_covered")
+    domain_coverage <- grid_domain |>
+      left_join(group_coverage, by = "domain") |>
+      mutate(n_covered = coalesce(n_covered, 0L))
+    n_group_total <- nrow(usable_groups)
+    uncovered_all <- domain_coverage |> filter(n_covered == 0L)
+    uncovered_some <- domain_coverage |>
+      filter(n_covered > 0L, n_covered < n_group_total)
+    grids_with_data <- base_c |>
+      filter(!is.na(domain), !is.na(concentration), !is.na(Pop))
+    grids_with_data_per_domain <- grids_with_data |>
+      count(domain, name = "n_with_data")
+    if (nrow(uncovered_all) > 0) {
+      examples <- uncovered_all |>
+        left_join(grids_with_data_per_domain, by = "domain") |>
+        mutate(n_with_data = coalesce(n_with_data, 0L)) |>
+        arrange(desc(n_with_data), desc(n_grid)) |>
+        filter(n_with_data > 0) |>
+        mutate(label = str_c(domain, " (", n_with_data, ")")) |>
+        pull(label)
+      if (length(examples) == 0) {
+        examples <- uncovered_all |> arrange(desc(n_grid)) |> pull(domain)
+      }
+      log_msg(
+        WARN,
+        "{nrow(uncovered_all)} domain(s) in Grids have no MortRate/AgeGroup ",
+        "coverage for any endpoint/agegroup group: {sum(uncovered_all$n_grid)} ",
+        "grid(s) in total, of which ",
+        "{sum(grids_with_data$domain %in% uncovered_all$domain)} have ",
+        "concentration data and are dropped from the result. Domains ",
+        "(dropped grid count): {trunc_fmt(examples, n = show_n)}."
+      )
+    }
+    if (nrow(uncovered_some) > 0) {
+      examples <- uncovered_some |>
+        left_join(grids_with_data_per_domain, by = "domain") |>
+        mutate(n_with_data = coalesce(n_with_data, 0L)) |>
+        arrange(desc(n_with_data), desc(n_grid)) |>
+        filter(n_with_data > 0) |>
+        mutate(label = str_c(domain, " (", n_with_data, ")")) |>
+        pull(label)
+      if (length(examples) == 0) {
+        examples <- uncovered_some |> arrange(desc(n_grid)) |> pull(domain)
+      }
+      log_msg(
+        WARN,
+        "{nrow(uncovered_some)} domain(s) lack MortRate/AgeGroup coverage for ",
+        "some endpoint/agegroup groups: ",
+        "{sum(grids_with_data$domain %in% uncovered_some$domain)} grid(s) are ",
+        "dropped from those groups and keep NA there. Domains ",
+        "(dropped grid count): {trunc_fmt(examples, n = show_n)}."
+      )
+    }
+  }
+
+  conc_na <- base_c |>
+    semi_join(Conc_c |> select(x, y) |> distinct(), by = c("x", "y")) |>
+    filter(!is.na(domain), is.na(concentration))
+  if (nrow(conc_na) > 0) {
+    examples <- conc_na |>
+      count(domain, name = "n_grid") |>
+      arrange(desc(n_grid)) |>
+      mutate(label = str_c(domain, " (", n_grid, ")")) |>
+      pull(label)
+    log_msg(
+      WARN,
+      "{nrow(conc_na)} grid(s) in {length(examples)} domain(s) have NA ",
+      "concentration in Conc_c and are dropped: ",
+      trunc_fmt(examples, n = show_n), "."
+    )
+  }
+
   compute_group <- function(ep, age) {
     rr_g <- RR_all |>
       filter(endpoint == ep, agegroup == age) |>
@@ -568,21 +664,21 @@ Mortality <- function(
       join_report(
         mrate_g,
         "mortality rate",
-        breakdown = c("domain", "endpoint", "agegroup"),
+        breakdown = "domain",
         verbose = verbose,
         debug = debug
       ) |>
       join_report(
         ag_g,
         "age structure",
-        breakdown = c("domain", "agegroup"),
+        breakdown = "domain",
         verbose = verbose,
         debug = debug
       ) |>
       join_report(
         pwr,
         "PWRR",
-        breakdown = c("domain", "endpoint", "agegroup"),
+        breakdown = "domain",
         verbose = verbose,
         debug = debug
       ) |>
@@ -695,20 +791,24 @@ Mortality <- function(
   result
 }
 
-detect_domain <- function() {
-  # Try each MortRate column against each Grid_info non-coordinate column.
+# Auto-detect the PWRR domain column from Grids × mRate overlap.
+# The defaults keep detect_domain() callable with no arguments (Mortality_at(),
+# Decomposition() and aggregate_drivers()); Mortality() passes its own inputs so
+# a stale global Grid_info/MortRate cannot change the domain column it uses.
+detect_domain <- function(Grids = Grid_info, mRate = MortRate) {
+  # Try each mRate column against each Grids non-coordinate column.
   # Pick the pair with the most overlapping unique values.
-  geo_candidates <- setdiff(names(Grid_info), c("x", "y"))
-  mort_candidates <- setdiff(names(MortRate), c("endpoint", "agegroup"))
+  geo_candidates <- setdiff(names(Grids), c("x", "y"))
+  mort_candidates <- setdiff(names(mRate), c("endpoint", "agegroup"))
 
   best_geo <- NULL
   best_mort <- NULL
   best_hit <- 0
 
   for (gcol in geo_candidates) {
-    geo_vals <- unique(Grid_info[[gcol]])
+    geo_vals <- unique(Grids[[gcol]])
     for (mcol in mort_candidates) {
-      mort_vals <- unique(MortRate[[mcol]])
+      mort_vals <- unique(mRate[[mcol]])
       hits <- length(intersect(mort_vals, geo_vals))
       if (hits > best_hit) {
         best_hit <- hits
@@ -728,7 +828,7 @@ detect_domain <- function() {
     )
   }
 
-  n_mort <- length(unique(MortRate[[best_mort]]))
+  n_mort <- length(unique(mRate[[best_mort]]))
   if (best_hit < n_mort * 0.8) {
     log_msg(
       WARN,
