@@ -146,5 +146,7 @@ if (WRITE_RESULTS) {
 # aggregate_range(grid_ci, at = "geo", by = "all", write = FALSE)
 
 # PWRR-consistent uncertainty ====
-# aggregate_sigma() recomputes MEAN/UP/LOW from the PWRR estimator.
+# aggregate_sigma() uses the supplied RANGE branches (grid_ci carries MEAN/UP/LOW).
+# For a character vector it makes one Mortality_at(CI = "RANGE") call per scenario.
+# Pass pwr_domain when the PWRR domain differs from the aggregation column `at`.
 # sigma_result <- aggregate_sigma(grid_ci, at = "Country", by = "total", write = FALSE)

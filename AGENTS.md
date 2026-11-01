@@ -9,6 +9,7 @@
 |---|---|---|
 | `Code/` | 计算引擎 | `Code/README.md`（待补）；函数说明见代码注释 |
 | `Code/build/` | CR 构建脚本，本地保留，不入 git | `Data/RR_index/README.md` |
+| `Code/experimental/` | 遗留实验脚本，未被加载，仅留档备查 | — |
 | `Data/` | 原始数据、实例表、CRF 系数、RR 查找表 | `Data/README.md`、`Data/RR_index/README.md` |
 | `Results/` | 数据结果表，不入 git | `README.md` |
 | `Figures/` | 图件，不入 git | `README.md` |
@@ -55,20 +56,23 @@
 
 ### 3.2 代理决策（agent 决定，用户未反对）
 
-| # | 选择项 | 取值 | 理由 | 日期 |
-|---|---|---|---|---|
-| ① | 新模型命名 | `MRBRT2023` 为显式 2023 别名；`MRBRT2021` 为历史别名 | 默认指向见「已拍板口径」⑥ | 261026 |
-| ② | MRBRT2023 终点 | copd、dm2、ihd、lc、lri、stroke | 与 MRBRT2021 终点集一致；死亡率表无 dementia | 261026 |
-| ③ | MRBRT2023 网格 | 0–300 µg/m³，步长 0.1；全年龄 `_ALL` 填充 | 与现有查找表 join 网格一致；源曲线只给全年龄 | 261026 |
-| ④ | 源文件尺度 | COPD/DM2/LC 按 RR；IHD/Stroke/LRI 按 log(RR) | 压缩包内两批文件尺度不同 | 261026 |
-| ⑤ | 插值 | log(RR) 线性插值到 0.1 网格 | 保持正值、平滑 | 261026 |
-| ⑥ | 输出文件名 | `MRBRT2023_Lookup_Table_Build_261026.xlsx` | 固定构建日期，配置稳定 | 261026 |
-| ⑦ | 原始 zip | 放 `Data/`，加入 `.gitignore` | 185 MB，不入库 | 261026 |
-| ⑧ | RANGE 分支 PWRR | 三分支各用对应 PWRR | 与分子 RR 分支一致 | 261026 |
-| ⑨ | O3/NO2 曲线口径 | GBD 2023；ppb；O3 0–50、NO2 0–100；NO2 为 asthma；NO2 LOW 截到 1；保留 legacy | 与源表一致；RR ≥ 1 要求 | 261026 |
-| ⑩ | O3/NO2 CI 分母 | `pwr_branch: "mean"`；其余模型默认 `"branch"` | NO2 UP 极宽，分支 PWRR 会产生 UP < MEAN；共用 MEAN PWRR 保序 | 261026 |
-| ⑪ | 并发范围 | 内核 `Code/kernel.R`；默认串行；`PM25_KERNEL_WORKERS` 开启；对象为 `Decomposition()` 状态与状态摘要 | Mortality 组级并发收益不足，已撤回 | 261027 |
-| ⑫ | RR 表归一化位置 | `RR_std()` 归一化一次并打 `rr_normalized` 标记；`Mortality()` 据此跳过重复归一化；手工赋值的表仍走原路径 | 每次调用省 0.37 秒；输出逐位不变 | 261027 |
+「取值」即当前契约。决策理由与完整沿革见 `CHANGELOG.md` 与 `handoff/`。
+
+| # | 选择项 | 取值 | 日期 |
+|---|---|---|---|
+| ① | 新模型命名 | `MRBRT2023` 为显式 2023 别名；`MRBRT2021` 为历史别名 | 261026 |
+| ② | MRBRT2023 终点 | copd、dm2、ihd、lc、lri、stroke | 261026 |
+| ③ | MRBRT2023 网格 | 0–300 µg/m³，步长 0.1；全年龄 `_ALL` 填充 | 261026 |
+| ④ | 源文件尺度 | COPD/DM2/LC 按 RR；IHD/Stroke/LRI 按 log(RR) | 261026 |
+| ⑤ | 插值 | log(RR) 线性插值到 0.1 网格 | 261026 |
+| ⑥ | 输出文件名 | `MRBRT2023_Lookup_Table_Build_261026.xlsx` | 261026 |
+| ⑦ | 原始 zip | 放 `Data/`，加入 `.gitignore` | 261026 |
+| ⑧ | RANGE 分支 PWRR | 三分支各用对应 PWRR | 261026 |
+| ⑨ | O3/NO2 曲线口径 | GBD 2023；ppb；O3 0–50、NO2 0–100；NO2 为 asthma；NO2 LOW 截到 1；保留 legacy | 261026 |
+| ⑩ | O3/NO2 CI 分母 | `pwr_branch: "mean"`；其余模型默认 `"branch"` | 261026 |
+| ⑪ | 并发范围 | 内核 `Code/kernel.R`；默认串行；`PM25_KERNEL_WORKERS` 开启；对象为 `Decomposition()` 状态与状态摘要 | 261027 |
+| ⑫ | RR 表归一化位置 | `RR_std()` 归一化一次并打 `rr_normalized` 标记；`Mortality()` 据此跳过重复归一化；手工赋值的表仍走原路径 | 261027 |
+| ⑬ | v6.2 修复口径 | 覆盖缺口与分解网格集不一致时告警或中止；`aggregate_sigma()` 以传入分支为准；`resolve_instance_files()` 不自动带 `Conc_cf`；仅 `kernel_plan()` 启用并发 | 261101 |
 
 ### 3.3 当前缺口（摘要）
 
@@ -80,7 +84,7 @@
 
 ## 4. 基本规则（全局）
 
-- **环境**：Windows；R 4.6.1，`C:\Program Files\R\R-4.6.1\bin\Rscript.exe`；从项目根 `source()` 运行。
+- **环境**：Windows；R 4.6.2（R 4.6 或更新），`C:\Program Files\R\R-4.6.2\bin\Rscript.exe`；从项目根 `source()` 运行。命令中的 R 路径按本机安装调整。
 - **原始数据只读**：任何脚本不得写 `Data/*_raw/` 或原始 zip。
 - **目录**：脚本写 `Code/`；实例表与查找表写 `Data/`；结果写 `Results/`；图件写 `Figures/`；`tests/`、`handoff/`、`Code/build/` 本地保留。临时件用完即删；退役件移入 `deprecated/<目录>/` 归档。
 - **文档分层**：本文件只写定位、必守、指向（≤9 KB）；文件清单归各目录 `README.md`；细节归专门文件或代码注释；沿革归 `handoff/`。
@@ -101,7 +105,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）；24 序列明文表（v5.3）；Mortality 分组（v5.4）；MRBRT 默认 2023（v5.5）；O3/NO2 默认 GBD 2023（v5.6）；聚合与输入契约修复（v5.7）；目录布局（v5.8）；状态缓存与键校验优化（v5.9）；并发内核与 Decomposition 状态并行（v6.0）；键校验向量化与 RR 归一化复用（v6.1，串行 31.21 秒）。最新交接：`handoff/261027_perf-review.md`。
+GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）至 RR 归一化复用（v6.1）、v6.2 修复的功能与指标沿革见 `CHANGELOG.md`。v6.1 串行 24 序列 31.21 秒；v6.2 修正后同窗口约 39.9 秒。最新交接：`handoff/261101_review-fixes.md`。
 
 ## 7. 联系与来源
 

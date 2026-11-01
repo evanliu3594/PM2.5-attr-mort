@@ -10,14 +10,17 @@ ageing, exposure change, and other risk factors.
 
 ## Requirements
 
-R 4.6 or newer. Install the required packages:
+R 4.6 or newer. The commands below use the R 4.6.2 install path
+`C:\Program Files\R\R-4.6.2\bin\Rscript.exe`. Adjust the path to your R
+install. Install the required packages:
 
 ```r
 install.packages(c("tidyverse", "readxl", "writexl", "jsonlite"))
 ```
 
-Concurrency is optional and uses `future`, `furrr`, and `future.callr`; without
-these packages the calculation runs sequentially.
+Concurrency is optional. Enabling the kernel needs the `future` package; the
+parallel backend also needs `furrr` and, by default, `future.callr`. The default
+sequential run needs none of them.
 
 ## Repository layout
 
@@ -51,7 +54,7 @@ scripts that prefer it. File formats and rebuild steps are in
 Edit the model and input paths at the top of `HealthBurdenCalc.R`, then run:
 
 ```powershell
-& "C:\Program Files\R\R-4.6.1\bin\Rscript.exe" HealthBurdenCalc.R
+& "C:\Program Files\R\R-4.6.2\bin\Rscript.exe" HealthBurdenCalc.R
 ```
 
 The script writes national aggregates to `Results/`. The same calculation can be
@@ -162,6 +165,13 @@ kernel_plan(workers = 4)   # callr by default; falls back to multisession
 kernel_off()               # restore the sequential plan
 ```
 
+Only `kernel_plan()` enables parallel dispatch: a future plan installed by
+another package (for example `future.apply` or `targets`) leaves
+`kernel_active()` `FALSE`, so kernel calls run serially, while
+`kernel_workers()` and `kernel_info()` still report that plan. If `future` is
+missing, `kernel_plan()` stops; if `furrr` is missing, the backend falls back and
+the run stays sequential.
+
 `DrivingFactors.R` reads `PM25_KERNEL_WORKERS` (default `1`); `HealthBurdenCalc.R`
 stays sequential. Parallel work happens in `Decomposition()` and
 `aggregate_drivers()`: missing factor states and the 16 unique state summaries
@@ -169,7 +179,7 @@ build in parallel. `Mortality()` stays sequential; its group-level parallelism
 was measured and reverted.
 
 Measured on the 260617 instance (NCD+LRI, 68,302 grids): a sequential
-24-sequence run takes about 31 s, and about 15 s with four workers (2.07×). A
+24-sequence run takes about 35 s, and about 17 s with four workers. A
 single `Mortality()` call with `validate_keys = TRUE` takes about 2.4 s (5.9 s
 before v6.1). Outputs are identical across backends and to the pre-optimisation
 run (maximum absolute difference 0). Backends: `callr` (one process per future),
@@ -180,7 +190,7 @@ error policies: `stop`, `warn`, and `collect`. Implementation notes are in
 ## Testing
 
 ```powershell
-& "C:\Program Files\R\R-4.6.1\bin\Rscript.exe" tests/run_tests.R
+& "C:\Program Files\R\R-4.6.2\bin\Rscript.exe" tests/run_tests.R
 ```
 
 `tests/` is local only. The suite covers input contracts, aggregation, RR
@@ -211,5 +221,5 @@ builders, PWRR branches, decomposition caches, and the concurrency kernel.
 
 ## Changelog
 
-Release notes v1.0 to v6.0: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
+Release notes v1.0 to v6.2: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
 rules: [`docs/data-flow.md`](docs/data-flow.md).

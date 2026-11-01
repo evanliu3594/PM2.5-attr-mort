@@ -2,7 +2,11 @@ This directory stores the basic input data for the calculation: gridded populati
 
 Sample gridded population, PM<sub>2.5</sub> concentration data and corresponding grid information (x/y coordinates and geographic domain columns) are provided to illustrate the input data structure.
 
-`Data/instance_manifest.json` records the active instance paths and the source-year specification used by `build_instance.R`. Both entry scripts list the five input paths explicitly in their configuration block; `resolve_instance_files()` still reads the manifest for scripts that prefer it. Raw population rasters are not committed; set `PM25_POP_RAW_DIR` before rebuilding. A rebuild stops when the requested scenario mixes source years unless `ALLOW_MIXED_SCENARIO_YEARS` is explicitly enabled.
+`Data/instance_manifest.json` records the active instance paths. The committed manifest (`suffix` `260617`, `created` `2026-06-17`) contains only `suffix`, `created`, and `files`; it does not record source years. Current builds of `build_instance.R` also write `mixed_scenario_years` and `scenario_years`, so a rebuilt manifest records the source-year specification. Both entry scripts list the five input paths explicitly in their configuration block; `resolve_instance_files()` still reads the manifest for scripts that prefer it.
+
+The committed 260617 instance predates the year fields. Its `SSP1-Baseline_2030` columns mix source years: exposure 2030, population 2020, age structure 2019, mortality 2020. This is a mixed proxy, not a complete 2030 projection. The `base2015` columns use 2015 sources. Treat 2030-column results as proxy estimates until a complete 2030 input set is built.
+
+Raw population rasters are not committed; set `PM25_POP_RAW_DIR` before rebuilding. The loader accepts `.tif`/`.tiff` files whose name ends with the source year (pattern `\d+\.(tif|tiff)$`) and reads the year from the name. A rebuild stops when the requested scenario mixes source years unless `ALLOW_MIXED_SCENARIO_YEARS` is explicitly enabled. The country mapping runs `llmjoin` with an LLM key and caches its result; the cache files (`Data/country_map_mortality.csv`, `Data/country_map_age.csv`) are not committed.
 
 `Data/GridPM25_cf_instance_260617.xlsx` is a legacy synthetic counterfactual file. It contains negative concentrations (1,252 in `base2015`, 1,207 in `SSP1-Baseline_2030`). It is not produced by the current builder and is not used by the default decomposition. Do not use it for formal counterfactual analysis until its provenance and non-negativity are resolved.
 

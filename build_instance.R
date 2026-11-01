@@ -9,6 +9,10 @@
 #  Dependencies: tidyverse, terra, sf, rnaturalearth, readxl, writexl, llmjoin
 #  LLM setup: set_llm(provider = "...", key = "...", model = "...")
 #  See: https://github.com/evanliu3594/llmjoin
+#
+#  Modified 261101: comments only — population raster naming, country-map cache
+#                   requirement, and the Georgia/location_id 533 exclusion.
+#                   Behaviour unchanged.
 #======================================================================================#
 
 # install.packages(c("terra","sf","llmjoin"))
@@ -31,6 +35,9 @@ GRID_RES <- 0.5
 
 # Source data paths, replace with yours
 PM25_RAW_DIR <- Sys.getenv("PM25_RAW_DIR", unset = "./Data/PM25_raw/")
+# Raw population rasters are not committed. Point PM25_POP_RAW_DIR at a
+# directory of GeoTIFFs whose file name ends with the source year (for example
+# pop_2020.tif); the loader pattern is "\d+\.(tif|tiff)$".
 POP_RAW_DIR <- Sys.getenv("PM25_POP_RAW_DIR", unset = "")
 MORT_RAW_DIR <- Sys.getenv("PM25_MORT_RAW_DIR", unset = "./Data/IHME_MortRate_raw/")
 AGESTRUC_RAW_DIR <- Sys.getenv("PM25_AGESTRUC_RAW_DIR", unset = "./Data/IHME_Pop_raw/")
@@ -135,8 +142,12 @@ map_cause <- c(
   "All causes" = "ALLCAUSE"
 )
 
-# Country mapping is expensive and depends on an external LLM. Cache the
-# result so later rebuilds do not depend on API availability.
+# Country mapping matches Natural Earth country names to IHME location names.
+# It calls llmjoin::build_joint(), which needs an LLM key configured with
+# set_llm() (see the header) unless the cached mapping file exists. The cache
+# files (Data/country_map_mortality.csv, Data/country_map_age.csv) are not
+# committed, so a fresh clone must supply the cache or an LLM key. The mapping
+# is expensive, so later rebuilds reuse the cache when present.
 read_or_build_country_map <- function(
   grid_df,
   target_df,
@@ -476,6 +487,10 @@ agestruc_prop <- agestruc |>
     names_sep = "@",
     values_from = pop
   ) |>
+  # IHME lists two locations named "Georgia": location_id 35 is the country and
+  # location_id 533 is the US state. The duplicate name would collide with the
+  # country map and double the Georgia age structure, so the US state row is
+  # dropped. This is intentional; country Georgia (id 35) is kept.
   filter(!(domain == "Georgia" & location_id == "533")) |>
   left_join(agegroup_country_map) |>
   filter(!is.na(Country)) |>

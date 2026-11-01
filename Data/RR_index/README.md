@@ -71,9 +71,10 @@ Run `Code/build/build_CR.R`:
 ```r
 source('./Code/build/build_CR.R')
 compute_RR_index("IER2017", write = TRUE)
+compute_RR_index("GEMM", write = TRUE)
 ```
 
-This reads the coefficient CSV, evaluates the RR formula at every concentration step, and writes a new `.xlsx` to this directory. Update `RR_std_config.json` if the filename changes.
+This reads the coefficient CSV, evaluates the RR formula at every concentration step, and writes a new `.xlsx` to this directory. The concentration grid depends on the model and matches the `conc_range` in `Data/RR_std_config.json`: IER models cover 0–200 µg/m³, GEMM covers 0–300 µg/m³, both in 0.1 steps. `RR_std()` rejects a table whose range differs from the config. Update `RR_std_config.json` if the filename changes.
 
 ### From the GBD 2023 air pollution RR archive
 

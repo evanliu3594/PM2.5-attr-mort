@@ -16,16 +16,16 @@
       │                         │         Pop = base2015) │         concentration = base2015)
       │                         │                         │
       ▼                         ▼                         ▼
- ┌──────────────────────────────────────────────────────────────────┐
- │ STEP 1 — Grid-level join  (by = x, y)                            │
- │                                                                  │
- │   Grid_info ─┬─ Conc_r ─── Conc_c                                │
- │              ├─ Pop                                              │
- │              │   ↓  reduce(left_join)                            │
- │              │   ┌───────────────────────────────────────────┐   │
- │              │   │ x │ y │ Country │ concentration │ Pop │ ..│   │
- │              │   └───────────────────────────────────────────┘   │
- └──────────────┼───────────────────────────────────────────────────┘
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ STEP 1 — Two grid-level base tables  (by = x, y)                     │
+ │                                                                      │
+ │   base_c = Grid_info left_join(Conc_c) left_join(pop)  RR numerator  │
+ │   base_r = Grid_info left_join(Conc_r) left_join(pop)  PWRR          │
+ │                                                                      │
+ │   Conc_c defaults to Conc_r. Each table keeps the grid keys, the     │
+ │   domain column, and one concentration column. The wide grid ×       │
+ │   endpoint × agegroup join is not materialised (v5.4).               │
+ └──────────────┼───────────────────────────────────────────────────────┘
                 │
                 │  by = concentration   (both sides: matchable(dgt=1), e.g. "36.8")
                 ▼
@@ -43,8 +43,8 @@
  │   CI column ∈ {MEAN, UP, LOW}; Mortality() pivots/filters as needed   │
  └────────────────────────────┬──────────────────────────────────────────┘
                               │
-     PWRR = weighted.mean(RR, Pop)  ←── grouped by domain × endpoint × agegroup
-     Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5
+     base_r → PWRR = weighted.mean(RR, Pop)  grouped by domain × endpoint × agegroup
+     base_c → Mort = Pop × AgeStruc × MortRate × (RR − 1) / PWRR / 1e5
                               │
                               ▼
  ┌────────────────────────────────────────────────────────────────────┐
@@ -72,12 +72,20 @@
  ┌──────────────────────────────────────────────────────────────────┐
  │ OUTPUT — wide-format gridded mortality                           │
  │                                                                  │
- │   x │ y │ copd_25_MEAN │ copd_25_UP │ copd_25_LOW │ ... │ Total  │
- │   ──┼───┼──────────────┼────────────┼─────────────┼─────┼─────── │
+ │   x │ y │ copd_25_MEAN │ copd_25_UP │ copd_25_LOW │ ...          │
+ │   ──┼───┼──────────────┼────────────┼─────────────┼─────         │
  │                                                                  │
- │   Then aggregated by aggregate_range(at, by) → ./Results/        │
+ │   One column per endpoint–agegroup–branch. No Total column:      │
+ │   aggregate_range(at, by = "total") sums the value columns.      │
+ │   Totals go to ./Results/ when write = TRUE.                     │
  └──────────────────────────────────────────────────────────────────┘
 ```
+
+**Concentration roles:**
+
+- `Conc_r` — real exposure. `Mortality()` builds `base_r` from it and computes the PWRR denominator per domain × endpoint × agegroup: `weighted.mean(RR, Pop)`.
+- `Conc_c` — concentration passed to the RR lookup for the attributable-death numerator. It defaults to `Conc_r`; `Mortality_at()` keeps that default, so absolute-burden runs use the real concentration in both roles. Pass `Conc_c = getConc_cf(at)` for a counterfactual scenario.
+- Both base tables keep one row per grid. `Mortality()` loops endpoint × agegroup (v5.4) and binds the value columns; it never joins the grid table to every endpoint and age group at once.
 
 **Key matching rules:**
 
