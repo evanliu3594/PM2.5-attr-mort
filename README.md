@@ -174,19 +174,23 @@ missing, `kernel_plan()` stops; if `furrr` is missing, the backend falls back an
 the run stays sequential.
 
 `DrivingFactors.R` reads `PM25_KERNEL_WORKERS` (default `1`); `HealthBurdenCalc.R`
-stays sequential. Parallel work happens in `Decomposition()` and
-`aggregate_drivers()`: missing factor states and the 16 unique state summaries
-build in parallel. `Mortality()` stays sequential; its group-level parallelism
-was measured and reverted.
+stays sequential. Since v6.3 the decomposition builds its 16 unique states from a
+serial input cache, and that cache is faster than dispatch: measured 6.4 s serial
+versus 12.3 s with four workers. A plan is still honoured for checkouts without
+the engine, but the cached path wins when the engine is present. `Mortality()`
+stays sequential.
 
-Measured on the 260617 instance (NCD+LRI, 68,302 grids): a sequential
-24-sequence run takes about 35 s, and about 17 s with four workers. A
-single `Mortality()` call with `validate_keys = TRUE` takes about 2.4 s (5.9 s
-before v6.1). Outputs are identical across backends and to the pre-optimisation
-run (maximum absolute difference 0). Backends: `callr` (one process per future),
-`multisession` (persistent workers), and `sequential`. Mapping calls accept three
-error policies: `stop`, `warn`, and `collect`. Implementation notes are in
-`Code/kernel.R`; the v6.1 measurements are in `handoff/261027_perf-review.md`.
+Measured on the 260617 instance (NCD+LRI, 68,302 grids, quiet window): a single
+`Mortality()` call with `validate_keys = FALSE` takes about 0.83 s MEAN and 1.25 s
+RANGE (2.3 s and 2.7 s in v6.2); the 24-sequence serial run computes in about
+6.4 s and the `DrivingFactors.R` wall clock is about 12 s (39.9–44.2 s in v6.2);
+`HealthBurdenCalc.R` takes about 11.5 s wall (17.8 s in v6.2). Outputs are
+identical across backends and to the pre-optimisation run (maximum absolute
+difference 0). Backends: `callr` (one process per future), `multisession`
+(persistent workers), and `sequential`. Mapping calls accept three error
+policies: `stop`, `warn`, and `collect`. Implementation notes are in
+`Code/kernel.R`; measurements for v6.1 are in `handoff/261027_perf-review.md` and
+for v6.3 in `handoff/261101_perf-round2.md`.
 
 ## Testing
 
@@ -222,5 +226,5 @@ builders, PWRR branches, decomposition caches, and the concurrency kernel.
 
 ## Changelog
 
-Release notes v1.0 to v6.2: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
+Release notes v1.0 to v6.3: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
 rules: [`docs/data-flow.md`](docs/data-flow.md).

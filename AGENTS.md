@@ -106,7 +106,7 @@
 
 ## 6. 当前进展
 
-GBD 2023 MR-BRT 已接入；PWRR 分组（v5.2）至 RR 归一化复用（v6.1）、v6.2 修复的功能与指标沿革见 `CHANGELOG.md`。v6.1 串行 24 序列 31.21 秒；v6.2 修正后同窗口约 39.9 秒。最新交接：`handoff/261101_review-fixes.md`。
+GBD 2023 MR-BRT 已接入；v5.2–v6.3 功能与指标沿革见 `CHANGELOG.md`。v6.3 串行 24 序列计算约 6.4 秒（脚本墙钟 11.9 秒）；最新交接：`handoff/261101_perf-round2.md`。
 
 ## 7. 联系与来源
 

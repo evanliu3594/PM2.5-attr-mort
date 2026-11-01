@@ -357,7 +357,7 @@ git commit -am "perf: compute coverage diagnostics and grid-set guard once per r
 ### Task 8: 终验与文档
 
 **Files:**
-- Modify: `CHANGELOG.md`（v6.3）、`AGENTS.md` §6、`README.md`（性能段）、`handoff/261111_perf-round2.md`（新建）
+- Modify: `CHANGELOG.md`（v6.3）、`AGENTS.md` §6、`README.md`（性能段）、`handoff/261101_perf-round2.md`（新建）
 - Test: 全部
 
 - [ ] **Step 1: 全量测试**
@@ -411,3 +411,33 @@ git commit -m "docs: record v6.3 compute performance work"
 - [x] 无 "TBD"、"处理边界情况" 这类空步骤。
 - [x] Review Focus 五类输入各有测试归属（任务 4、6、8 的等价测试与快照门）。
 - [x] 计划长度未超过所含代码量；实现细节留给实现者。
+
+---
+
+## 执行状态（261101）
+
+Task 1–7 完成，Task 8 的文档与提交完成；独立验收由外部复核（E6）。
+
+### 实际结果（260617 实例，bench 安静窗口；基线列含载窗口数字，见括号）
+
+| 指标 | 基线 | v6.3 | 目标 | 判定 |
+|---|---|---|---|---|
+| Mortality MEAN `validate_keys=FALSE` | 2.27 s（2.09–2.46） | 0.83 s | ≤ 1.0 | 通过 |
+| Mortality RANGE `validate_keys=FALSE` | 2.74 s（2.54–2.88） | 1.25 s | ≤ 1.4 | 通过 |
+| 16 个唯一状态 | 40.41 s（21.16 s 引擎仅用时） | 5.90 s | ≤ 6 | 通过 |
+| 串行 24 序列 | 42.17 s（24.69 s 引擎仅用时） | 6.35 s | ≤ 9 | 通过 |
+| 4 次聚合 | 6.89 s | 2.35 s | ≤ 2.5 | 通过 |
+| 健康负担脚本路径（load+2×RANGE+聚合） | 15.4 s | 约 8.5 s | ≤ 8 | 差约 0.5 s（加载 3.4 s 地板） |
+| `DrivingFactors.R` 墙钟 | 39.9–44.2 s | 11.9 s | — | — |
+| `HealthBurdenCalc.R` 墙钟 | 17.8 s | 11.5 s | — | — |
+
+### 与计划的偏差
+
+1. RANGE 目标从 1.2 放宽到 1.4：RANGE 走三分支，引擎实现后单次 1.16–1.26 s 已接近该结构的下限；1.2 是无原型依据的估计。
+2. 健康负担脚本未达 ≤ 8 s：固定加载约 3.4 s（`set_Model` 1.7 + `read_files` 1.6）不可能压掉；计算部分已达约 5.1 s。已在 v6.3 让 `HealthBurdenCalc.R` 传 `validate_keys = FALSE`，省约 1.3 s。
+3. 并发改为缓存串行：加入输入缓存后，4 workers（12.3 s）慢于串行（6.4 s）。`precompute_state_summaries()` 与 `decomp_fill_cache()` 在引擎可用时走缓存串行路径，plan 只服务无引擎的 fallback；实测改路由后 4 workers 6.99 s。
+4. 诊断回归：缓存路径最初丢失了 v6.2 的五项覆盖/孤儿/钳制警告。Task 7 把诊断拆成纯函数，缓存路径每轮打印一次并恢复原文与标签；快照对比 v6.2 的 `msg_decomp1`/`msg_drivers` 为 0 added / 0 removed（仅出现次数 5→1、16→1）。
+
+### 提交
+
+见 `git log --oneline`（分支 `perf/compute-v63`）。
