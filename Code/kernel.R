@@ -12,6 +12,11 @@
 # Policy: sequential by default. The parallel path uses future + furrr, wraps every
 #         task in tryCatch(), and calls user functions through do.call(). The serial
 #         path mirrors purrr results: value order, names, and walk() invisibility.
+# Modified 261101: an explicit kernel_plan() enable flag gates parallel dispatch, so a
+#   future plan installed by another package stays sequential (AGENTS 3.1 8). A
+#   missing furrr fails the backend candidate chain and falls back to sequential,
+#   instead of aborting on the first dispatch. Failed task messages are quoted in
+#   the abort and warning text.
 # Style : yifan-r-code-style v3
 
 # ---------- Constants ----------
@@ -35,8 +40,11 @@ kernel_error_strategies <- c("stop", "warn", "collect")
 
 # Plan bookkeeping shared by kernel_plan(), kernel_map(), and kernel_off().
 # option_backup holds the pre-kernel values of every option this file changes.
+# enabled is TRUE only after kernel_plan() succeeded with a parallel backend, so a
+# plan installed by another package can never switch the kernel on by itself.
 .kernel_state <- new.env(parent = emptyenv())
 .kernel_state$option_backup <- NULL
+.kernel_state$enabled <- FALSE
 .kernel_state$n_futures_last <- 0L
 .kernel_state$elapsed_last <- 0
 .kernel_state$payload_mb_last <- 0
@@ -52,6 +60,37 @@ kernel_future_available <- function() {
 # TRUE when the furrr package is installed.
 kernel_furrr_available <- function() {
   requireNamespace("furrr", quietly = TRUE)
+}
+
+# Packages one backend needs before it can dispatch anything. Sequential needs none.
+kernel_backend_packages <- function(backend) {
+  if (identical(backend, "callr")) {
+    return(c("future.callr", "furrr"))
+  }
+  if (identical(backend, "multisession")) {
+    return("furrr")
+  }
+  character(0)
+}
+
+# TRUE when one required package is installed. Tests replace this binding to
+# exercise the missing-package fallback without uninstalling packages.
+kernel_package_available <- function(package) {
+  requireNamespace(package, quietly = TRUE)
+}
+
+# Problem text for a backend whose packages are missing, or NULL when it can run.
+kernel_backend_missing <- function(backend, available = kernel_package_available) {
+  packages <- kernel_backend_packages(backend)
+  missing <- packages[!vapply(packages, available, logical(1))]
+  if (length(missing) == 0L) {
+    return(NULL)
+  }
+  quoted <- paste(sprintf("'%s'", missing), collapse = " and ")
+  if (length(missing) == 1L) {
+    return(sprintf("package %s is not installed", quoted))
+  }
+  sprintf("packages %s are not installed", quoted)
 }
 
 # TRUE when progression lines are requested. The kernel is silent by default so
@@ -121,9 +160,14 @@ kernel_workers <- function() {
   as.integer(future::nbrOfWorkers())
 }
 
-# TRUE when futures really run in parallel and we are not inside one.
+# TRUE when futures really run in parallel, the kernel enabled them, and we are not
+# inside one. A plan installed by another package stays inactive until kernel_plan()
+# runs, so concurrency stays off by default (AGENTS 3.1 8).
 kernel_active <- function() {
   if (isTRUE(getOption("pm25.kernel.in_worker"))) {
+    return(FALSE)
+  }
+  if (!isTRUE(.kernel_state$enabled)) {
     return(FALSE)
   }
   kernel_workers() > 1L
@@ -291,7 +335,13 @@ kernel_smoke <- function(timeout = 15) {
 }
 
 # Install one backend and prove it with a smoke future. NULL on success.
+# A missing package is a backend failure, so the candidate chain in kernel_plan()
+# can fall back to sequential before any dispatch runs.
 kernel_try_backend <- function(backend, workers) {
+  missing <- kernel_backend_missing(backend)
+  if (!is.null(missing)) {
+    return(missing)
+  }
   problem <- kernel_set_plan(backend, workers)
   if (!is.null(problem)) {
     return(problem)
@@ -341,6 +391,7 @@ kernel_plan <- function(workers = NULL, backend = NULL, fallback = TRUE) {
       class = "kernel_worker_warning"
     )
     future::plan(future::sequential)
+    .kernel_state$enabled <- FALSE
     return(invisible(kernel_info()))
   }
   if (!kernel_future_available()) {
@@ -377,6 +428,7 @@ kernel_plan <- function(workers = NULL, backend = NULL, fallback = TRUE) {
   }
   if (is.null(chosen)) {
     future::plan(future::sequential)
+    .kernel_state$enabled <- FALSE
     cli::cli_abort(
       c(
         "No kernel backend could be started.",
@@ -397,6 +449,9 @@ kernel_plan <- function(workers = NULL, backend = NULL, fallback = TRUE) {
       class = "kernel_fallback_warning"
     )
   }
+  # Only this function may enable parallel dispatch, and a sequential fallback
+  # leaves the kernel off.
+  .kernel_state$enabled <- chosen != "sequential" && kernel_workers() > 1L
   if (kernel_verbose()) {
     kernel_log(
       "INFO",
@@ -413,6 +468,7 @@ kernel_off <- function() {
   if (kernel_future_available()) {
     future::plan(future::sequential)
   }
+  .kernel_state$enabled <- FALSE
   if (!is.null(.kernel_state$option_backup)) {
     options(.kernel_state$option_backup)
     .kernel_state$option_backup <- NULL
@@ -773,8 +829,22 @@ kernel_payload_mb <- function(payload) {
   sum(bytes) / 1e6
 }
 
-# One-line failure summary for kernel_task_error and the warn strategy.
-kernel_failure_text <- function(ctl, n, failed) {
+# One error message flattened to one line and cut to `width` characters.
+kernel_short_message <- function(message, width = 120L) {
+  if (length(message) != 1L || is.na(message)) {
+    return("<no message>")
+  }
+  message <- gsub("[\r\n]+", " ", as.character(message))
+  if (nchar(message) > width) {
+    message <- paste0(substr(message, 1L, width), "...")
+  }
+  message
+}
+
+# One-line failure summary for kernel_task_error and the warn strategy. The first
+# three failing keys are listed, then up to three quoted messages, so a real
+# Mortality() failure stays diagnosable from the condition text alone.
+kernel_failure_text <- function(ctl, n, failed, messages = NULL) {
   keys <- ctl$labels[failed]
   shown <- head(keys, 3L)
   suffix <- if (length(keys) > 3L) {
@@ -782,10 +852,20 @@ kernel_failure_text <- function(ctl, n, failed) {
   } else {
     ""
   }
-  sprintf(
+  text <- sprintf(
     "%d of %d task(s) failed in \"%s\": %s%s",
     length(failed), n, ctl$label, paste(shown, collapse = ", "), suffix
   )
+  if (length(messages) == 0L) {
+    return(text)
+  }
+  n_show <- min(length(messages), 3L)
+  detail <- sprintf(
+    "%s: %s",
+    keys[seq_len(n_show)],
+    vapply(messages[seq_len(n_show)], kernel_short_message, character(1))
+  )
+  paste0(text, "; error(s): ", paste(detail, collapse = " | "))
 }
 
 # errors table: one row per failed task, tibble when tibble is installed.
@@ -848,7 +928,7 @@ kernel_collect <- function(packets, prepared, ctl, n_futures, elapsed, payload_m
   .kernel_state$errors_last <- as.integer(failed_n)
 
   if (failed_n > 0L) {
-    text <- kernel_failure_text(ctl, n, failed)
+    text <- kernel_failure_text(ctl, n, failed, error_message[failed])
     if (ctl$on_error == "stop") {
       cli::cli_abort("{text}", class = "kernel_task_error", call = NULL)
     }

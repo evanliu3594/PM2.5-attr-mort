@@ -4,6 +4,13 @@
 #   WARNING: Monte Carlo Analysis IS Extremely Time-Consuming
 #
 #                    By Yifan LIU 2022/5/22
+#
+# LEGACY — SUPERSEDED, kept for reference only. No entry script loads this
+#   file. Do not source() it: it redefines engine helpers with different
+#   parameter names (matchable(num, digit) here versus matchable(num, dgt) in
+#   Code/data.R) and would shadow the current pipeline.
+# Modified 261101: repaired the three bare-symbol native pipes (matchable(),
+#   draw.RR(), mortrate_std()); this header added. No other behaviour change.
 
 library(tidyverse)
 library(furrr)
@@ -34,7 +41,7 @@ draw.PM <- function(x, uncert = .12) {
     )
 }
 
-matchable <- function(num, digit = 1) num |> round(digit) |> str_c
+matchable <- function(num, digit = 1) num |> round(digit) |> str_c()
 
 mortrate_std <- function(x) x |> mutate(endpoint = tolower(endpoint))
 
@@ -143,7 +150,7 @@ Mortality_mtcl <- function(
     future_map(
       .options = furrr_options(seed = NULL),
       ~ {
-        RR_tbl <- RR_std_for_mtcl(RR_table = RR, mode = mode) |> draw.RR
+        RR_tbl <- RR_std_for_mtcl(RR_table = RR, mode = mode) |> draw.RR()
 
         PM_r |>
           left_join(RR_tbl, by = 'concentration') |>
@@ -153,7 +160,7 @@ Mortality_mtcl <- function(
           ungroup() |>
           rename(RR_cf = RR) |>
           left_join(ag, by = 'agegroup') |>
-          left_join(mRate |> mortrate_std, by = c('agegroup', 'endpoint')) |>
+          left_join(mRate |> mortrate_std(), by = c('agegroup', 'endpoint')) |>
           mutate(
             Mort = Pop * AgeStruc * MortRate * (RR_cf - 1) / PWRR_real / 1e5,
             .keep = 'unused'
