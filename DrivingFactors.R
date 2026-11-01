@@ -1,14 +1,14 @@
 #====================================================#
-# retrieve driving forces to the PM2.5 health burden #
+# 提取 PM2.5 健康负担的驱动因素                                 #
 #====================================================#
-# Entry script. The decomposition functions live in Code/decomposition.R.
-# Edit the configuration block, then source this file or run it with Rscript.
-# NOTE 261026: PWRR is computed per domain × endpoint × agegroup; decomposition
-# results produced before this date are invalid.
-# NOTE 261027: when a concurrent plan is active, missing factor states are built
-# in parallel by Code/decomposition.R. Default is sequential.
+# 入口脚本。分解函数位于 Code/decomposition.R。
+# 修改配置块后，用 source() 加载本文件或用 Rscript 运行。
+# NOTE 261026：PWRR 按 domain × endpoint × agegroup 计算；此日期之前产出的分解
+# 结果失效。
+# NOTE 261027：启用并发计划时，缺失的 factor state 由 Code/decomposition.R
+# 并行构建。默认为串行。
 
-# Core Module Load ----
+# 核心模块加载 ----
 
 library(tidyverse)
 library(writexl)
@@ -21,28 +21,28 @@ source('./Code/aggregation.R', encoding = 'UTF8')
 source('./Code/kernel.R', encoding = 'UTF8')
 source('./Code/decomposition.R', encoding = 'UTF8')
 
-# Configuration ----
+# 配置 ----
 
-# C-R model: 'IER', 'NCD+LRI', '5COD', 'MRBRT', 'MRBRT2023', 'O3', 'NO2'
+# C-R 模型：'IER'、'NCD+LRI'、'5COD'、'MRBRT'、'MRBRT2023'、'O3'、'NO2'
 MODEL <- 'NCD+LRI'
 
-# Decomposition window and spatial unit.
+# 分解的起止年份与空间单元。
 START_YEAR <- 'base2015'
 END_YEAR <- 'SSP1-Baseline_2030'
 RESULT_AT <- 'Country'
 
-# Run all 24 sequences (TRUE) or sequence 1 only (FALSE).
+# TRUE 运行全部 24 个序列，FALSE 只运行序列 1。
 RUN24 <- TRUE
 
-# FALSE loads data and functions without running the decomposition.
+# FALSE 只加载数据与函数，不运行分解。
 RUN_DRIVERS <- tolower(Sys.getenv("PM25_RUN_DRIVERS", unset = "true")) == "true"
 
-# Worker count for Code/kernel.R; 1 keeps the sequential plan.
+# Code/kernel.R 的 worker 数；取 1 保持串行计划。
 WORKERS <- as.integer(Sys.getenv("PM25_KERNEL_WORKERS", unset = "1"))
 
-# Input data ----
-# Edit these paths to point at another instance. Paths are relative to the
-# project root.
+# 输入数据 ----
+# 修改这些路径即可指向另一个实例。路径相对于
+# 项目根目录。
 
 GRIDS_FILE      <- "./Data/Grid_info_instance_260617.xlsx"
 POP_FILE        <- "./Data/GridPop_instance_260617.xlsx"
@@ -50,11 +50,11 @@ CONC_REAL_FILE  <- "./Data/GridPM25_instance_260617.xlsx"
 MORT_RATE_FILE  <- "./Data/GBD_mortality_instance_260617.xlsx"
 AGE_GROUP_FILE  <- "./Data/GBD_agestructure_instance_260617.xlsx"
 
-# C-R function setting ----
+# C-R 函数设置 ----
 
 set_Model(MODEL)
 
-# Data load ----
+# 数据读取 ----
 
 read_files(
   Grids = GRIDS_FILE,
@@ -65,13 +65,13 @@ read_files(
   conc_unit = "ug/m3"
 )
 
-# Concurrency (optional) ----
-# Sequential by default. The plan stays active for this R session.
+# 并发（可选） ----
+# 默认为串行。该计划在本 R 会话内保持生效。
 if (!is.na(WORKERS) && WORKERS > 1) {
   kernel_plan(workers = WORKERS)
 }
 
-# Run ----
+# 运行 ----
 
 if (RUN_DRIVERS) {
   aggregate_drivers(

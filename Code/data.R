@@ -1,35 +1,35 @@
-# Data loading & RR lookup module
-#   - matchable(), normalize_coords()  — coordinate & numeric normalisation
-#   - read_files()                     — load all input data to global env
-#   - getMortRate(), getConc_real(), getConc_cf(), getPop(), getAgeGroup() — accessors
-#   Modified 260618: type-agnostic coordinate matching (any_of + as.numeric),
-#     Conc_cf defaults to NULL, domain column auto-normalisation (Country→domain).
-#   Modified 261026b: case-insensitive coordinates, unique-key guards, strict
-#     Conc_cf paths, dgt_conc/conc_unit propagation, instance manifest helpers.
-#   Modified 261027: assert_unique_key() performs one vectorised base R scan;
-#     the dplyr count() pipeline runs only to build the duplicate-key message.
-#   Modified 261101: resolve_instance_files(suffix=) no longer auto-includes the
-#     legacy counterfactual file; Conc_cf stays NULL unless the caller passes it
-#     or the manifest registers it.
+# 数据读取与 RR 查找模块
+#   - matchable(), normalize_coords()  — 坐标与数值归一化
+#   - read_files()                     — 把所有输入数据读入全局环境
+#   - getMortRate(), getConc_real(), getConc_cf(), getPop(), getAgeGroup() — 访问器
+#   修改 260618：与类型无关的坐标匹配（any_of + as.numeric），
+#     Conc_cf 默认 NULL，domain 列自动归一化（Country→domain）。
+#   修改 261026b：坐标不区分大小写，唯一键守卫，严格的
+#     Conc_cf 路径，dgt_conc/conc_unit 传递，实例清单辅助函数。
+#   修改 261027：assert_unique_key() 只做一次向量化的 base R 扫描；
+#     dplyr count() 管线只在需要构造重复键消息时运行。
+#   修改 261101：resolve_instance_files(suffix=) 不再自动带上
+#     遗留反事实文件；除非调用方传入 Conc_cf 或清单已登记，
+#     Conc_cf 保持 NULL。
 
-# Standardised RR lookup table (built by set_Model() via RR_std())
+# 标准化 RR 查找表（由 set_Model() 通过 RR_std() 构建）
 .RR_std_tbl <- NULL
 
-# Concentration precision and unit shared by RR lookup, Mortality, and inputs
+# RR 查找表、Mortality 和输入共用的浓度精度与单位
 .DGT_CONC <- 1
 .CONC_UNIT <- NULL
 .RR_meta <- list()
 
-# Format a number to a string rounded at dgt digits, so join keys compare as
-# strings. matchable(3.33333, 1) returns "3.3".
+# 把数字格式化成按 dgt 位取整的字符串，使连接键按
+# 字符串比较。matchable(3.33333, 1) 返回 "3.3"。
 matchable <- function(num, dgt = 1) {
   num |> round(dgt) |> str_c()
 }
 
-# Rename geographic coordinate columns to the canonical x (longitude) and
-# y (latitude). Matching ignores letter case. Longitude aliases: x, lon, long,
-# longitude. Latitude aliases: y, lat, latitude. Aborts when a side is absent or
-# carries more than one alias; returns df unchanged when already canonical.
+# 把地理坐标列改名为规范的 x（经度）和
+# y（纬度）。匹配不区分大小写。经度别名：x、lon、long、
+# longitude。纬度别名：y、lat、latitude。某一侧缺失或
+# 带多个别名时中止；已规范时原样返回 df。
 normalize_coords <- function(df) {
   nms <- names(df)
   lower_nms <- tolower(nms)
@@ -88,9 +88,9 @@ normalize_coords <- function(df) {
   df
 }
 
-# Guard: assert that df has unique, non-missing join keys. keys holds the key
-# columns; label prefixes the error message. Aborts on a missing column, an NA
-# key, or a duplicated key. Returns TRUE invisibly.
+# 守卫：断言 df 的连接键唯一且非缺失。keys 保存键
+# 列；label 作为错误消息前缀。列缺失、键为 NA
+# 或键重复时中止。以不可见方式返回 TRUE。
 assert_unique_key <- function(df, keys, label) {
   missing_cols <- setdiff(keys, names(df))
   if (length(missing_cols) > 0) {
@@ -100,8 +100,8 @@ assert_unique_key <- function(df, keys, label) {
     )
   }
 
-  # Vectorised guard: one base R pass over the key columns. The dplyr pipeline
-  # below runs only when a problem exists, to build the diagnostic message.
+# 向量化守卫：对键列做一次 base R 扫描。dplyr 管线
+# 只在确实有问题时运行，用于构造诊断消息。
   key_df <- df[keys]
   na_rows <- sum(!stats::complete.cases(key_df))
   if (na_rows > 0) {
@@ -131,18 +131,18 @@ assert_unique_key <- function(df, keys, label) {
   invisible(TRUE)
 }
 
-# Load all input data into the global environment. Reads the gridded files
-# (Grid_info, Pop, Conc_real, Conc_cf) and the domain-level files (MortRate,
-# AgeGroup) from xlsx or csv, normalises coordinate and domain column names,
-# converts join keys to matchable strings, and assigns the frames globally.
-#   Grids, Pop, Conc_real, MortRate, AgeGroup  input paths.
-#   Conc_cf    counterfactual path; NULL falls back to Conc_real.
-#   dgt_grid   coordinate precision, default 2.
-#   dgt_conc   concentration precision, default 1; must equal the precision the
-#              active RR table was built at.
-#   conc_unit  optional unit such as "ug/m3" or "ppb"; must match the active RR
-#              table metadata.
-# Returns nothing: the only output is the global assignment.
+# 把所有输入数据读入全局环境。读取网格文件
+# （Grid_info、Pop、Conc_real、Conc_cf）和域级文件（MortRate、
+# AgeGroup），来源为 xlsx 或 csv；归一化坐标列名与 domain 列名，
+# 把连接键转成可匹配字符串，并在全局赋值这些数据框。
+#   Grids, Pop, Conc_real, MortRate, AgeGroup  输入路径。
+#   Conc_cf    反事实路径；NULL 时回退到 Conc_real。
+#   dgt_grid   坐标精度，默认 2。
+#   dgt_conc   浓度精度，默认 1；必须等于当前 RR 表的
+#              构建精度。
+#   conc_unit  可选单位，如 "ug/m3" 或 "ppb"；必须与当前 RR
+#              表元数据一致。
+# 无返回值：唯一输出是全局赋值。
 read_files <- function(
   Grids,
   Pop,
@@ -183,7 +183,7 @@ read_files <- function(
     }
   }
 
-  #  Guard: file existence
+#  守卫：文件是否存在
   if (!is.null(Conc_cf) && !file.exists(Conc_cf)) {
     stop(
       "Conc_cf file not found: \"", Conc_cf,
@@ -210,7 +210,7 @@ read_files <- function(
     }
   }
 
-  # Accepted column name variants for domain (normalized to "domain" below)
+# domain 列可接受的列名变体（下面归一化为 "domain"）
   domain_candidates <- c("Country", "country", "location", "Location")
 
   fuse_read <- function(filename) {
@@ -299,7 +299,7 @@ read_files <- function(
 
   mort_rate_raw <- fuse_read(MortRate)
 
-  # Normalize domain column name (see domain_candidates above)
+# 归一化 domain 列名（见上面的 domain_candidates）
   found_domain <- intersect(domain_candidates, names(mort_rate_raw))[1]
   if (!is.na(found_domain) && !"domain" %in% names(mort_rate_raw)) {
     mort_rate_raw <- mort_rate_raw |> rename(domain = !!found_domain)
@@ -326,7 +326,7 @@ read_files <- function(
 
   age_group_raw <- fuse_read(AgeGroup)
 
-  # Normalize domain column name (same logic as MortRate above)
+# 归一化 domain 列名（与上面 MortRate 的逻辑相同）
   found_domain_ag <- intersect(domain_candidates, names(age_group_raw))[1]
   if (!is.na(found_domain_ag) && !"domain" %in% names(age_group_raw)) {
     age_group_raw <- age_group_raw |> rename(domain = !!found_domain_ag)
@@ -347,7 +347,7 @@ read_files <- function(
   assign(".DGT_CONC", dgt_conc, envir = globalenv())
   assign(".CONC_UNIT", conc_unit, envir = globalenv())
 
-  #  Guard: .CR_Model must be set
+#  守卫：.CR_Model 必须已设置
   if (!exists('.CR_Model', envir = globalenv())) {
     stop(
       "C-R model not set. Call set_Model() before read_files(). ",
@@ -355,7 +355,7 @@ read_files <- function(
     )
   }
 
-  #  Guard: coordinate consistency summary
+#  守卫：坐标一致性摘要
   n_grid <- nrow(grid_df)
   n_conc <- nrow(conc_real_df)
   n_pop <- nrow(pop_df)
@@ -381,9 +381,9 @@ read_files <- function(
     "  Grids × Pop  overlap: {overlap_gp}/{n_grid} ({round(overlap_gp/min(n_grid,n_pop)*100)}% of smaller)"
   )
 
-  # Warn only if overlap is low from the perspective of the SMALLER dataset —
-  # a grid file covering a larger region than Conc/Pop is normal (extra grids
-  # without data are simply dropped).
+# 仅当从较小数据集的视角看重叠率偏低时才告警：
+# 网格文件覆盖范围大于 Conc/Pop 属正常情况（多出的网格
+# 没有数据，直接丢弃）。
   conc_overlap_pct <- overlap_gc / min(n_grid, n_conc)
   pop_overlap_pct <- overlap_gp / min(n_grid, n_pop)
 
@@ -399,15 +399,15 @@ read_files <- function(
   }
 }
 
-# MortRate accessor: pick one year/scenario column as MortRate and lower-case
-# endpoint. Returns domain, endpoint, agegroup, MortRate. Aborts when MortRate is
-# not loaded or at is not a column.
+# MortRate 访问器：取一个年份/情景列作为 MortRate，并把
+# endpoint 转为小写。返回 domain、endpoint、agegroup、MortRate。
+# MortRate 未加载或 at 不是列时中止。
 getMortRate <- function(at) {
-  #  Guard: MortRate loaded
+#  守卫：MortRate 已加载
   if (!exists('MortRate', envir = globalenv())) {
     stop("MortRate not found in global environment. Run read_files() first.")
   }
-  #  Guard: year column exists
+#  守卫：年份列存在
   if (!at %in% names(MortRate)) {
     stop(
       "Year/scenario \"",
@@ -427,8 +427,8 @@ getMortRate <- function(at) {
     select(domain, endpoint, agegroup, MortRate = {at})
 }
 
-# Conc_real accessor: pick one year/scenario column as concentration. Returns
-# x, y, concentration. Aborts when Conc_real is not loaded or at is not a column.
+# Conc_real 访问器：取一个年份/情景列作为浓度。返回
+# x、y、concentration。Conc_real 未加载或 at 不是列时中止。
 getConc_real <- function(at) {
   if (!exists('Conc_real', envir = globalenv())) {
     stop("Conc_real not found in global environment. Run read_files() first.")
@@ -446,9 +446,9 @@ getConc_real <- function(at) {
   Conc_real |> select(x, y, concentration = {at})
 }
 
-# Conc_cf accessor: pick one year/scenario column as concentration. Returns
-# x, y, concentration. Aborts when Conc_cf is not loaded or was NULL, or when at
-# is not a column.
+# Conc_cf 访问器：取一个年份/情景列作为浓度。返回
+# x、y、concentration。Conc_cf 未加载或为 NULL，
+# 或 at 不是列时中止。
 getConc_cf <- function(at) {
   if (!exists('Conc_cf', envir = globalenv()) || is.null(Conc_cf)) {
     stop(
@@ -470,8 +470,8 @@ getConc_cf <- function(at) {
   Conc_cf |> select(x, y, concentration = {at})
 }
 
-# Pop accessor: pick one year/scenario column as Pop. Returns x, y, Pop. Aborts
-# when Pop is not loaded or at is not a column.
+# Pop 访问器：取一个年份/情景列作为 Pop。返回 x、y、Pop。
+# Pop 未加载或 at 不是列时中止。
 getPop <- function(at) {
   if (!exists('Pop', envir = globalenv())) {
     stop("Pop not found in global environment. Run read_files() first.")
@@ -489,8 +489,8 @@ getPop <- function(at) {
   Pop |> select(x, y, Pop = {at})
 }
 
-# AgeGroup accessor: pick one year/scenario column as AgeStruc. Returns domain,
-# agegroup, AgeStruc. Aborts when AgeGroup is not loaded or at is not a column.
+# AgeGroup 访问器：取一个年份/情景列作为 AgeStruc。返回 domain、
+# agegroup、AgeStruc。AgeGroup 未加载或 at 不是列时中止。
 getAgeGroup <- function(at) {
   if (!exists('AgeGroup', envir = globalenv())) {
     stop("AgeGroup not found in global environment. Run read_files() first.")
@@ -509,9 +509,9 @@ getAgeGroup <- function(at) {
   AgeGroup |> select(domain, agegroup, AgeStruc = {at})
 }
 
-# List the scenario columns of a gridded data frame: every column except x and
-# y. df defaults to the global Conc_real. Aborts when df is not loaded or has no
-# scenario column.
+# 列出网格数据框的情景列：除 x 和
+# y 之外的每一列。df 默认取全局 Conc_real。df 未加载或
+# 没有情景列时中止。
 get_scenarios <- function(df = NULL) {
   if (is.null(df)) {
     if (!exists("Conc_real", envir = globalenv())) {
@@ -526,16 +526,16 @@ get_scenarios <- function(df = NULL) {
   scenarios
 }
 
-# Resolve the instance input paths, either from the build manifest or from an
-# instance suffix. Returns a named list with Grids, Pop, Conc_real, Conc_cf,
-# MortRate, and AgeGroup.
-#   manifest_path  path to Data/instance_manifest.json.
-#   suffix         optional six-digit instance suffix; when supplied the manifest
-#                  is ignored and standard paths are built. The counterfactual
-#                  file is never auto-included: Conc_cf stays NULL and callers
-#                  must pass an approved path explicitly.
-# Conc_cf is populated only when the manifest registers it. Aborts on a bad
-# suffix, a missing manifest or entry, or a missing file.
+# 解析实例输入路径，来源可以是构建清单，也可以是
+# 实例后缀。返回命名列表，含 Grids、Pop、Conc_real、Conc_cf、
+# MortRate 和 AgeGroup。
+#   manifest_path  Data/instance_manifest.json 的路径。
+#   suffix         可选的六位实例后缀；给出该参数时忽略清单，
+#                  改用标准路径构造。
+#                  反事实文件永不自动带上：Conc_cf 保持 NULL，
+#                  调用方必须显式传入经批准的路径。
+# 只有清单登记了 Conc_cf 时才填充该项。后缀非法、
+# 清单或条目缺失，或文件缺失时中止。
 resolve_instance_files <- function(
   manifest_path = "./Data/instance_manifest.json",
   suffix = NULL
@@ -548,8 +548,8 @@ resolve_instance_files <- function(
       Grids = str_glue("./Data/Grid_info_instance_{suffix}.xlsx"),
       Pop = str_glue("./Data/GridPop_instance_{suffix}.xlsx"),
       Conc_real = str_glue("./Data/GridPM25_instance_{suffix}.xlsx"),
-      # The legacy GridPM25_cf_instance_*.xlsx is documented as unusable
-      # (negative concentrations), so it is never picked up automatically.
+# 遗留的 GridPM25_cf_instance_*.xlsx 已记录为不可用
+# （浓度为负），因此永不自动选用。
       Conc_cf = NULL,
       MortRate = str_glue("./Data/GBD_mortality_instance_{suffix}.xlsx"),
       AgeGroup = str_glue("./Data/GBD_agestructure_instance_{suffix}.xlsx")

@@ -11,24 +11,24 @@
 #     8ooo888  888    888    888          88  888  88 888     888 888        888       #
 #   o8o  o888o 888o   888o o888o        o88o  8  o88o  88ooo88  o888o        888o      #
 #--------------------------------------------------------------------------------------#
-#       -- An Integrated Calculate Program for PM2.5 Health Burden Assessment --       #
+#       -- PM2.5 健康负担综合计算程序 --                                                         #
 #                                                                                      #
-#  Created By Yifan LIU on 20210505                                                    #
-#       update 210525: replace matrix calculation by tidy-R Grammar                    #
-#       update 220602: simplify code                                                   #
-#       *Add GEMM model support                                                        #
-#       *Add better uncertainty assessments and improved the result return             #
-#       update 260610: add custom CRF support                                          #
-#       update 260618: modular engine refactor, verbose/debug params                   #
-#       update 261026: PWRR per domain × endpoint × agegroup; CI branches use          #
-#                      matching PWRR; old single-domain PWRR results invalid            #
+#  创建人：Yifan LIU，20210505                                                              #
+#       更新 210525：用 tidy-R 语法替换矩阵运算                                                    #
+#       更新 220602：简化代码                                                                 #
+#       * 增加 GEMM 模型支持                                                                 #
+#       * 改进不确定性评估，改进结果返回                                                              #
+#       更新 260610：增加自定义 CRF 支持                                                         #
+#       更新 260618：模块化引擎重构，增加 verbose/debug 参数                                          #
+#       更新 261026：PWRR 按 domain × endpoint × agegroup 计算；CI 分支使用                       #
+#                      对应 PWRR；旧的单一 domain PWRR 结果失效                                    #
 #                                                                                      #
 #======================================================================================#
 
-# Install dependencies (run once) ----
+# 安装依赖（只运行一次） ----
 # install.packages(c("tidyverse", "jsonlite", "writexl", "readxl"))
 
-# Core functions load ----
+# 核心函数加载 ----
 
 library(tidyverse)
 library(writexl)
@@ -39,31 +39,31 @@ source('./Code/mortality.R', encoding = 'UTF8')
 source('./Code/uncertainty.R', encoding = 'UTF8')
 source('./Code/aggregation.R', encoding = 'UTF8')
 
-# C-R Model setting ----
-# this section used to choose C-R Model for Health Impact Calculation.
-# Supported C-R functions: 'IER', 'NCD+LRI'(Part of GEMM), '5COD'(Part of GEMM), 'MRBRT', 'MRBRT2023', 'O3', 'NO2'
+# C-R 模型设置 ----
+# 本段用于选择健康影响计算所用的 C-R 模型。
+# 支持的 C-R 函数：'IER'、'NCD+LRI'（GEMM 的一部分）、'5COD'（GEMM 的一部分）、'MRBRT'、'MRBRT2023'、'O3'、'NO2'
 
-# set_Model('MRBRT')       # GBD 2023 default alias
-# set_Model('MRBRT2023')   # GBD 2023 MR-BRT (explicit)
+# set_Model('MRBRT')       # GBD 2023 默认别名
+# set_Model('MRBRT2023')   # GBD 2023 MR-BRT（显式）
 set_Model('NCD+LRI')
 # set_Model('5COD')
 # set_Model('IER')
-# set_Model('O3')          # GBD 2023 O3 (COPD)
-# set_Model('NO2')         # GBD 2023 NO2 (asthma)
+# set_Model('O3')          # GBD 2023 O3（COPD）
+# set_Model('NO2')         # GBD 2023 NO2（asthma）
 
-# Input data ----
-# Edit these paths to point at another instance. Paths are relative to the
-# project root. Leave CONC_CF_FILE as NULL to compute absolute burden from
-# Conc_real; set it to a counterfactual file for scenario calculations.
+# 输入数据 ----
+# 修改这些路径即可指向另一个实例。路径相对于
+# 项目根目录。CONC_CF_FILE 保持 NULL 时，用 Conc_real 计算绝对负担；
+# 设定为反事实文件时，执行情景计算。
 
 GRIDS_FILE      <- "./Data/Grid_info_instance_260617.xlsx"
 POP_FILE        <- "./Data/GridPop_instance_260617.xlsx"
 CONC_REAL_FILE  <- "./Data/GridPM25_instance_260617.xlsx"
-CONC_CF_FILE    <- NULL   # e.g. "./Data/GridPM25_cf_instance_260617.xlsx"
+CONC_CF_FILE    <- NULL   # 示例："./Data/GridPM25_cf_instance_260617.xlsx"
 MORT_RATE_FILE  <- "./Data/GBD_mortality_instance_260617.xlsx"
 AGE_GROUP_FILE  <- "./Data/GBD_agestructure_instance_260617.xlsx"
 
-# Data load ----
+# 数据读取 ----
 
 read_files(
   Grids = GRIDS_FILE,
@@ -78,16 +78,16 @@ read_files(
 
 scenarios <- get_scenarios()
 
-# Grid-level calculation with 95% CI (MEAN + UP + LOW in one pass) ----
-# read_files() already validated the input keys, so skip the per-call re-check
-# (same trusted-input path the decomposition uses; v5.9 contract).
+# 格级计算，含 95% CI（一次遍历得到 MEAN + UP + LOW） ----
+# read_files() 已校验输入键，因此跳过逐次复查
+# （与分解共用同一可信输入路径；v5.9 契约）。
 grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE", validate_keys = FALSE))
 # grid_mean <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "MEAN"))
 # grid_low <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "LOW"))
 # grid_up <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "UP"))
 
-# Result output ----
-# Set WRITE_RESULTS = FALSE when stepping through the script without writing.
+# 结果输出 ----
+# 逐步调试且不写文件时，把 WRITE_RESULTS 设为 FALSE。
 WRITE_RESULTS <- TRUE
 RESULT_AT <- "Country"
 if (WRITE_RESULTS) {
@@ -102,19 +102,19 @@ if (WRITE_RESULTS) {
   )
 }
 
-# Aggregation ----
-# Uncomment the level(s) and breakdown(s) you need.
-# at  = "grid" | "geo" | "x" | "y" | "Country" | or any column in Grid_info
-# by  = "total" (Total only) | "all" | "endpoint" | "agegroup"
-# write = FALSE | TRUE (write to ./Results/xxx)
+# 聚合 ----
+# 取消注释所需的层级与拆分组合。
+# at  = "grid" | "geo" | "x" | "y" | "Country" | Grid_info 中的任意列
+# by  = "total"（仅总量）| "all" | "endpoint" | "agegroup"
+# write = FALSE | TRUE（写入 ./Results/xxx）
 
-## Grid-level ----
+## 格级 ----
 # aggregate_range(grid_ci, at = "grid", by = "total", write = FALSE)
 # aggregate_range(grid_ci, at = "grid", by = "endpoint", write = FALSE)
 # aggregate_range(grid_ci, at = "grid", by = "agegroup", write = FALSE)
 # aggregate_range(grid_ci, at = "grid", by = "all", write = FALSE)
 
-## Zonal / Meridional ----
+## 纬向 / 经向 ----
 # aggregate_range(grid_ci, at = "x", by = "total", write = FALSE)
 # aggregate_range(grid_ci, at = "x", by = "endpoint", write = FALSE)
 # aggregate_range(grid_ci, at = "x", by = "agegroup", write = FALSE)
@@ -125,30 +125,30 @@ if (WRITE_RESULTS) {
 # aggregate_range(grid_ci, at = "y", by = "agegroup", write = FALSE)
 # aggregate_range(grid_ci, at = "y", by = "all", write = FALSE)
 
-## National ----
+## 国家级 ----
 # aggregate_range(grid_ci, at = "Country", by = "total", write = FALSE)
 # aggregate_range(grid_ci, at = "Country", by = "endpoint", write = FALSE)
 # aggregate_range(grid_ci, at = "Country", by = "agegroup", write = FALSE)
 # aggregate_range(grid_ci, at = "Country", by = "all", write = FALSE)
 
-## Provincial (if available)----
+## 省级（若有）----
 # aggregate_range(grid_ci, at = "Province", by = "total", write = FALSE)
 # aggregate_range(grid_ci, at = "Province", by = "endpoint", write = FALSE)
 # aggregate_range(grid_ci, at = "Province", by = "agegroup", write = FALSE)
 # aggregate_range(grid_ci, at = "Province", by = "all", write = FALSE)
 
-# # Regional (if available)----
+# # 区域级（若有）----
 # aggregate_range(grid_ci, at = "Region", by = "total", write = FALSE)
 # aggregate_range(grid_ci, at = "Region", by = "endpoint", write = FALSE)
 # aggregate_range(grid_ci, at = "Region", by = "agegroup", write = FALSE)
 # aggregate_range(grid_ci, at = "Region", by = "all", write = FALSE)
 
-##  All geo levels and all group field at once ----
+##  一次输出全部地理层级与全部分组字段 ----
 # aggregate_range(grid_ci, at = "geo", by = "total", write = FALSE)
 # aggregate_range(grid_ci, at = "geo", by = "all", write = FALSE)
 
-# PWRR-consistent uncertainty ====
-# aggregate_sigma() uses the supplied RANGE branches (grid_ci carries MEAN/UP/LOW).
-# For a character vector it makes one Mortality_at(CI = "RANGE") call per scenario.
-# Pass pwr_domain when the PWRR domain differs from the aggregation column `at`.
+# 与 PWRR 一致的不确定性 ====
+# aggregate_sigma() 使用传入的 RANGE 分支（grid_ci 带 MEAN/UP/LOW）。
+# 传入字符向量时，每个情景各调用一次 Mortality_at(CI = "RANGE")。
+# PWRR domain 与聚合列 `at` 不同时，传入 pwr_domain。
 # sigma_result <- aggregate_sigma(grid_ci, at = "Country", by = "total", write = FALSE)

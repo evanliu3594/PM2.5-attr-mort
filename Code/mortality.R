@@ -1,37 +1,37 @@
-# Mortality calculation module — PWRR-normalised grid-level attributable deaths
-#   - Mortality()      — core formula: Mort = Pop × AgeStruc × MortRate × (RR−1) / PWRR_{domain,endpoint,age}
-#   - Mortality_at()   — convenience wrapper for a given year/scenario
-#   - detect_domain()  — auto-detect PWRR domain from MortRate × Grid_info overlap
-#   - join_report()    — left_join with optional hierarchical NA diagnostic report
-#   Modified 260618: three-phase PWRR guard (Inf/<1→stop, NA→skip, all-dropped→stop),
-#     verbose/debug parameters, trunc_fmt accepts n=Inf for unbounded output.
-#   Modified 261026: PWRR per domain × endpoint × agegroup; RANGE branches use
-#     matching PWRR; NA PWRR drops only affected rows, not whole domains.
-#   Modified 261026: Mortality() iterates endpoint × agegroup groups; each group
-#     is a grid-level join, avoiding a grid × endpoint × agegroup long table.
-#     compute_group() is side-effect free and ready for future_map2().
-#   Modified 261026: pwr_branch config ("branch" or "mean") controls whether
-#     RANGE uses branch-specific or common MEAN PWRR.
-#   Modified 261026b: single branches reuse the RANGE denominator; required
-#     columns only; key guards; dgt_conc and unit checks; missing groups stay NA.
-#   Modified 261027: reuse the RR_std() key normalisation (rr_normalized flag);
-#     check Conc_c only when it differs from Conc_r.
-#   Modified 261101: join_report() resolves the breakdown against the joined
-#     frame, so debug = TRUE no longer aborts; grid drops from missing
-#     MortRate/AgeGroup coverage or NA concentrations are reported; RR table
-#     attributes win over global unit/branch settings; detect_domain() takes
-#     (Grids, mRate) arguments and Mortality() passes its own inputs.
-#   Modified 261101 (v6.3): MEAN/RANGE compute through the vectorised engine
-#     (mort_rr_matrix(), mort_pwr_table(), mort_grid_table()). PWRR sums stay
-#     R-level sum() in row order, so values remain bit-identical to the join
-#     path. mortality_join_path() stays as the debug = TRUE reference path.
-#   Modified 261101 (v6.3 diagnostics): the clamp, orphan, and coverage reports
-#     are pure helpers that return the v6.2 text. Mortality() prints them on
-#     every call; decomp_input_cache() prints one copy per run instead of one per
-#     state. The RR key check and the coverage report are cached per input
-#     identity.
+# 死亡计算模块 —— PWRR 归一化的格级归因死亡
+#   - Mortality()      —— 公式：Mort = Pop × AgeStruc × MortRate × (RR−1) / PWRR_{domain,endpoint,age}
+#   - Mortality_at()   —— 指定年份与情景的便捷封装
+#   - detect_domain()  —— 由 MortRate × Grid_info 的重叠自动识别 PWRR 域
+#   - join_report()    —— left_join，另附可选的分层 NA 诊断报告
+#   修改 260618：三阶段 PWRR 守卫（Inf/<1→中止，NA→跳过，全部丢弃→中止），
+#     新增 verbose/debug 参数，trunc_fmt 接受 n=Inf 以输出完整列表。
+#   修改 261026：PWRR 按域 × 终点 × 年龄档计算；RANGE 各分支使用
+#     对应的 PWRR；NA PWRR 只丢弃受影响的行，不丢弃整个域。
+#   修改 261026：Mortality() 按终点 × 年龄档分组遍历；每组只做一次
+#     格级 join，避免生成网格 × 终点 × 年龄档的长表。
+#     compute_group() 无副作用，可直接交给 future_map2()。
+#   修改 261026：pwr_branch 配置（"branch" 或 "mean"）决定
+#     RANGE 使用分支各自的 PWRR 还是共用的 MEAN PWRR。
+#   修改 261026b：单分支复用 RANGE 的分母；只检查
+#     必需列；增加键守卫；检查 dgt_conc 与单位；缺失的分组保持 NA。
+#   修改 261027：复用 RR_std() 的键归一化（rr_normalized 标记）；
+#     仅当 Conc_c 与 Conc_r 不同时才检查 Conc_c。
+#   修改 261101：join_report() 按 join 后的数据帧解析
+#     分解层级，因此 debug = TRUE 不再中止；报告因
+#     MortRate/AgeGroup 覆盖缺失或浓度为 NA 而丢失的网格；RR 表
+#     属性优先于全局的单位与分支设置；detect_domain() 接受
+#     (Grids, mRate) 参数，Mortality() 传入自己的输入。
+#   修改 261101（v6.3）：MEAN/RANGE 走向量化引擎
+#     （mort_rr_matrix()、mort_pwr_table()、mort_grid_table()）。PWRR 求和仍在
+#     R 层按行序调用 sum()，因此数值与 join 路径保持逐位
+#     一致。mortality_join_path() 保留为 debug = TRUE 的参照路径。
+#   修改 261101（v6.3 诊断）：clamp、orphan 与覆盖报告
+#     改为纯函数，返回 v6.2 的原文。Mortality() 每次调用都打印
+#     它们；decomp_input_cache() 每次运行只打印一份，不再每个
+#     state 打印一份。RR 键检查与覆盖报告按输入身份
+#     缓存。
 
-# ── helpers ─────────────────────────────────────────────────────────────────────
+# ── 辅助函数 ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
   str_c(str_c(head(x, n), collapse = ", "), if (length(x) > n) " ..." else "")
 }
@@ -47,19 +47,19 @@ require_columns <- function(df, columns, label) {
   invisible(TRUE)
 }
 
-# ── vectorised engine (v6.3) ───────────────────────────────────────────────────
-# The four functions below replace the per-group dplyr join + weighted.mean()
-# loop. They are pure: they read no global, so a worker can rebuild them. Values
-# stay bit-identical to the join path, so PWRR sums use R-level sum() through
-# tapply() in row order; rowsum() accumulates in C and changes the last bits.
+# ── 向量化引擎（v6.3） ──────────────────────────────────────────────────────────
+# 以下四个函数取代按组执行的 dplyr join + weighted.mean() 循环。
+# 它们是纯函数：不读取任何全局对象，因此工作进程可以重建它们。数值
+# 与 join 路径保持逐位一致，因此 PWRR 求和仍在 R 层通过 tapply()
+# 按行序调用 sum()；rowsum() 用 C 累加，会改动末几位。
 
-# RR value matrix: n grids x G endpoint/agegroup groups, one CI branch.
-# Duplicate concentrations within a group are the caller's contract: RR_std()
-# asserts unique (concentration, endpoint, agegroup, CI) keys, and match() keeps
-# the first row if that contract is broken (the join path would abort instead).
-# rr_tbl is a single-branch tibble(concentration, endpoint, agegroup, RR) with
-# canonical keys; conc holds the matchable concentration strings. Concentrations
-# absent from the branch stay NA_real_, exactly as left_join() leaves them.
+# RR 值矩阵：n 个网格 × G 个终点/年龄档分组，单个 CI 分支。
+# 组内浓度不重复是调用方的约定：RR_std() 断言
+# （浓度、终点、年龄档、CI）键唯一；若该约定被破坏，match() 保留
+# 第一行，而 join 路径会直接中止。
+# rr_tbl 是单分支的 tibble(concentration, endpoint, agegroup, RR)，带
+# 规范键；conc 存放可匹配的浓度字符串。分支中不存在的
+# 浓度保持 NA_real_，与 left_join() 的结果完全一致。
 mort_rr_matrix <- function(conc, rr_tbl, groups) {
   n_group <- nrow(groups)
   out <- matrix(NA_real_, nrow = length(conc), ncol = n_group)
@@ -71,13 +71,13 @@ mort_rr_matrix <- function(conc, rr_tbl, groups) {
   out
 }
 
-# PWRR tables for one or more value branches: a list of G groups x D domains
-# matrices sharing the domain axis. Each cell is sum(RR * Pop) / sum(Pop) over
-# the grids of that domain in row order, i.e. exactly weighted.mean(RR, Pop).
-# A domain with no usable grid keeps NA (left_join() would leave it NA); a domain
-# whose weights sum to zero gives NaN, which Mortality() reports as invalid.
-# Grids outside the domain table contribute exact zeros instead of being dropped,
-# so the sums keep their row order and stay bit-identical to weighted.mean().
+# 一个或多个取值分支的 PWRR 表：由 G 个分组 × D 个域矩阵组成的列表，
+# 共享域轴。每个单元是该域内各网格按行序的 sum(RR * Pop) / sum(Pop)，
+# 即恰好等于 weighted.mean(RR, Pop)。
+# 没有可用网格的域保持 NA（left_join() 也会留下 NA）；权重和为 0 的域
+# 得到 NaN，Mortality() 将其报告为无效。
+# 域表之外的网格贡献精确的零，不被丢弃，
+# 因此求和保持原行序，与 weighted.mean() 逐位一致。
 mort_pwr_table_branches <- function(rr_list, pop, domain) {
   n_group <- ncol(rr_list[[1]])
   dom_names <- unique(as.character(domain[!is.na(domain)]))
@@ -94,13 +94,13 @@ mort_pwr_table_branches <- function(rr_list, pop, domain) {
     return(out)
   }
   dom_code <- match(as.character(domain), dom_names)
-  # Split once: every branch reuses the same domain groups.
+  # 只拆分一次：各分支复用同一批域分组。
   dom_sets <- split(seq_along(pop), factor(dom_code, levels = seq_len(n_dom)))
   base_ok <- !is.na(dom_code) & !is.na(pop)
   base_weights <- pop
   base_weights[!base_ok] <- 0
-  # Branches without NA RR use every joinable grid, so the denominator is one
-  # vector for all of them; compute it once.
+  # 无 NA 的 RR 分支可以使用所有可 join 的网格，因此分母对所有这类分支
+  # 是同一个向量；只计算一次。
   base_den <- vapply(dom_sets, function(ix) sum(base_weights[ix]), numeric(1))
   for (g in seq_len(n_group)) {
     for (i in seq_along(rr_list)) {
@@ -130,27 +130,27 @@ mort_pwr_table_branches <- function(rr_list, pop, domain) {
   out
 }
 
-# Single-branch wrapper kept for callers that compute one value column set.
+# 单分支封装：保留给只计算一组取值列的调用方。
 mort_pwr_table <- function(rr_mat, pop, domain) {
   mort_pwr_table_branches(list(rr_mat), pop, domain)[[1]]
 }
 
-# Required-column mask of the join path: a grid enters the result only when
-# domain, concentration, Pop, RR, MortRate, AgeStruc, and PWRR are all non-NA and
-# the numeric inputs are finite. For a numeric column, non-NA and finite collapse
-# to is.finite(); concentration needs no term of its own, because a missing
-# concentration never matches the RR table, so RR is NA there.
-# rr_list and pwr_list carry one element per value branch. RANGE passes all three
-# so the mask is one shared pass: compute_group() filtered the joined frame once
-# for every value column of a group.
+# join 路径的必需列掩码：只有当 domain、浓度、Pop、RR、MortRate、AgeStruc 与 PWRR
+# 全部非 NA，并且数值输入都有限时，该网格才进入结果。
+# 对数值列来说，非 NA 与有限这两个条件合并成 is.finite()；
+# 浓度不需要单独的判断项，因为缺失的浓度永远匹配不到 RR 表，
+# 那里的 RR 就是 NA。
+# rr_list 与 pwr_list 每个取值分支各带一个元素。RANGE 一次传入全部三个，
+# 因此掩码只是一次共享的 pass：compute_group() 对每个组只把 join 后的
+# 数据帧过滤一次，一次覆盖该组的所有取值列。
 mort_keep_mask <- function(rr_list, pwr_list, pop, domain, ag, mrate) {
   n <- nrow(rr_list[[1]])
   n_group <- ncol(rr_list[[1]])
   dom_code <- match(as.character(domain), colnames(pwr_list[[1]]))
-  # TRUE where the grid belongs to a domain and has finite population.
+  # 网格属于某个域且人口有限时为 TRUE。
   out <- matrix(!is.na(domain) & is.finite(pop), nrow = n, ncol = n_group)
-  # Expand each PWRR row to grid rows once, then AND whole matrices: the branch
-  # passes become full-matrix operations instead of per-group vector passes.
+  # 把每个 PWRR 行一次展开到网格行，再对整矩阵取与：各分支的
+  # pass 变成整矩阵运算，无需逐组的向量 pass。
   for (i in seq_along(rr_list)) {
     out <- out & is.finite(rr_list[[i]]) &
       t(is.finite(pwr_list[[i]])[, dom_code, drop = FALSE])
@@ -158,14 +158,14 @@ mort_keep_mask <- function(rr_list, pwr_list, pop, domain, ag, mrate) {
   out & t(is.finite(ag)) & t(is.finite(mrate))
 }
 
-# Wide grid result for one or more value branches: tibble(x, y, value columns).
-# Rows are the union of the group masks in group order, which is the row set
-# dplyr::full_join() produced when groups dropped different grids; groups that
-# dropped a grid keep NA there.
-# Every argument except groups/domain/grid_xy carries one element per branch, so
-# RANGE runs one pass over the groups: the row-set union, the pop/ag/mrate
-# subsetting, and the branch loop are shared. rr_r is the real-concentration RR
-# matrix behind pwr; it is validated here and lets a caller rebuild the table.
+# 一个或多个取值分支的宽格式网格结果：tibble(x, y, 各取值列)。
+# 行是各组掩码按组顺序取的并集，也等于各组丢弃不同网格时
+# dplyr::full_join() 产出的行集合；某个组丢弃了某网格，
+# 该组就在那里保持 NA。
+# 除 groups/domain/grid_xy 之外，每个参数都按分支各一个元素，
+# 因此 RANGE 只对分组跑一遍：行集合的并集、pop/ag/mrate 的
+# 取子集以及分支循环都共享。rr_r 是 pwr 背后按真实浓度算出的 RR
+# 矩阵；此处校验它，并让调用方可以重建该表。
 mort_grid_table_branches <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups,
                                      domain, value_names, grid_xy, keep = NULL) {
   n <- length(pop)
@@ -203,7 +203,7 @@ mort_grid_table_branches <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups,
     stop("mort_grid_table_branches(): keep must have the shape of rr_c.")
   }
   dom_idx <- match(as.character(domain), colnames(pwr[[1]]))
-  # Row set: the union of the group masks in group order.
+  # 行集合：各组掩码按组顺序取的并集。
   selected <- vector("list", n_group)
   taken <- logical(n)
   for (g in seq_len(n_group)) {
@@ -219,8 +219,8 @@ mort_grid_table_branches <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups,
       base <- pop[ok] * ag[g, ok] * mrate[g, ok]
       dom_ok <- dom_idx[ok]
     }
-    # One value buffer per group: every branch writes only the kept positions,
-    # the rest stay NA for the branch that dropped the grid.
+    # 每组一个取值缓冲：各分支只写入保留下来的位置，
+    # 其余位置对该丢弃了网格的分支保持 NA。
     value <- rep(NA_real_, n)
     for (i in seq_len(n_branch)) {
       if (has_ok) {
@@ -233,7 +233,7 @@ mort_grid_table_branches <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups,
   out
 }
 
-# Single-branch wrapper kept for callers that compute one value column set.
+# 单分支封装：保留给只计算一组取值列的调用方。
 mort_grid_table <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups, domain,
                             value_names, grid_xy, keep = NULL) {
   mort_grid_table_branches(
@@ -252,11 +252,11 @@ mort_grid_table <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups, domain,
 }
 
 # ── join_report ────────────────────────────────────────────────────────────────
-# left_join + hierarchical NA report.  breakdown lists the join levels to report
-# (e.g. c("domain", "concentration")); levels absent from the joined frame are
-# ignored, so a stale breakdown cannot abort a diagnostic call.
-# Reports: L1 = level-1 value entirely missing → L2 = level-1/2 entirely missing
-# → L3 = remaining level values missing.
+# left_join + 分层 NA 报告。breakdown 列出要报告的 join 层级
+# （例如 c("domain", "concentration")）；join 后数据帧中不存在的层级
+# 会被忽略，因此过时的 breakdown 不会让诊断调用中止。
+# 报告内容：L1 = 第 1 层取值完全缺失 → L2 = 第 1/2 层完全缺失
+# → L3 = 其余层级的取值缺失。
 join_report <- function(
   x,
   y,
@@ -276,8 +276,8 @@ join_report <- function(
   x <- x |> mutate(.key_ok = rowSums(across(all_of(by), is.na)) == 0)
   result <- left_join(x, y, by = by, relationship = relationship)
   show_n <- if (verbose) Inf else 6
-  # The grid-level frame has domain and concentration but no endpoint/agegroup
-  # columns; only levels present after the join can feed distinct().
+  # 格级数据帧有 domain 与浓度，但没有终点/年龄档列；
+  # 只有 join 后存在的层级才能传给 distinct()。
   bd <- intersect(breakdown %||% character(), names(result))
   for (col in new_cols) {
     na_rows <- result |> filter(.key_ok, is.na(.data[[col]]))
@@ -293,11 +293,11 @@ join_report <- function(
       next
     }
     matched <- result |> filter(.key_ok, !is.na(.data[[col]]))
-    # L1 — level-1 values with zero matches
+    # L1 —— 第 1 层中零匹配的取值
     na_lvl1 <- na_rows |> distinct(across(all_of(bd[1]))) |> pull(1)
     ok_lvl1 <- matched |> distinct(across(all_of(bd[1]))) |> pull(1)
     l1 <- setdiff(na_lvl1, ok_lvl1)
-    # L2 / L3 — partially matching level-1 values
+    # L2 / L3 —— 第 1 层中部分匹配的取值
     partial <- intersect(na_lvl1, ok_lvl1)
     if (length(bd) >= 3 && length(partial) > 0) {
       ok_ep <- matched |>
@@ -315,7 +315,7 @@ join_report <- function(
         filter(.data[[bd[1]]] %in% partial) |>
         distinct(across(all_of(bd)))
     }
-    # format
+    # 格式化
     l1_label <- str_c(bd[1], "(s) entirely missing")
     l2_label <- str_c(str_c(bd[1:2], collapse = "/"), "(s) entirely missing")
     l3_label <- str_c(str_c(bd, collapse = "/"), "(s) missing")
@@ -349,23 +349,23 @@ join_report <- function(
   result |> select(-.key_ok)
 }
 
-# ── diagnostic reports and input-identity cache (v6.3) ─────────────────────────
-# Mortality() computed and printed five input diagnostics on every call. The
-# decomposition cache bypasses Mortality() and, before v6.3 diagnostics, printed
-# only its own clamp report, so the v6.2 diagnostics disappeared from the
-# decomposition snapshots. The helpers below return the v6.2 text byte for byte
-# and print nothing:
-#   Mortality()               prints one copy on every call;
-#   decomp_input_cache()      prints one copy per distinct text per run.
-# The cache environment also memoises the two expensive input-identified steps:
-# the RR key check (about 0.21 s per Mortality() call) and the coverage report
-# (about 0.05 s). Keys use rlang::hash(), a tidyverse dependency, as the cheap
-# content fingerprint; editing an input changes its hash and reruns the step.
-# The cache lives in one R process and is never written to disk.
+# ── 诊断报告与输入身份缓存（v6.3） ──────────────────────────────────────────────
+# Mortality() 每次调用都会计算并打印五项输入诊断。分解缓存
+# 绕过了 Mortality()，并且在 v6.3 诊断之前只打印它自己的 clamp 报告，
+# 因此 v6.2 的诊断从分解快照中消失了。下面的辅助函数
+# 逐字节返回 v6.2 的文本，
+# 自身不打印任何内容：
+#   Mortality()               每次调用打印一份；
+#   decomp_input_cache()      每次运行按不同文本各打印一份。
+# 缓存环境还记忆化了两个代价较高、由输入识别的步骤：
+# RR 键检查（每次 Mortality() 调用约 0.21 s）与覆盖报告
+# （约 0.05 s）。键用 rlang::hash() 计算，它来自 tidyverse 依赖，
+# 作为廉价的内容指纹；改动输入会改变哈希，从而重跑该步骤。
+# 缓存存在于同一个 R 进程中，从不写入磁盘。
 
 .mortality_cache <- new.env(parent = emptyenv())
 
-# Clear the caches and their test counters.
+# 清空缓存及其测试计数器。
 mortality_cache_reset <- function() {
   .mortality_cache$rr_keys <- new.env(parent = emptyenv())
   .mortality_cache$coverage <- new.env(parent = emptyenv())
@@ -377,10 +377,10 @@ mortality_cache_reset <- function() {
 
 mortality_cache_reset()
 
-# Identity of the standardised RR table: model name, row count, concentration
-# precision, and a content hash of the five columns the key check reads. The
-# model name falls back to a fixed label, never to NA: every unset name would
-# otherwise share one cache entry.
+# 标准化 RR 表的身份：模型名、行数、浓度
+# 精度，以及键检查所读五列的内容哈希。模型名
+# 回退到固定标签，绝不回退到 NA：否则所有未设置的名称会
+# 共用同一个缓存条目。
 mortality_rr_identity <- function(rr_tbl) {
   model <- get0(".CR_Model", envir = globalenv(), ifnotfound = NULL)
   model <- if (is.null(model) || length(model) != 1L || is.na(model)) {
@@ -400,9 +400,9 @@ mortality_rr_identity <- function(rr_tbl) {
   )
 }
 
-# assert_unique_key() on the RR table, once per table identity. Mortality() and
-# decomp_input_cache() both call this, so one table is scanned once per session
-# even when both paths run.
+# 对 RR 表调用 assert_unique_key()，每个表身份一次。Mortality() 与
+# decomp_input_cache() 都会调用它，因此即使两条路径都跑，一张表在
+# 每次会话中也只扫描一次。
 mortality_assert_rr_key <- function(rr_tbl) {
   key <- mortality_rr_identity(rr_tbl)
   if (exists(key, envir = .mortality_cache$rr_keys, inherits = FALSE)) {
@@ -418,7 +418,7 @@ mortality_assert_rr_key <- function(rr_tbl) {
   invisible(TRUE)
 }
 
-# v6.2 clamp text; character(0) when every concentration is inside the range.
+# v6.2 的 clamp 文本；所有浓度都在范围内时返回 character(0)。
 mortality_clamp_text <- function(n_lo, n_hi, rr_range, label) {
   if (n_lo + n_hi == 0) {
     return(character())
@@ -440,10 +440,10 @@ mortality_clamp_text <- function(n_lo, n_hi, rr_range, label) {
   )
 }
 
-# Clamp one concentration vector to the RR range and describe the edit. The
-# counts come back so a caller that feeds the same vector to both roles (the
-# decomposition cache gives every scenario column to Conc_r and Conc_c) can print
-# both labels without recounting.
+# 把一个浓度向量截到 RR 范围内，并描述这次改动。
+# 计数一并返回，这样把同一向量同时用于两个角色的调用方（分解缓存
+# 会把每个情景列同时传给 Conc_r 与 Conc_c）无需重算就能
+# 打印两个标签。
 mortality_clamp_report <- function(conc_vec, rr_range, label) {
   n_lo <- sum(conc_vec < rr_range[[1]], na.rm = TRUE)
   n_hi <- sum(conc_vec > rr_range[[2]], na.rm = TRUE)
@@ -455,8 +455,8 @@ mortality_clamp_report <- function(conc_vec, rr_range, label) {
   list(text = text, value = conc_vec, n_lo = n_lo, n_hi = n_hi)
 }
 
-# v6.2 text for grids in Grids that have no partner row. kind = "concentration"
-# checks the grids of Conc_r, kind = "population" checks the grids of pop.
+# 针对 Grids 中没有配对行的网格的 v6.2 文本。kind = "concentration" 时
+# 检查 Conc_r 的网格，kind = "population" 时检查 pop 的网格。
 mortality_orphan_report <- function(grid_xy, source_xy, Grids, domain, kind,
                                     show_n) {
   orphan <- anti_join(grid_xy, source_xy, by = c("x", "y"))
@@ -485,10 +485,10 @@ mortality_orphan_report <- function(grid_xy, source_xy, Grids, domain, kind,
   )
 }
 
-# v6.2 coverage text for one set of grid, rate, age, concentration, and
-# population inputs. base_c follows Mortality()'s convention: the domain column is
-# named "domain". Returns 0-2 strings: domains dropped from every group, then
-# domains dropped from some groups.
+# 针对一组网格、率、年龄、浓度与人口输入的 v6.2 覆盖文本。
+# base_c 沿用 Mortality() 的约定：域列名为
+# "domain"。返回 0 到 2 个字符串：先从所有组中被丢弃的域，
+# 再从部分组中被丢弃的域。
 mortality_coverage_report <- function(base_c, usable_groups, mrate, ag, show_n) {
   grid_domain <- base_c |>
     filter(!is.na(domain)) |>
@@ -568,10 +568,10 @@ mortality_coverage_report <- function(base_c, usable_groups, mrate, ag, show_n) 
   reports
 }
 
-# Identity of the report above. Only the parts the report reads enter the key:
-# domain labels, the NA masks of concentration and population, and the distinct
-# coverage sets of the rate and age tables. Concentration and population
-# magnitudes never reach the text, so editing them does not invalidate the entry.
+# 上面报告的输入身份。只有报告真正读取的部分进入键：
+# 域标签、浓度与人口的 NA 掩码，以及率表与年龄表中
+# 去重后的覆盖集合。浓度与人口的数值大小
+# 从不进入文本，因此改动它们不会使该条目失效。
 mortality_coverage_key <- function(base_c, usable_groups, mrate, ag, domain,
                                    show_n) {
   rate_coverage <- mrate |> distinct(domain, endpoint, agegroup)
@@ -595,9 +595,9 @@ mortality_coverage_key <- function(base_c, usable_groups, mrate, ag, domain,
   )
 }
 
-# Cached coverage report: computed once per input identity. The caller prints the
-# returned strings on every call, so the text still appears once per Mortality()
-# call.
+# 带缓存的覆盖报告：每个输入身份只计算一次。调用方每次调用都打印
+# 返回的字符串，因此文本仍然在每次 Mortality()
+# 调用中出现一次。
 mortality_coverage_cached <- function(base_c, usable_groups, mrate, ag, domain,
                                       show_n) {
   key <- mortality_coverage_key(
@@ -615,42 +615,42 @@ mortality_coverage_cached <- function(base_c, usable_groups, mrate, ag, domain,
   reports
 }
 
-# Gridded PM2.5 attributable mortality, PWRR-normalised.
+# 格级 PM2.5 归因死亡，PWRR 归一化。
 #
-# mRate is domain-level survey data, not a grid-level rate. Under the
-# relative-risk principle I_g / I_domain = RR_e,a(C_g) / PWRR_domain,e,a, so the
-# zero-PM2.5 baseline is uniform within a domain x endpoint x age group:
+# mRate 是域级调查数据，每个域一个取值。按相对风险
+# 原理 I_g / I_domain = RR_e,a(C_g) / PWRR_domain,e,a，零 PM2.5
+# 基线在同一域 × 终点 × 年龄组内一致：
 #   I_0 = I_domain / PWRR_domain,e,a
 #   PWRR_domain,e,a = sum_g(Pop_g * RR_e,a(C_g)) / sum_g(Pop_g)
-# Attributable deaths per grid against the TMREL:
+# 各网格相对 TMREL 的归因死亡：
 #   Mort_g = Pop_g * AgeStruc_a * (I_g - I_0)
 #          = Pop_g * AgeStruc_a * MortRate_domain,e,a * (RR_e,a(C_g) - 1)
 #            / PWRR_domain,e,a
-# AgeStruc is constant within a domain x age group, so it cancels from PWRR. One
-# PWRR per domain, averaged across endpoints or ages, is invalid: it mixes curves
-# with different RR levels and biases each endpoint in the opposite direction.
-# CI = "RANGE" gives each branch its own PWRR (MEAN/UP/LOW). The grid-level PAF
-# (RR_g - 1) / RR_g implies I_0 = MortRate / RR_g per grid; the PWRR route keeps
-# one physically consistent I_0 per domain x endpoint x age group.
+# AgeStruc 在同一域 × 年龄组内为常数，因此在 PWRR 中约掉。
+# 每个域只用一份跨终点或跨年龄平均的 PWRR 是无效的：它把 RR
+# 水平不同的曲线混在一起，并把每个终点的偏差推向相反方向。
+# CI = "RANGE" 时各分支使用自己的 PWRR（MEAN/UP/LOW）。格级 PAF
+# (RR_g - 1) / RR_g 意味着每格 I_0 = MortRate / RR_g；PWRR 路径则在
+# 每个域 × 终点 × 年龄组上保持一个物理上自洽的 I_0。
 #
-#   Grids    grid table with x, y, and the domain column.
-#   Conc_r   real concentration, x/y/concentration; defines PWRR.
-#   Conc_c   counterfactual concentration for the RR numerator; defaults to
-#            Conc_r.
-#   ag       age structure proportions by domain and age group.
-#   mRate    baseline rates by domain, endpoint, and age group.
-#   pop      grid population, x/y/Pop.
-#   CI       "MEAN" (default), "UP", "LOW", or "RANGE".
-#   domain   spatial column such as "Country"; NULL auto-detects it.
-#   verbose  FALSE truncates domain names in warnings to 6; TRUE shows all.
-#   debug    FALSE uses a plain left_join; TRUE adds join_report() NA
-#            diagnostics.
-#   validate_keys  TRUE (default) checks input keys for NA and duplicates; set
-#            FALSE only for input already checked by read_files(). Column, RR
-#            key, output key, precision, and unit checks stay active.
+#   Grids    含 x、y 与域列的网格表。
+#   Conc_r   真实浓度，x/y/concentration；决定 PWRR。
+#   Conc_c   RR 分子用的反事实浓度；默认为
+#            Conc_r。
+#   ag       按域与年龄组的年龄结构比例。
+#   mRate    按域、终点与年龄组的基线率。
+#   pop      网格人口，x/y/Pop。
+#   CI       "MEAN"（默认）、"UP"、"LOW" 或 "RANGE"。
+#   domain   空间列，例如 "Country"；NULL 时自动识别。
+#   verbose  FALSE 时警告中的域名截断为 6 个；TRUE 时全部显示。
+#   debug    FALSE 用普通 left_join；TRUE 增加 join_report() 的 NA
+#            诊断。
+#   validate_keys  TRUE（默认）检查输入键的 NA 与重复；仅在输入已由
+#            read_files() 检查过时才设为 FALSE。列、RR
+#            键、输出键、精度与单位检查仍然生效。
 #
-# Returns a wide frame with one column per endpoint-agegroup-CI per grid cell,
-# suffixed _MEAN, _UP, _LOW when CI = "RANGE".
+# 返回宽格式数据帧，每个网格单元每个终点-年龄组-CI 一列，
+# CI = "RANGE" 时加 _MEAN、_UP、_LOW 后缀。
 Mortality <- function(
   Grids,
   Conc_r,
@@ -678,7 +678,7 @@ Mortality <- function(
     stop("domain must be one Grid_info column name.")
   }
 
-  # ---- Guard: required columns and key uniqueness ----
+  # ---- 守卫：必需列与键唯一性 --------------------------------------
   require_columns(Grids, c("x", "y", domain), "Grids")
   require_columns(Conc_r, c("x", "y", "concentration"), "Conc_r")
   require_columns(Conc_c, c("x", "y", "concentration"), "Conc_c")
@@ -689,7 +689,7 @@ Mortality <- function(
   if (validate_keys) {
     assert_unique_key(Grids, c("x", "y"), "Grids")
     assert_unique_key(Conc_r, c("x", "y"), "Conc_r")
-    # Conc_c defaults to Conc_r; one check covers both in that case.
+    # Conc_c 默认取 Conc_r；这种情况下一次检查即可覆盖两者。
     if (!identical(Conc_c, Conc_r)) {
       assert_unique_key(Conc_c, c("x", "y"), "Conc_c")
     }
@@ -722,7 +722,7 @@ Mortality <- function(
     stop("Population contains negative values.")
   }
 
-  # ---- Get standardised RR table ----
+  # ---- 取标准化的 RR 表 --------------------------------------------
   RR_raw <- .RR_std_tbl
   if (is.null(RR_raw) || nrow(RR_raw) == 0) {
     stop("RR lookup table is empty. Run set_Model() first.")
@@ -742,8 +742,8 @@ Mortality <- function(
     )
   }
 
-  # RR table metadata wins over the globals so a hand-assigned table cannot run
-  # with the unit or PWRR branch of a different model.
+  # RR 表的元数据优先于全局设置，这样手工赋值的表不会带着
+  # 其他模型的单位或 PWRR 分支运行。
   rr_meta <- get0(".RR_meta", envir = globalenv(), ifnotfound = list())
   conc_unit <- get0(".CONC_UNIT", envir = globalenv(), ifnotfound = NULL)
   rr_unit <- attr(RR_raw, "conc_unit", exact = TRUE) %||%
@@ -756,9 +756,9 @@ Mortality <- function(
     )
   }
 
-  # RR_std() returns canonical keys and a duplicate-free table, so tables built
-  # by set_Model() skip the re-normalisation. Tables assigned by hand keep the
-  # original path.
+  # RR_std() 返回规范键与无重复的表，因此由 set_Model() 构建的表
+  # 跳过再次归一化。手工赋值的表仍走
+  # 原来的路径。
   if (!isTRUE(attr(RR_raw, "rr_normalized", exact = TRUE))) {
     RR_raw <- RR_raw |>
       mutate(
@@ -767,8 +767,8 @@ Mortality <- function(
         agegroup = matchable(as.numeric(agegroup), 0)
       )
   }
-  # The key check is the largest fixed cost of a call (about 0.21 s), and
-  # RR_std() output rarely changes, so run it once per table identity.
+  # 键检查是一次调用中最大的固定开销（约 0.21 s），而 RR_std() 的输出
+  # 很少变化，因此每个表身份只跑一次。
   mortality_assert_rr_key(RR_raw)
   if (!setequal(unique(RR_raw$CI), c("MEAN", "UP", "LOW"))) {
     stop("RR lookup table must contain exactly MEAN, UP, and LOW branches.")
@@ -781,7 +781,7 @@ Mortality <- function(
     stop("PWRR branch mode must be 'branch' or 'mean'.")
   }
 
-  # ---- Clamp concentrations to RR lookup table range ----
+  # ---- 把浓度截到 RR 查找表范围内 ----------------------------------
   clamp_r <- mortality_clamp_report(
     as.numeric(Conc_r$concentration),
     rr_conc_range,
@@ -804,7 +804,7 @@ Mortality <- function(
   Conc_c <- Conc_c |>
     mutate(concentration = matchable(clamp_c$value, conc_dgt))
 
-  # ---- Guard: coordinate overlap ----
+  # ---- 守卫：坐标重叠 ----------------------------------------------
   grid_xy <- Grids |> select(x, y) |> distinct()
   conc_xy <- Conc_r |> select(x, y) |> distinct()
   pop_xy <- pop |> select(x, y) |> distinct()
@@ -823,9 +823,9 @@ Mortality <- function(
     log_msg(WARN, "{pop_orphan}")
   }
 
-  # ---- Base tables: one row per grid ----
-  # base_c uses the counterfactual/real concentration for the RR numerator;
-  # base_r uses the real concentration for PWRR.
+  # ---- 基础表：每格一行 --------------------------------------------
+  # base_c 用反事实/真实浓度算 RR 分子；
+  # base_r 用真实浓度算 PWRR。
   base_xy <- Grids |>
     select(x, y, domain = all_of(domain))
   base_c <- base_xy |>
@@ -835,10 +835,10 @@ Mortality <- function(
     left_join(Conc_r, by = c("x", "y")) |>
     left_join(pop, by = c("x", "y"))
 
-  # ---- Per endpoint × agegroup groups ----
-  # RANGE covers every branch; a single CI covers only its own branch. Both key
-  # sets and their order match the old RR_all |> distinct() (pivot_wider() keeps
-  # the first-appearance order of the same keys).
+  # ---- 按终点 × 年龄档分组 -----------------------------------------
+  # RANGE 覆盖全部分支；单个 CI 只覆盖它自己的分支。两组键
+  # 及其顺序都与旧的 RR_all |> distinct() 一致（pivot_wider() 保持
+  # 相同键的首次出现顺序）。
   groups <- if (CI == "RANGE") {
     RR_raw |> distinct(endpoint, agegroup)
   } else {
@@ -875,10 +875,10 @@ Mortality <- function(
     )
   }
 
-  # ---- Report silent grid drops from the required-column filter ----
-  # The filter below drops grid rows without a word. Two input causes are
-  # reported here; values, row order, and the NA pattern stay unchanged. The
-  # report is computed once per input identity and printed once per call.
+  # ---- 报告必需列过滤导致的静默网格丢弃 ----------------------------
+  # 下面的过滤会静默丢弃网格行。这里报告两种输入
+  # 原因；取值、行序与 NA 模式保持不变。该
+  # 报告每个输入身份计算一次，每次调用打印一次。
   coverage_reports <- mortality_coverage_cached(
     base_c = base_c,
     usable_groups = usable_groups,
@@ -908,10 +908,10 @@ Mortality <- function(
     )
   }
 
-  # ---- Compute: vectorised engine, or the join path for debug/diagnostics ----
-  # debug = TRUE keeps the join chain so join_report() prints the same
-  # diagnostics. That is the only caller of mortality_join_path(); it stays as
-  # the permanent reference path.
+  # ---- 计算：向量化引擎，或 debug/诊断用的 join 路径 ----------------
+  # debug = TRUE 时保留 join 链，以便 join_report() 打印同样的
+  # 诊断。这是 mortality_join_path() 唯一的调用方；它保留为
+  # 长期存在的参照路径。
   use_engine <- !isTRUE(debug)
   result <- if (use_engine) {
     mortality_engine(
@@ -949,9 +949,9 @@ Mortality <- function(
   result
 }
 
-# ── engine path (v6.3) ─────────────────────────────────────────────────────────
-# One RR matrix per branch and one PWRR table per denominator branch, then one
-# grid-table assembly per value branch. No dplyr join, no per-group filter.
+# ── 引擎路径（v6.3） ────────────────────────────────────────────────────────────
+# 每个分支一张 RR 矩阵，每个分母分支一张 PWRR 表，然后每个取值分支
+# 组装一次网格表。不使用 dplyr join，也不按组过滤。
 mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
                              pwr_branch, show_n) {
   if (nrow(base_c) != nrow(base_r)) {
@@ -968,9 +968,9 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
     rr_raw[rr_raw$CI == branch, c("concentration", "endpoint", "agegroup", "RR")]
   }
 
-  # Value columns per branch; PWRR denominator per value column: RANGE uses the
-  # matching branch when pwr_branch = "branch", the MEAN branch otherwise, and a
-  # single CI uses the MEAN branch when pwr_branch = "mean".
+  # 每个分支一组取值列；每个取值列一个 PWRR 分母：pwr_branch = "branch" 时
+  # RANGE 使用对应的分支，否则使用 MEAN 分支；单个 CI 在
+  # pwr_branch = "mean" 时使用 MEAN 分支。
   value_branches <- if (ci == "RANGE") c("MEAN", "UP", "LOW") else ci
   pwr_for_value <- if (ci == "RANGE") {
     if (identical(pwr_branch, "branch")) {
@@ -985,7 +985,7 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
   }
   pwr_branches <- unique(pwr_for_value)
 
-  # Conc_c defaults to Conc_r, so the two RR matrices are the same records.
+  # Conc_c 默认取 Conc_r，因此两张 RR 矩阵的记录相同。
   same_conc <- identical(conc_c, conc_r)
   rr_num <- map(value_branches, function(branch) {
     mort_rr_matrix(conc_c, branch_tbl(branch), groups)
@@ -1000,8 +1000,8 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
   }) |>
     set_names(pwr_branches)
 
-  # compute_group() dropped a grid from every PWRR branch when any branch value
-  # was NA at its concentration; mirror that shared row filter.
+  # 任一分支在其浓度上的取值为 NA 时，compute_group() 会把该网格从所有 PWRR
+  # 分支中丢弃；这里复现同一套共享行过滤。
   if (length(pwr_branches) > 1) {
     den_ok <- !is.na(rr_den[[1]])
     for (branch in pwr_branches[-1]) {
@@ -1017,8 +1017,8 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
   dom_names <- colnames(pwr_tbl[[1]])
   dom_code <- match(as.character(grid_domain), dom_names)
 
-  # Age structure and mortality rate are domain-level. Expand them through one
-  # small domain lookup instead of a per-group match() over every grid.
+  # 年龄结构与死亡率都是域级的。用一次小的域查找把它们展开，
+  # 无需对每个网格、每个组做 match()。
   expand_by_domain <- function(values, domain_values) {
     values[match(dom_names, as.character(domain_values))][dom_code]
   }
@@ -1031,7 +1031,7 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
     expand_by_domain(one$MortRate, one$domain)
   }))
 
-  # ---- Guard: PWRR must be finite and >= 1, in the join path's report order --
+  # ---- 守卫：PWRR 必须有限且 >= 1，按 join 路径的报告顺序 ------------
   n_dom <- length(dom_names)
   n_pwr <- length(pwr_branches)
   skipped_keys <- character()
@@ -1043,13 +1043,13 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
       one <- pwr_tbl[[pwr_branches[[j]]]][g, ]
       is_inf[, j] <- is.infinite(one)
       is_lt1[, j] <- one < 1 & !is.na(one)
-      # is.nan(), not is.na(): an NA cell means the domain has no usable grid,
-      # which the join path never puts into pwr and so never reports. NaN is the
-      # zero-weight domain it does report ("no valid PWRR").
+      # 用 is.nan()，不用 is.na()：NA 单元表示该域没有可用网格，
+      # join 路径从不把这种域放进 pwr，因此也从不报告。NaN 才是它
+      # 会报告的零权重域（"no valid PWRR"）。
       is_nan[, j] <- is.nan(one)
     }
     if (any(is_inf) || any(is_lt1)) {
-      # t() + which() walks domain-major, branch-minor, as pivot_longer() did.
+      # t() + which() 按域优先、分支次之的顺序遍历，与 pivot_longer() 一致。
       bad_pos <- which(t(is_inf | is_lt1))
       bad_keys <- str_c(
         dom_names[((bad_pos - 1L) %/% n_pwr) + 1L],
@@ -1083,7 +1083,7 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
     }
   }
 
-  # ---- Values: one shared keep mask and one pass over the branch set ----------
+  # ---- 取值：一份共享 keep 掩码，对分支集合遍历一遍 ------------------
   keep <- mort_keep_mask(
     rr_num[value_branches],
     pwr_tbl[pwr_for_value],
@@ -1093,8 +1093,8 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
     mr_mat
   )
 
-  # One call, one pass over the endpoint/agegroup groups. Column order is
-  # group-major, then the branch order, matching the join path.
+  # 一次调用，对终点/年龄档分组只遍历一遍。列顺序为
+  # 分组优先，然后是分支顺序，与 join 路径一致。
   result <- mort_grid_table_branches(
     rr_c = rr_num[value_branches],
     rr_r = map(pwr_for_value, function(branch) rr_den[[branch]]),
@@ -1124,11 +1124,11 @@ mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
   result
 }
 
-# ── join path (pre-v6.3 reference) ─────────────────────────────────────────────
-# Permanent debug = TRUE path: join_report() prints the per-join NA diagnostics
-# that the engine does not reproduce. It is the original implementation: one
-# dplyr join chain per endpoint/agegroup group plus a full_join() reduce when
-# groups keep different grids.
+# ── join 路径（v6.3 前的参照实现） ──────────────────────────────────────────────
+# 长期保留的 debug = TRUE 路径：join_report() 打印每次 join 的 NA 诊断，
+# 引擎不复制这部分。这是原始实现：每个终点/年龄档分组
+# 一条 dplyr join 链，当各组保留不同网格时再用
+# full_join() 归约。
 mortality_join_path <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
                                 pwr_branch, verbose, debug, show_n) {
   use_branch_pwr <- ci == "RANGE" && identical(pwr_branch, "branch")
@@ -1360,8 +1360,8 @@ mortality_join_path <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
   }
 
   data_list <- map(group_results, "data")
-  # Groups normally keep exactly the same (x, y) rows, so the wide result is a
-  # column bind. Fall back to a full join when a group dropped or reordered rows.
+  # 各组通常保留完全相同的 (x, y) 行，因此宽结果是
+  # 列绑定。某个组丢弃或重排了行时，退回 full_join。
   key_cols <- c("x", "y")
   keys_ref <- data_list[[1]][key_cols]
   same_keys <- all(map_lgl(
@@ -1383,13 +1383,13 @@ mortality_join_path <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
   }
 }
 
-# Auto-detect the PWRR domain column from Grids × mRate overlap.
-# The defaults keep detect_domain() callable with no arguments (Mortality_at(),
-# Decomposition() and aggregate_drivers()); Mortality() passes its own inputs so
-# a stale global Grid_info/MortRate cannot change the domain column it uses.
+# 由 Grids × mRate 的重叠自动识别 PWRR 域列。
+# 默认值让 detect_domain() 可以无参调用（Mortality_at()、
+# Decomposition() 与 aggregate_drivers()）；Mortality() 传入自己的输入，
+# 因此过时的全局 Grid_info/MortRate 不会改变它使用的域列。
 detect_domain <- function(Grids = Grid_info, mRate = MortRate) {
-  # Try each mRate column against each Grids non-coordinate column.
-  # Pick the pair with the most overlapping unique values.
+  # 把每个 mRate 列与每个 Grids 非坐标列配对尝试。
+  # 选取唯一取值重叠最多的一对。
   geo_candidates <- setdiff(names(Grids), c("x", "y"))
   mort_candidates <- setdiff(names(mRate), c("endpoint", "agegroup"))
 
@@ -1445,17 +1445,17 @@ detect_domain <- function(Grids = Grid_info, mRate = MortRate) {
   best_geo
 }
 
-# Grid-level attributable mortality for one loaded year/scenario. Thin wrapper:
-# pulls the loaded globals, auto-detects the PWRR domain, and calls Mortality().
-#   at       year/scenario, e.g. "base2015".
-#   CI       "MEAN" (default), "UP", "LOW", or "RANGE".
-#   domain   grid domain column; NULL (default) auto-detects it from the
-#            Grid_info x MortRate overlap.
-#   verbose  FALSE truncates domain names in warnings to 6; TRUE shows all.
-#   debug    FALSE uses a plain left_join; TRUE adds join_report() diagnostics.
-#   validate_keys  TRUE (default) re-checks input keys; FALSE only after
-#            read_files() validated them.
-# Returns the Mortality() wide grid frame.
+# 单个已加载年份/情景的格级归因死亡。薄封装：
+# 读取已加载的全局对象，自动识别 PWRR 域，然后调用 Mortality()。
+#   at       年份/情景，例如 "base2015"。
+#   CI       "MEAN"（默认）、"UP"、"LOW" 或 "RANGE"。
+#   domain   网格域列；NULL（默认）时由
+#            Grid_info × MortRate 的重叠自动识别。
+#   verbose  FALSE 时警告中的域名截断为 6 个；TRUE 时全部显示。
+#   debug    FALSE 用普通 left_join；TRUE 增加 join_report() 诊断。
+#   validate_keys  TRUE（默认）重新检查输入键；仅在
+#            read_files() 检查过之后才设为 FALSE。
+# 返回 Mortality() 的宽格式网格数据帧。
 Mortality_at <- function(
   at,
   CI = "MEAN",

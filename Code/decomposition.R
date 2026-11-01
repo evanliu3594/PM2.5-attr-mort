@@ -1,40 +1,40 @@
-# Decomposition module — driving forces of the PM2.5 health burden
+# Decomposition 模块 — PM2.5 健康负担的驱动因素
 #
-#   decomp_sequences          — 24 cumulative factor sequences (documented order)
-#   Decomposition()           — grid-level contributions for one sequence
-#   Decomposition_summary()   — country-level contributions for one sequence
-#   aggregate_drivers()       — all 24 sequences; writes Summary and Sequences
+#   decomp_sequences          — 24 条累计因子序列（按记录的排列顺序）
+#   Decomposition()           — 单条序列的网格级贡献
+#   Decomposition_summary()   — 单条序列的国家级贡献
+#   aggregate_drivers()       — 全部 24 条序列；写出 Summary 与 Sequences
 #
-# State cache: the 24 sequences share 16 unique factor states. get_decomp_state()
-# and decomp_state_summary() cache them by sorted factor set. decomp_fill_cache()
-# builds missing states in one parallel batch when a Code/kernel.R plan is
-# active; without a plan the cache path stays serial.
+# state cache：24 条序列共用 16 个唯一 factor state。get_decomp_state()
+# 与 decomp_state_summary() 按排序后的因子集合缓存它们。Code/kernel.R 计划
+# 启用时，decomp_fill_cache() 用一批并发任务构建缺失的 state；没有计划时
+# cache 路径保持串行。
 #
-# Input cache (v6.3): every factor state differs only in which scenario column
-# each factor reads, so decomp_input_cache() builds the two RR matrices and the
-# four PWRR tables once per run and state_grid_cached() reuses them. When the
-# vectorised engine (Code/mortality.R) is absent, or a harness replaces
-# Mortality() in its own environment, the module keeps the join path.
+# 输入 cache（v6.3）：各 factor state 只差在每个因子读取哪个情景列，因此
+# decomp_input_cache() 每次运行只构建两个 RR 矩阵与四张 PWRR 表，
+# state_grid_cached() 复用它们。
+# 缺少向量化引擎（Code/mortality.R）时，或 harness 在自己的环境中替换
+# Mortality() 时，模块保留 join 路径。
 #
-# Requires: tidyverse, writexl. Loaded by: DrivingFactors.R.
-# NOTE 261026: PWRR is computed per domain × endpoint × agegroup.
-# NOTE 261027: parallel state construction via Code/kernel.R (optional).
-# Modified 261101: grid-set guard before differencing (C1); one concise NA and
-#   dropped-grid report per run (I7); decomp_sequences validated at load (I8);
-#   aggregate_drivers() caches state summaries only (I9) and creates Results/
-#   before writing (C2).
-# Modified 261101 (v6.3): state-independent inputs are cached once per run
-#   (decomp_input_cache(), state_grid_cached()); 16 states build two RR
-#   matrices and four PWRR tables instead of sixteen of each. Values stay
-#   bit-identical because the cached path calls the same engine functions.
-# Modified 261101 (v6.3 diagnostics): the cached path prints the same clamp,
-#   orphan, and coverage reports that Mortality() printed per state, once per
-#   run and with the v6.2 labels (Conc_r / Conc_c). aggregate_drivers() runs the
-#   grid-set guard once over the 16 summaries and every Decomposition_summary()
-#   call skips it.
+# 依赖：tidyverse、writexl。加载方：DrivingFactors.R。
+# 注 261026：PWRR 按 domain × endpoint × agegroup 计算。
+# 注 261027：通过 Code/kernel.R 并发构建 state（可选）。
+# 修改 261101：差分前做网格集守卫（C1）；每次运行输出一份简洁的 NA 与丢格
+#   报告（I7）；decomp_sequences 在加载时校验（I8）；
+#   aggregate_drivers() 只缓存 state 摘要（I9），写文件前创建 Results/
+#   （C2）。
+# 修改 261101（v6.3）：与 state 无关的输入每次运行缓存一次
+#   （decomp_input_cache()、state_grid_cached()）；16 个 state 只构建两个
+#   RR 矩阵与四张 PWRR 表，不再各构建 16 份。数值保持逐位一致，因为
+#   cache 路径调用同一批引擎函数。
+# 修改 261101（v6.3 诊断）：cache 路径打印与 Mortality() 相同的 clamp、
+#   orphan 与覆盖报告；这些报告 v6.2 按 state 打印，现在每次运行一次，
+#   并沿用 v6.2 的标签（Conc_r / Conc_c）。aggregate_drivers() 对 16 份
+#   摘要做一次网格集守卫，之后每次 Decomposition_summary() 调用都跳过
+#   它。
 
-# 24 decomposition sequences, written explicitly in the documented order ----
-# Columns step1..step4 are the order in which the factors are applied.
+# 24 条分解序列，按记录的排列顺序明文写出 ----
+# step1..step4 列给出各因子的施加顺序。
 
 decomp_sequences <- tribble(
   ~serie, ~step1, ~step2, ~step3, ~step4,
@@ -64,9 +64,9 @@ decomp_sequences <- tribble(
   24, "ORF", "EXP", "PA",  "PG"
 )
 
-# Fail at load, not after a 30-second run: a mistyped sequence row would apply
-# one factor twice and drop another, and the decomposition output would carry
-# no trace of the mistake (I8).
+# 在加载时失败，避免等 30 秒运行结束才发现：
+# 序列行写错会让一个因子施加两次并漏掉另一个，
+# 分解输出也不会留下这次错误的任何痕迹（I8）。
 validate_decomp_sequences <- function(x = decomp_sequences) {
   required <- c("serie", "step1", "step2", "step3", "step4")
   missing_cols <- setdiff(required, names(x))
@@ -115,11 +115,11 @@ validate_decomp_sequences <- function(x = decomp_sequences) {
 
 validate_decomp_sequences(decomp_sequences)
 
-# State after a prefix of factors ----
+# 施加因子前缀后的 state ----
 # PG  -> Pop (start -> end)
 # PA  -> AgeStruc (start -> end)
 # EXP -> Conc_c (start -> end)
-# ORF -> Conc_r (start -> end) and MortRate (start -> end)
+# ORF -> Conc_r (start -> end) 与 MortRate (start -> end)
 
 mort_state <- function(prefix, start.y, end.y) {
   list(
@@ -176,13 +176,13 @@ mort_at_prefix <- function(prefix, start.y, end.y, domain) {
   )
 }
 
-# TRUE when the cached input path may run. It needs the v6.3 engine functions,
-# the diagnostic helpers they print through, and an RR table in the same scope
-# as Mortality(), because the cached path reproduces Mortality()'s engine
-# internals. A harness that replaces Mortality() with a stub in its own
-# environment keeps the join path; a checkout without the engine falls back
-# cleanly. `env` is the scope that would run the cached path (the caller's frame
-# by default).
+# 返回 TRUE 表示 cache 输入路径可以运行。它需要 v6.3 引擎函数、
+# 这些函数用于打印的诊断辅助函数，以及与 Mortality() 同作用域的 RR 表，
+# 因为 cache 路径复现 Mortality() 的引擎内部逻辑。
+# harness 在自己的环境中用 stub 替换 Mortality() 时保留 join 路径；
+# 不含引擎的检出则平稳回退。
+# `env` 是运行 cache 路径的作用域。
+# 默认取调用方的帧。
 decomp_engine_available <- function(env = parent.frame()) {
   engine_functions <- c(
     "mort_rr_matrix", "mort_pwr_table", "mort_grid_table",
@@ -210,16 +210,16 @@ decomp_engine_available <- function(env = parent.frame()) {
   if (is.null(rr_raw) || nrow(rr_raw) == 0) {
     return(FALSE)
   }
-  # Same scope: in production all four functions come from globalenv. A stub
-  # Mortality() assigned to a test environment does not share the engine scope.
+  # 同作用域：生产环境中四个函数都来自 globalenv。
+  # 赋给测试环境的 stub Mortality() 与引擎不在同一作用域。
   identical(
     environment(get("Mortality", envir = env, inherits = TRUE)),
     environment(get("mort_grid_table", envir = env, inherits = TRUE))
   )
 }
 
-# Identity of one cached input set: scenario names, domain, and the RR table
-# identity (model name, row count, concentration precision).
+# 一组缓存输入的标识：情景名、domain，以及 RR 表的标识
+# （模型名、行数、浓度精度）。
 decomp_input_key <- function(start.y, end.y, domain) {
   rr_raw <- get0(".RR_std_tbl", ifnotfound = NULL, inherits = TRUE)
   model <- get0(".CR_Model", ifnotfound = NA_character_, inherits = TRUE)
@@ -242,12 +242,12 @@ decomp_input_key <- function(start.y, end.y, domain) {
   )
 }
 
-# Cache states within one decomposition run; sorted prefixes identify equivalent inputs.
+# 在一次分解运行内缓存 state；排序后的前缀标识等价输入。
 new_decomp_cache <- function() {
   cache <- new.env(parent = emptyenv())
   cache$states <- new.env(parent = emptyenv())
   cache$n_mortality <- 0L
-  # Input cache, built lazily by decomp_inputs_for() on the first state.
+  # 输入 cache，由 decomp_inputs_for() 在第一个 state 时惰性构建。
   cache$inputs <- NULL
   cache$engine <- exists("decomp_engine_available", mode = "function") &&
     decomp_engine_available()
@@ -263,16 +263,16 @@ decomp_state_key <- function(prefix, start.y, end.y, domain) {
   str_c(start.y, end.y, str_c(domain, collapse = "+"), factors, sep = "::")
 }
 
-# State-independent inputs plus the RR matrices and PWRR tables every state
-# shares. Called once per (start.y, end.y, domain, RR table) run.
+# 与 state 无关的输入，以及每个 state 共用的 RR 矩阵与 PWRR 表。
+# 每个（start.y、end.y、domain、RR 表）组合运行一次。
 #
-# Memory: one RR matrix is n_grid x G doubles; the cache holds two of them, four
-# G x D PWRR tables, the two population vectors, and the G x D per-domain
-# age-structure and mortality-rate matrices. At 68,302 grids and 15 groups that
-# is about 18 MB, plus about 33 MB for the four pre-expanded G x n_grid copies
-# (cached only while n_grid x G stays at or below 2e6 cells). At 0.1 degree
-# (about 800,000 grids) one RR matrix is about 96 MB, the cache stays near the
-# 192 MB of its two RR matrices, and the group matrices expand per state.
+# 内存：一个 RR 矩阵是 n_grid x G 个 double；cache 保存两个这样的矩阵、
+# 四张 G x D 的 PWRR 表、两个人口向量，以及 G x D 的分 domain 年龄结构
+# 与死亡率矩阵。
+# 在 68,302 个网格、15 个分组时约占 18 MB，再加约 33 MB 用于四份预先
+# 展开的 G x n_grid 副本（仅当 n_grid x G 不超过 2e6 个单元时才缓存）。
+# 在 0.1 度（约 800,000 个网格）时一个 RR 矩阵约 96 MB，cache 保持在两个
+# RR 矩阵约 192 MB 的规模，分组矩阵按 state 展开。
 decomp_input_cache <- function(start.y, end.y, domain) {
   rr_raw <- .RR_std_tbl
   if (is.null(rr_raw) || nrow(rr_raw) == 0) {
@@ -284,7 +284,7 @@ decomp_input_cache <- function(start.y, end.y, domain) {
     "RR lookup table"
   )
 
-  # ---- Same precision, unit, and normalisation guards as Mortality() ----
+  # ---- 与 Mortality() 相同的精度、单位与归一化守卫 ----
   conc_dgt <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
   rr_dgt <- attr(rr_raw, "dgt_conc", exact = TRUE) %||% conc_dgt
   if (!identical(as.integer(conc_dgt), as.integer(rr_dgt))) {
@@ -311,9 +311,9 @@ decomp_input_cache <- function(start.y, end.y, domain) {
         endpoint = tolower(endpoint),
         agegroup = matchable(as.numeric(agegroup), 0)
       )
-    # RR_std() key-checks the tables it builds before setting rr_normalized, so
-    # the expensive duplicate scan runs for hand-built tables only. The check is
-    # shared with Mortality() and runs once per table identity.
+    # RR_std() 在设置 rr_normalized 之前先对自己构建的表做键检查，
+    # 因此昂贵的重复扫描只对手工构建的表运行。该检查与 Mortality() 共用，
+    # 每个表标识运行一次。
     mortality_assert_rr_key(rr_raw)
   }
   if (!setequal(unique(rr_raw$CI), c("MEAN", "UP", "LOW"))) {
@@ -321,7 +321,7 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   }
   rr_conc_range <- range(as.numeric(rr_raw$concentration), na.rm = TRUE)
 
-  # ---- Scenario columns, one entry per distinct scenario name ----
+  # ---- 情景列，每个不同的情景名一个条目 ----
   scenarios <- unique(c(start.y, end.y))
   require_columns(Grid_info, c("x", "y", domain), "Grids")
   require_columns(Pop, c("x", "y", scenarios), "pop")
@@ -329,17 +329,17 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   require_columns(AgeGroup, c("domain", "agegroup", scenarios), "AgeGroup")
   grid_domain <- Grid_info |>
     select(x, y, domain = all_of(domain))
-  # Every state grid is a row subset of Grid_info, so one key check here covers
-  # the per-state "Mortality output" check that Mortality() runs.
+  # 每个 state 网格都是 Grid_info 的行子集，因此这里做一次键检查就覆盖了
+  # Mortality() 逐 state 做的 "Mortality output" 检查。
   assert_unique_key(grid_domain, c("x", "y"), "Grid_info")
 
-  # Concentrations: the real and counterfactual column both come from Conc_real,
-  # so one cached vector serves either role. One join carries every scenario
-  # column; clamping and matchable() stay per column, exactly as Mortality().
+  # 浓度：真实列与反事实列都来自 Conc_real，因此一个缓存向量可承担任一
+  # 角色。一次 join 携带所有情景列；clamp 与 matchable() 仍按列进行，与
+  # Mortality() 完全一致。
   #
-  # A scenario column is Conc_r in some factor states and Conc_c in others. v6.2
-  # printed one report per role per state; the unique texts are one per role, so
-  # clamp each column once and describe both roles with the same counts.
+  # 同一情景列在某些 factor state 中是 Conc_r，在另一些中是 Conc_c。v6.2
+  # 按角色、按 state 各打印一份报告；去重后的文本每个角色一份，因此每列
+  # 只 clamp 一次，用同一组计数描述两种角色。
   conc_frame <- Conc_real |> select(x, y, all_of(scenarios))
   clamp_reports <- character()
   for (at in scenarios) {
@@ -374,9 +374,9 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   pop <- map(scenarios, function(at) pop_joined[[at]]) |>
     set_names(scenarios)
 
-  # The grid sets of Conc_real and Pop do not change with the scenario column, so
-  # one orphan report each covers every state; v6.2 repeated the same text per
-  # state. show_n is 6 because Decomposition() has no verbose switch.
+  # Conc_real 与 Pop 的网格集不随情景列变化，因此各做一份 orphan 报告
+  # 即可覆盖所有 state；v6.2 曾按 state 重复同一段文本。show_n 取 6，
+  # 因为 Decomposition() 没有 verbose 开关。
   orphan_reports <- c(
     mortality_orphan_report(
       grid_domain[c("x", "y")],
@@ -419,7 +419,7 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   }) |>
     set_names(scenarios)
 
-  # ---- Groups, RR matrices, PWRR tables: the shared expensive part ----
+  # ---- 分组、RR 矩阵、PWRR 表：共用的昂贵部分 ----
   mean_branch <- rr_raw[
     rr_raw$CI == "MEAN",
     c("concentration", "endpoint", "agegroup", "RR")
@@ -428,12 +428,12 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   if (nrow(groups) == 0) {
     stop("RR lookup table has no endpoint-agegroup groups.")
   }
-  # ---- Coverage report for every scenario combination a state can read ----
-  # Population and counterfactual concentration select the grid rows; the rate
-  # and age tables select the covered endpoint/agegroup groups. The report reads
-  # no values, only NA masks and coverage sets, so mortality_coverage_cached()
-  # collapses the 16 combinations to one computation here. v6.2 repeated the same
-  # text once per state; print one copy per distinct text.
+  # ---- 每个 state 可能读到的情景组合的覆盖报告 ----
+  # 人口与反事实浓度决定网格行；死亡率表与年龄表决定被覆盖的
+  # endpoint/agegroup 分组。报告只读 NA 掩码与覆盖集合，不读数值，因此
+  # mortality_coverage_cached() 在这里把 16 个组合合并为一次计算。
+  # v6.2 曾按 state 重复同一段文本；
+  # 每种不同文本只打印一份。
   domain_vec <- grid_domain[["domain"]]
   coverage_reports <- character()
   for (conc_at in scenarios) {
@@ -456,8 +456,8 @@ decomp_input_cache <- function(start.y, end.y, domain) {
               ag[[ag_at]] |> distinct(agegroup),
               by = "agegroup"
             )
-          # Mortality() aborts before its coverage report when no group is
-          # usable, so print nothing for that combination.
+          # 没有可用分组时，Mortality() 在输出覆盖报告之前就已中止，
+          # 因此该组合不打印任何内容。
           if (nrow(usable_groups) == 0) {
             next
           }
@@ -492,8 +492,8 @@ decomp_input_cache <- function(start.y, end.y, domain) {
 
   pwr <- list()
   for (pop_at in scenarios) {
-    # One call per population scenario: the branch variant splits the domain
-    # rows and the population denominator once for both concentration columns.
+    # 每个人口情景调用一次：分支版本一次性为两个浓度列拆分 domain 行与
+    # 人口分母。
     tables <- mort_pwr_table_branches(
       rr[scenarios],
       pop[[pop_at]],
@@ -504,8 +504,8 @@ decomp_input_cache <- function(start.y, end.y, domain) {
     }
   }
 
-  # Per-domain group values (G x D) expand to G x n_grid per state, which keeps
-  # the cache small when a 0.1 degree grid makes one G x n_grid matrix 96 MB.
+  # 分 domain 的分组取值（G x D）按 state 展开为 G x n_grid；0.1 度网格
+  # 下一个 G x n_grid 矩阵占 96 MB，这样处理让 cache 保持较小。
   group_domain_matrix <- function(table, by_columns, value_column) {
     out <- matrix(NA_real_, nrow = nrow(groups), ncol = length(dom_names))
     for (g in seq_len(nrow(groups))) {
@@ -527,11 +527,11 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   }) |>
     set_names(scenarios)
 
-  # Expand the four G x n_grid matrices once when they stay small. At 68,302
-  # grids and 15 groups they cost about 33 MB; at 0.1 degree (about 800,000
-  # grids) the same four would cost about 384 MB, so the cache keeps only the
-  # per-domain tables and expands per state there. Values are identical either
-  # way; the limit bounds the cache near the two RR matrices.
+  # 四份 G x n_grid 矩阵规模较小时一次展开。
+  # 在 68,302 个网格、15 个分组时约占 33 MB；
+  # 在 0.1 度（约 800,000 个网格）时同样四份约需 384 MB，因此 cache 只保留
+  # 分 domain 的表，在那里按 state 展开。
+  # 两种方式数值一致；该上限把 cache 限制在两个 RR 矩阵的规模附近。
   expanded_cells <- nrow(grid_domain) * nrow(groups)
   if (expanded_cells <= 2e6) {
     ag_grid <- map(ag_dom, function(one) one[, dom_code, drop = FALSE]) |>
@@ -567,8 +567,8 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   )
 }
 
-# Build the input cache lazily for one decomp cache and reuse it until the
-# scenario names, domain, or RR table identity change.
+# 为一个 decomp cache 惰性构建输入 cache 并复用它，直到情景名、domain
+# 或 RR 表标识发生变化。
 decomp_inputs_for <- function(cache, start.y, end.y, domain) {
   key <- decomp_input_key(start.y, end.y, domain)
   inputs <- cache$inputs
@@ -579,9 +579,9 @@ decomp_inputs_for <- function(cache, start.y, end.y, domain) {
   inputs
 }
 
-# PWRR guard per state in Mortality()'s report order: Inf or PWRR < 1 aborts,
-# NaN warns and drops the affected rows. Running it per state keeps the warning
-# count of the join path (one warning per Mortality() call).
+# 按 Mortality() 的报告顺序逐 state 做 PWRR 守卫：Inf 或 PWRR < 1 中止，
+# NaN 告警并丢弃受影响的行。逐 state 运行保持 join 路径的告警次数
+# （每次 Mortality() 调用一条告警）。
 decomp_check_pwrr <- function(pwr_tbl, groups, dom_names, show_n = 6) {
   skipped_keys <- character()
   for (g in seq_len(nrow(groups))) {
@@ -634,8 +634,8 @@ decomp_check_pwrr <- function(pwr_tbl, groups, dom_names, show_n = 6) {
   invisible(NULL)
 }
 
-# One state grid from cached inputs. Semantics equal decomp_state_grid(): the
-# same groups, RR lookup, PWRR denominator, keep mask, and add_domain() tail.
+# 由缓存输入生成一个 state 网格。语义等同 decomp_state_grid()：相同的
+# 分组、RR 查找、PWRR 分母、保留掩码与 add_domain() 收尾。
 state_grid_from_inputs <- function(prefix, inputs, domain) {
   state <- mort_state(prefix, inputs$start.y, inputs$end.y)
   pwr <- inputs$pwr[[str_c(state$pop, "|", state$conc_r)]]
@@ -665,13 +665,13 @@ state_grid_from_inputs <- function(prefix, inputs, domain) {
   if (nrow(mort) == 0) {
     stop("Mortality result has 0 rows. Check input coverage.")
   }
-  # Output keys need no check here: decomp_input_cache() validates Grid_info and
-  # every output row is one of its rows.
+  # 这里无需检查输出键：decomp_input_cache() 已校验 Grid_info，
+  # 且每个输出行都是它的行之一。
   add_domain(mort, domain = domain)
 }
 
-# Grid-level state that reuses the shared input cache. Equivalent to
-# decomp_state_grid() when the v6.3 engine is present.
+# 复用共享输入 cache 的网格级 state。存在 v6.3 引擎时等同
+# decomp_state_grid()。
 state_grid_cached <- function(prefix, start.y, end.y, domain, cache = NULL) {
   if (is.null(cache)) {
     cache <- new_decomp_cache()
@@ -680,13 +680,13 @@ state_grid_cached <- function(prefix, start.y, end.y, domain, cache = NULL) {
   state_grid_from_inputs(prefix, inputs, domain)
 }
 
-# Country-level summary of one cached state.
+# 一个缓存 state 的国家级摘要。
 state_summary_cached <- function(prefix, start.y, end.y, domain, cache) {
   state_grid_cached(prefix, start.y, end.y, domain, cache = cache) |>
     state_summary_from_grid(domain = domain)
 }
 
-# One series as its five cumulative factor prefixes: start, then each step.
+# 一条序列的五个累计因子前缀：起点，然后每一步。
 decomp_series_prefixes <- function(serie) {
   seq_row <- decomp_sequences |> filter(serie == .env$serie)
   if (nrow(seq_row) != 1) {
@@ -704,8 +704,8 @@ decomp_series_prefixes <- function(serie) {
   )
 }
 
-# Unique factor states needed by the requested series, keyed by decomp_state_key().
-# 24 sequences share 16 states; one series needs 5.
+# 所请求序列需要的唯一 factor state，以 decomp_state_key() 为键。
+# 24 条序列共用 16 个 state；一条序列需要 5 个。
 decomp_unique_prefixes <- function(start.y, end.y, domain, RUN24 = TRUE) {
   series <- if (RUN24) 1:24 else 1
   prefixes <- series |>
@@ -722,17 +722,17 @@ decomp_unique_prefixes <- function(start.y, end.y, domain, RUN24 = TRUE) {
     set_names(unique(keys))
 }
 
-# Country-level summary of one state: attributable deaths summed by domain × Cause_Age.
-# The summary carries the state's grid count and (x, y) key set, so
-# Decomposition_summary() can abort when states cover different grids (C1).
-# NA stays NA: the conservation identity needs NA propagation, not na.rm.
+# 一个 state 的国家级摘要：按 domain × Cause_Age 求和的归因死亡。
+# 摘要携带该 state 的网格数与 (x, y) 键集合，因此
+# Decomposition_summary() 可以在各 state 覆盖的网格不一致时中止（C1）。
+# NA 保持 NA：守恒恒等式需要 NA 传播，na.rm 会破坏它。
 #
-# A grouped sum on the wide grid, then one stack of the small domain-level
-# table, gives the same values as stacking the grid to long form and summing
-# per (domain, Cause_Age): each group sums the same grid rows in the same
-# order. arrange() over the two group keys reproduces group_by()'s output
-# order, so the summary stays bit-identical while avoiding the 800k-row long
-# table that dominated the state loop.
+# 在宽网格上做一次分组求和，再把小的 domain 级表堆叠一次，
+# 所得数值与把网格转长表后按 (domain, Cause_Age) 求和相同：
+# 每组按相同顺序加相同的网格行。
+# 对两个分组键做 arrange() 可复现 group_by() 的输出顺序，
+# 因此摘要在避开拖慢 state 循环的 800k 行长表的同时
+# 保持逐位一致。
 state_summary_from_grid <- function(mort, domain) {
   value_cols <- setdiff(names(mort), c("x", "y", domain))
   summary <- mort |>
@@ -749,11 +749,11 @@ state_summary_from_grid <- function(mort, domain) {
   summary
 }
 
-# C1 grid-set guard over state summaries: every state must carry the same (x, y)
-# key set before the differences are taken. Returns invisible(TRUE); aborts on a
-# mismatch and warns when the summaries carry no key set. Decomposition_summary()
-# calls it for its own five summaries; aggregate_drivers() calls it once over the
-# 16 unique states and then passes check_keys = FALSE to every series.
+# C1 网格集守卫，作用于 state 摘要：做差分之前，每个 state 必须携带相同的
+# (x, y) 键集合。返回 invisible(TRUE)；不匹配时中止，
+# 摘要不含键集合时告警。Decomposition_summary() 对自己的五份摘要调用它；
+# aggregate_drivers() 对 16 个唯一 state 调用一次，
+# 之后给每条序列传 check_keys = FALSE。
 decomp_guard_summary_grids <- function(summaries, state_labels, caller) {
   key_sets <- map(summaries, function(summary) {
     attr(summary, "decomp_grid_keys", exact = TRUE)
@@ -783,17 +783,17 @@ decomp_guard_summary_grids <- function(summaries, state_labels, caller) {
   invisible(TRUE)
 }
 
-# One kernel task: build a state grid, then return only its small summary.
+# 一个 kernel 任务：构建 state 网格，然后只返回它的小摘要。
 state_summary_for_prefix <- function(prefix, start.y, end.y, domain) {
   mort_at_prefix(prefix, start.y, end.y, domain) |>
     add_domain(domain = domain) |>
     state_summary_from_grid(domain = domain)
 }
 
-# Summarise the unique states once. The serial path builds the shared input
-# cache once and reuses it for every state; parallel dispatch keeps the
-# Mortality() path below because each worker would otherwise rebuild the two RR
-# matrices per task.
+# 唯一 state 只汇总一次。
+# 串行路径构建一次共享输入 cache，供每个 state 复用；
+# 并发分发保留下面的 Mortality() 路径，
+# 否则每个 worker 都要按任务重建两个 RR 矩阵。
 precompute_state_summaries <- function(
   states,
   start.y,
@@ -806,10 +806,10 @@ precompute_state_summaries <- function(
   }
   kernel_on <- exists("kernel_active", mode = "function") &&
     isTRUE(kernel_active())
-  # v6.3: with the engine available the serial input cache is faster than
-  # dispatch (measured 6.4 s vs 12.3 s for 16 states), so the cache wins even
-  # when a plan is active. The kernel path stays for checkouts without the
-  # engine, and its tests still cover it through fixture environments.
+  # v6.3：引擎可用时，串行输入 cache 比分发更快
+  # （16 个 state 实测 6.4 秒对 12.3 秒），因此即使有计划启用也选 cache。
+  # 不含引擎的检出仍保留 kernel 路径，
+  # 其测试通过 fixture 环境继续覆盖它。
   if (isTRUE(cache$engine)) {
     if (kernel_on) {
       log_msg(
@@ -837,19 +837,19 @@ precompute_state_summaries <- function(
   set_names(summaries, names(states))
 }
 
-# Grid-level state: the mortality table for one cumulative factor prefix.
+# 网格级 state：一个累计因子前缀对应的死亡率表。
 decomp_state_grid <- function(prefix, start.y, end.y, domain) {
   mort_at_prefix(prefix, start.y, end.y, domain) |>
     add_domain(domain = domain)
 }
 
-# Fill cache entries that are still missing, one kernel task per state.
-# No-op when no kernel plan is active, so the serial path is unchanged.
+# 填补 cache 中仍然缺失的条目，每个 state 一个 kernel 任务。
+# 没有激活的 kernel 计划时不做任何事，因此串行路径不变。
 decomp_fill_cache <- function(prefixes, start.y, end.y, domain, cache) {
   kernel_on <- exists("kernel_active", mode = "function") &&
     isTRUE(kernel_active())
-  # The cached engine path builds states on demand in the main process; parallel
-  # fill would rebuild the input matrices in every worker.
+  # cache 引擎路径在主进程中按需构建 state；
+  # 并发填补会在每个 worker 中重建输入矩阵。
   if (isTRUE(cache$engine)) {
     return(invisible(cache))
   }
@@ -885,7 +885,7 @@ decomp_fill_cache <- function(prefixes, start.y, end.y, domain, cache) {
     .error = "stop"
   )
 
-  # Store fetched grids under their canonical keys and count the Mortality calls.
+  # 把取回的网格按规范键存好，并统计 Mortality 调用次数。
   for (index in seq_along(grids)) {
     assign(
       names(grids)[[index]],
@@ -924,9 +924,9 @@ decomp_state_summary <- function(prefix, start.y, end.y, domain, cache) {
   entry$summary
 }
 
-# Print the driver totals and, when state issues are supplied, one concise
-# report on NA cells, affected domains, and dropped-grid counts (I7).
-# issues: named list with n_grid, n_na, and na_domains per factor state.
+# 打印驱动因素合计；提供 state 问题时，再打印一份简洁报告，说明 NA 单元、
+# 受影响的 domain 与丢格计数（I7）。
+# issues：命名 list，每个 factor state 含 n_grid、n_na 与 na_domains。
 print_decomp_drivers <- function(
   Decomp,
   steps,
@@ -1047,7 +1047,7 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
     cache <- new_decomp_cache()
   }
 
-  # Build missing states in parallel when a plan is active; no-op otherwise.
+  # 有计划启用时并发构建缺失的 state；否则不做任何事。
   decomp_fill_cache(prefixes, start.y, end.y, domain, cache)
 
   grids <- prefixes |>
@@ -1060,11 +1060,11 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
     ) |>
     map("grid")
 
-  # C1: a state that lost grids (NA concentration, population, rate, or PWRR)
-  # would make every difference a sum over a different grid set. Abort before
-  # differencing instead of returning a silently biased domain total.
-  # Kept inline: the module harnesses parse a fixed list of top-level names, so
-  # a new helper here would be invisible to them.
+  # C1：丢失网格的 state（NA 浓度、人口、死亡率或 PWRR）会让每个差值成为
+  # 不同网格集上的求和。
+  # 做差分之前中止，避免静默返回有偏的 domain 合计。
+  # 保留为内联代码：模块 harness 解析一份固定的顶层名字清单，
+  # 在这里新增辅助函数，它们看不到。
   state_labels <- c("<start>", steps)
   key_sets <- map(grids, function(grid) str_c(grid$x, grid$y, sep = "|"))
   n_keys <- map_int(key_sets, length)
@@ -1133,12 +1133,12 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
   return(Decomp)
 }
 
-# Build country-level sequence contributions from cached state summaries.
-# Decomposition() keeps the grid-level output; aggregate_drivers() uses this path.
-# state_summaries, when supplied, replaces the cache: it must be keyed by
-# decomp_state_key() and hold one state_summary_from_grid() table per state.
-# check_keys = FALSE skips the C1 grid-set guard; aggregate_drivers() runs it once
-# over its 16 unique summaries and passes FALSE for all 24 series.
+# 由缓存的 state 摘要构建国家级序列贡献。
+# Decomposition() 保留网格级输出；aggregate_drivers() 使用这条路径。
+# 提供 state_summaries 时，它替代 cache：必须以 decomp_state_key() 为键，
+# 每个 state 含一张 state_summary_from_grid() 表。
+# check_keys = FALSE 跳过 C1 网格集守卫；
+# aggregate_drivers() 对其 16 份唯一摘要运行一次，并对全部 24 条序列传 FALSE。
 Decomposition_summary <- function(
   serie,
   start.y,
@@ -1162,7 +1162,7 @@ Decomposition_summary <- function(
   }
 
   if (is.null(state_summaries)) {
-    # Build missing states in parallel when a plan is active; no-op otherwise.
+    # 有计划启用时并发构建缺失的 state；否则不做任何事。
     decomp_fill_cache(prefixes, start.y, end.y, domain, cache)
     summaries <- prefixes |>
       map(
@@ -1195,10 +1195,10 @@ Decomposition_summary <- function(
     summaries <- state_summaries[keys]
   }
 
-  # C1: summaries from state_summary_from_grid() carry the state's (x, y) key
-  # set. Differencing states built on different grids biases every domain sum,
-  # so abort before subtracting. Summaries built elsewhere cannot be checked;
-  # warn instead of pretending the guard ran.
+  # C1：来自 state_summary_from_grid() 的摘要携带该 state 的 (x, y) 键集合。
+  # 对不同网格上构建的 state 做差分会污染每个 domain 合计，因此相减之前
+  # 中止。
+  # 别处构建的摘要无法检查；此时告警，不假装守卫已运行。
   state_labels <- c("<start>", steps)
   if (check_keys) {
     decomp_guard_summary_grids(summaries, state_labels, "Decomposition_summary")
@@ -1258,9 +1258,9 @@ aggregate_drivers <- function(
 
   n <- if (RUN24) 1:24 else 1
 
-  # Summarise the unique factor states once and keep only their summaries
-  # (I9, 261101). The old serial path cached 16 full grid tables (~117 MB)
-  # although only summaries are consumed; this mirrors the parallel path.
+  # 唯一 factor state 只汇总一次，并且只保留摘要（I9，261101）。旧的串行
+  # 路径缓存了 16 张完整网格表（约 117 MB），实际只消费摘要；这里与并发
+  # 路径保持一致。
   states <- decomp_unique_prefixes(
     start.year, end.year, domain,
     RUN24 = RUN24
@@ -1290,9 +1290,9 @@ aggregate_drivers <- function(
     states, start.year, end.year, domain, cache = cache
   )
 
-  # C1 once per run: check the 16 unique summaries here, then let every
-  # Decomposition_summary() call below skip the guard (check_keys = FALSE).
-  # Inside a series the guard would repeat the same key-set comparison 24 times.
+  # C1 每次运行一次：在这里检查 16 份唯一摘要，然后让下面每次
+  # Decomposition_summary() 调用跳过守卫（check_keys = FALSE）。
+  # 放在序列内部会让同一个键集合比较重复 24 次。
   state_labels <- str_remove(names(state_summaries), ".*::")
   decomp_guard_summary_grids(
     state_summaries,
@@ -1300,8 +1300,8 @@ aggregate_drivers <- function(
     "aggregate_drivers"
   )
 
-  # One NA and dropped-grid report for the whole run (I7); the per-series
-  # Decomposition_summary() calls below run with report = FALSE.
+  # 整个运行只报告一次 NA 与丢格情况（I7）；下面逐序列的
+  # Decomposition_summary() 调用使用 report = FALSE。
   state_issues <- map(state_summaries, function(summary) {
     is_na <- is.na(summary$Mort)
     list(
@@ -1345,7 +1345,7 @@ aggregate_drivers <- function(
 
   ls1[["Sequences"]] <- decomp_sequences
 
-  # C2: Results/ is gitignored, so a clean checkout has no directory here.
+  # C2：Results/ 被 git 忽略，干净的检出中没有这个目录。
   dir.create("./Results", showWarnings = FALSE, recursive = TRUE)
   ls1 |>
     write_xlsx(str_glue(

@@ -1,18 +1,18 @@
 #======================================================================================#
-#  Automated data pre-processing — generate all instance files required by the
-#  mortality calculation pipeline from raw source data.
+#  自动化数据预处理：从原始数据生成死亡率计算管线所需的
+#  全部实例文件。
 #
-#  Usage: edit paths in the CONFIG section below, then source this file.
-#  Output: Grid_info / GridPM25 / GridPop / GBD_mortality /
-#          GBD_agestructure instance .xlsx files under ./Data/.
+#  用法：修改下方 CONFIG 段的路径，然后 source 本文件。
+#  输出：Grid_info / GridPM25 / GridPop / GBD_mortality /
+#          GBD_agestructure 实例 .xlsx 文件，写入 ./Data/。
 #
-#  Dependencies: tidyverse, terra, sf, rnaturalearth, readxl, writexl, llmjoin
-#  LLM setup: set_llm(provider = "...", key = "...", model = "...")
-#  See: https://github.com/evanliu3594/llmjoin
+#  依赖：tidyverse, terra, sf, rnaturalearth, readxl, writexl, llmjoin
+#  LLM 配置：set_llm(provider = "...", key = "...", model = "...")
+#  见：https://github.com/evanliu3594/llmjoin
 #
-#  Modified 261101: comments only — population raster naming, country-map cache
-#                   requirement, and the Georgia/location_id 533 exclusion.
-#                   Behaviour unchanged.
+#  修改 261101：仅改注释 —— 人口栅格命名、国家映射缓存要求，
+#                   与 Georgia / location_id 533 的排除处理。
+#                   行为未变。
 #======================================================================================#
 
 # install.packages(c("terra","sf","llmjoin"))
@@ -27,22 +27,22 @@ library(sf)
 sf_use_s2(FALSE)
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-#  CONFIG — edit paths and parameters below ----
+#  CONFIG —— 在此修改路径与参数 ----
 # ══════════════════════════════════════════════════════════════════════════════════════
 
-# Grid resolution (degrees)
+# 网格分辨率（度）
 GRID_RES <- 0.5
 
-# Source data paths, replace with yours
+# 源数据路径，替换为你自己的路径
 PM25_RAW_DIR <- Sys.getenv("PM25_RAW_DIR", unset = "./Data/PM25_raw/")
-# Raw population rasters are not committed. Point PM25_POP_RAW_DIR at a
-# directory of GeoTIFFs whose file name ends with the source year (for example
-# pop_2020.tif); the loader pattern is "\d+\.(tif|tiff)$".
+# 原始人口栅格未入库。把 PM25_POP_RAW_DIR 指向
+# 一个 GeoTIFF 目录，文件名以源年份结尾（例如
+# pop_2020.tif）；加载匹配模式为 "\d+\.(tif|tiff)$"。
 POP_RAW_DIR <- Sys.getenv("PM25_POP_RAW_DIR", unset = "")
 MORT_RAW_DIR <- Sys.getenv("PM25_MORT_RAW_DIR", unset = "./Data/IHME_MortRate_raw/")
 AGESTRUC_RAW_DIR <- Sys.getenv("PM25_AGESTRUC_RAW_DIR", unset = "./Data/IHME_Pop_raw/")
 
-# Output
+# 输出
 OUT_DIR <- Sys.getenv("PM25_INSTANCE_DIR", unset = "./Data/")
 OUT_SUFFIX <- Sys.getenv(
   "PM25_INSTANCE_SUFFIX",
@@ -52,16 +52,16 @@ if (!str_detect(OUT_SUFFIX, "^[0-9]{6}$")) {
   stop("PM25_INSTANCE_SUFFIX must contain exactly six digits.")
 }
 
-# Manually set future year / counter-fact scenario data mapping
-# scenario → Year mapping (source year → output column name)
+# 手工设置未来年份与反事实情景的数据映射
+# scenario → 年份映射（源年份 → 输出列名）
 YEAR_MAP <- c(
   "2015" = "base2015",
   "2020" = "SSP1-Baseline_2030"
 )
 
-# Every scenario must declare the source year of each component. The 2030
-# label currently combines 2030 exposure with 2020 population/mortality and
-# 2019 age structure. This is a proxy, not a complete 2030 projection.
+# 每个情景必须声明各组成部分的源年份。2030
+# 标签目前混用 2030 暴露、2020 人口与死亡率，以及
+# 2019 年龄结构。这是代理口径，并非完整的 2030 预测。
 ALLOW_MIXED_SCENARIO_YEARS <- FALSE
 SCENARIO_YEAR_SPEC <- tribble(
   ~scenario, ~exposure_year, ~population_year, ~age_year, ~mortality_year,
@@ -123,13 +123,13 @@ if (length(pop_files) == 0) {
   stop("No .tif files found in ", POP_RAW_DIR)
 }
 
-# Helper function to rename year/scenario column to year
+# 辅助函数：把年份/情景列重命名为年份
 map_year <- \(yr) recode(yr, !!!YEAR_MAP) |> coalesce(yr)
 
-# Age parsing: "<5" → "0", otherwise extract leading 1–2 digits, empty → "0"
+# 年龄解析："<5" → "0"，其他情况取开头 1–2 位数字，空值 → "0"
 parse_age <- \(x) str_extract(x, "^\\d{1,2}") |> replace_na("0")
 
-# IHME cause → abbreviation
+# IHME 死因 → 缩写
 map_cause <- c(
   "Tracheal, bronchus, and lung cancer" = "LC",
   "Lower respiratory infections" = "LRI",
@@ -142,12 +142,12 @@ map_cause <- c(
   "All causes" = "ALLCAUSE"
 )
 
-# Country mapping matches Natural Earth country names to IHME location names.
-# It calls llmjoin::build_joint(), which needs an LLM key configured with
-# set_llm() (see the header) unless the cached mapping file exists. The cache
-# files (Data/country_map_mortality.csv, Data/country_map_age.csv) are not
-# committed, so a fresh clone must supply the cache or an LLM key. The mapping
-# is expensive, so later rebuilds reuse the cache when present.
+# 国家映射把 Natural Earth 国家名匹配到 IHME location 名。
+# 它调用 llmjoin::build_joint()，需要先用
+# set_llm() 配置 LLM key（见文件头），除非缓存映射文件已存在。缓存
+# 文件（Data/country_map_mortality.csv、Data/country_map_age.csv）未入库，
+# 因此全新克隆的仓库必须提供缓存或 LLM key。该映射
+# 开销大，后续重建在缓存存在时直接复用。
 read_or_build_country_map <- function(
   grid_df,
   target_df,
@@ -181,12 +181,12 @@ read_or_build_country_map <- function(
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-#  1 Grid information (terra::rasterize country polygons) ----
+#  1 网格信息（terra::rasterize 栅格化国家多边形） ----
 # ══════════════════════════════════════════════════════════════════════════════════════
 
 cat("\n── 1. Grid information ──\n")
 
-# Auto-detect template CRS and extent from the first PM2.5 NetCDF file
+# 从第一个 PM2.5 NetCDF 文件自动检测模板 CRS 与范围
 nc_files <- list.files(PM25_RAW_DIR, pattern = "\\.nc$", full.names = TRUE)
 
 if (length(nc_files) == 0) {
@@ -240,7 +240,7 @@ cat(str_glue(
 ))
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-#  2 PM2.5 concentration ----
+#  2 PM2.5 浓度 ----
 # ══════════════════════════════════════════════════════════════════════════════════════
 
 cat("\n── 2. PM2.5 concentration ──\n")
@@ -258,7 +258,7 @@ pm25 <- map(
     if (nlyr(r) > 1) {
       r <- app(r, mean, na.rm = TRUE)
     }
-    # Resample to template grid so coordinates match Grid_info and GridPop
+    # 重采样到模板网格，使坐标与 Grid_info、GridPop 一致
     r <- if (same.crs(r, template)) {
       resample(r, template, method = "bilinear")
     } else {
@@ -287,7 +287,7 @@ write_xlsx(
 cat(str_glue("  → {nrow(pm25)} grids, {ncol(pm25) - 2} scenarios\n"))
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-#  3 Population ----
+#  3 人口 ----
 # ══════════════════════════════════════════════════════════════════════════════════════
 
 cat("\n── 3. Population ──\n")
@@ -323,7 +323,7 @@ write_xlsx(
 cat(str_glue("  → {nrow(pop)} grids, {ncol(pop) - 2} scenarios\n"))
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-#  4 Mortality rate ----
+#  4 死亡率 ----
 # ══════════════════════════════════════════════════════════════════════════════════════
 
 cat("\n── 4. Mortality rate ──\n")
@@ -356,7 +356,7 @@ mortrate <- map(
 ) |>
   list_rbind()
 
-# llm_join: match grid country names to IHME location names
+# llm_join：把网格国家名匹配到 IHME location 名
 cat(str_glue(
   "  llm_join: {length(unique(grid_info$Country))} grid countries",
   " → {length(unique(mortrate$domain))} IHME locations ...\n"
@@ -405,7 +405,7 @@ cat(str_glue(
 ))
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-#  5 Age structure ----
+#  5 年龄结构 ----
 # ══════════════════════════════════════════════════════════════════════════════════════
 
 cat("\n── 5. Age structure ──\n")
@@ -487,10 +487,10 @@ agestruc_prop <- agestruc |>
     names_sep = "@",
     values_from = pop
   ) |>
-  # IHME lists two locations named "Georgia": location_id 35 is the country and
-  # location_id 533 is the US state. The duplicate name would collide with the
-  # country map and double the Georgia age structure, so the US state row is
-  # dropped. This is intentional; country Georgia (id 35) is kept.
+  # IHME 有两个 location 名为 "Georgia"：location_id 35 是国家，
+  # location_id 533 是美国的一个州。重名会与
+  # 国家映射冲突，使 Georgia 的年龄结构翻倍，因此删除该州的行。
+  # 这是有意处理；国家 Georgia（id 35）保留。
   filter(!(domain == "Georgia" & location_id == "533")) |>
   left_join(agegroup_country_map) |>
   filter(!is.na(Country)) |>
@@ -517,7 +517,7 @@ cat(str_glue(
 
 # ══════════════════════════════════════════════════════════════════════════════════════
 
-# Write the instance manifest; resolve_instance_files() reads it.
+# 写出实例清单；resolve_instance_files() 读取该清单。
 instance_files <- list(
   Grids = str_glue("./Data/Grid_info_instance_{OUT_SUFFIX}.xlsx"),
   Pop = str_glue("./Data/GridPop_instance_{OUT_SUFFIX}.xlsx"),

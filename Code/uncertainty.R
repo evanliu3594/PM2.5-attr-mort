@@ -1,10 +1,10 @@
-# Uncertainty module
-#   Modified 261026b: the old PAF-at-PWE implementation was removed. It did not
-#   match the PWRR estimator. Uncertainty is now computed by aggregate_sigma()
-#   from grid-level Mortality() branches and the same PWRR formula.
+# 不确定性模块
+#   修改 261026b：删除了旧的 PAF-at-PWE 实现。它与 PWRR 估计量不一致。
+#   现在由 aggregate_sigma() 从网格级 Mortality() 分支与同一 PWRR 公式
+#   计算不确定性。
 
-# Retired PAF/PWE uncertainty entry point. ... is ignored and the call always
-# aborts, pointing to aggregate_sigma() with scenario names.
+# 已退役的 PAF/PWE 不确定性入口。... 被忽略，调用总是中止，并提示改用
+# 带情景名的 aggregate_sigma()。
 Uncertainty <- function(...) {
   cli::cli_abort(c(
     "x" = "Uncertainty() has been retired.",

@@ -1,21 +1,21 @@
-# Aggregation & output module
-#   - aggregate_sigma()  — total attributable mortality plus PWRR-consistent
-#                         uncertainty bounds derived from Mortality() branches.
-#   - aggregate_range()  — aggregate Mortality() output by geography and
-#                         endpoint/agegroup, preserving NA mortality.
-#   Modified 261026b: aggregation now sums only mortality columns. Missing
-#     components remain NA. Numeric metadata no longer enters totals.
-#     aggregate_sigma() uses the PWRR estimator and supports total only.
-#   Modified 261101: aggregate_sigma() uses caller-supplied _UP/_LOW columns,
-#     computes character scenarios with one RANGE call, takes an explicit PWRR
-#     domain (never the spatial column at), and validates the ... arguments.
-#   Modified 261101b (v6.3): aggregate_range() builds one long table per call
-#     and sums it with grouped R-level sum() instead of dplyr group_by() per
-#     aggregation level. Sums stay in long-table row order, so results are
-#     bit-identical to the previous implementation; the grid table must be
-#     unique on (x, y), as read_files() enforces.
+# 聚合与输出模块
+#   - aggregate_sigma()  — 归因死亡总量，以及由 Mortality() 分支导出的、
+#                         与 PWRR 一致的不确定区间。
+#   - aggregate_range()  — 按地理与 endpoint/agegroup 聚合 Mortality() 输出，
+#                         并保留 NA 死亡率。
+#   修改 261026b：聚合现在只对死亡率列求和。缺失分量保持 NA。
+#     数值型元数据不再计入合计。
+#     aggregate_sigma() 使用 PWRR 估计量，仅支持 total。
+#   修改 261101：aggregate_sigma() 使用调用方提供的 _UP/_LOW 列，用一次
+#     RANGE 调用计算字符型情景，显式接收 PWRR 的 domain（绝不用空间列 at），
+#     并校验 ... 参数。
+#   修改 261101b（v6.3）：aggregate_range() 每次调用构建一张长表，用 R 层
+#     的分组 sum() 求和，不再按聚合层级调用 dplyr group_by()。
+#     求和保持长表行顺序，因此结果与旧实现逐位一致；
+#     网格表必须在 (x, y) 上唯一，
+#     read_files() 已强制这一点。
 
-# ---------- shared validation ----------
+# ---------- 共享校验 -------------------
 
 mortality_columns <- function(df, label = "Mortality output") {
   cols <- str_subset(names(df), "^.+_[0-9]+_(MEAN|UP|LOW)$")
@@ -84,27 +84,27 @@ domain_columns <- function(at_cols) {
 
 # ---------- aggregate_sigma ----------
 
-# Total attributable mortality with PWRR-consistent uncertainty bounds for one
-# spatial domain column. Bounds combine the RR branches of
-# Mortality(CI = "RANGE") with optional concentration uncertainty, both through
-# the same PWRR-normalised estimator as Mortality(). by is restricted to
-# "total": use aggregate_range() for endpoint or agegroup breakdowns.
-#   full_result  named list of grid-level mortality frames, or scenario names.
-#                List elements must carry the full RANGE set (_MEAN, _UP,
-#                _LOW), and the supplied _UP/_LOW columns are used as-is for
-#                the bounds. A _MEAN-only element aborts, because bounds cannot
-#                be derived from it: pass scenario names instead so the bounds
-#                come from the loaded session.
-#   at           one Grid_info column used for spatial aggregation.
-#   write        write the result to ./Results/.
-#   pwr_domain   PWRR domain passed to Mortality() and Mortality_at(); NULL
-#                auto-detects it. It is never at, which only controls spatial
-#                aggregation.
-#   ...          named extras only: includeConc (logical; adds a concentration
-#                perturbation from the loaded scenario data), Conc_ERR (percent
-#                concentration perturbation in [0, 100]), and verbose (logical).
-#                Unknown names abort.
-# Returns a frame with year, the domain column, total_MEAN, total_UP, total_LOW.
+# 一个空间 domain 列的归因死亡总量，含与 PWRR 一致的不确定区间。区间由
+# Mortality(CI = "RANGE") 的 RR 分支与可选的浓度不确定性合成，
+# 两者都走与 Mortality() 相同的 PWRR 归一化估计量。
+# by 只允许 "total"：
+# endpoint 或 agegroup 的细分请用 aggregate_range()。
+#   full_result  网格级死亡率表的命名 list，或情景名。
+#                list 元素必须携带完整的 RANGE 集合（_MEAN、_UP、_LOW），
+#                提供的 _UP/_LOW 列按原样用作区间。
+#                只含 _MEAN 的元素会中止，因为它无法导出区间：
+#                请改传情景名，
+#                让区间来自已加载的会话。
+#   at           用于空间聚合的一个 Grid_info 列。
+#   write        把结果写到 ./Results/。
+#   pwr_domain   传给 Mortality() 与 Mortality_at() 的 PWRR domain；
+#                NULL 时自动检测。
+#                它绝不会是 at，at 只控制空间聚合。
+#   ...          只接受命名额外参数：
+#                includeConc（逻辑值；从已加载的情景数据加入一个浓度扰动）、
+#                Conc_ERR（浓度扰动百分比，取值 [0, 100]）与 verbose
+#                （逻辑值）。未知名字中止。
+# 返回含 year、domain 列、total_MEAN、total_UP、total_LOW 的表。
 aggregate_sigma <- function(
   full_result,
   at = "Country",
@@ -126,8 +126,8 @@ aggregate_sigma <- function(
   }
   domain_columns(at)
 
-  # Named extras only: a misspelled or unnamed `...` would silently fall back
-  # to the defaults and change the result.
+  # 只接受命名的额外参数：拼错或未命名的 `...` 会静默回落到默认值并改变
+  # 结果。
   extra_args <- list(...)
   allowed_args <- c("includeConc", "Conc_ERR", "verbose")
   if (length(extra_args) > 0) {
@@ -198,8 +198,8 @@ aggregate_sigma <- function(
     log_msg(INFO, "Including concentration uncertainty at +/-{conc_err}%.")
   }
 
-  # Split one grid table into its MEAN/UP/LOW branches. Supplied UP/LOW columns
-  # are authoritative; no Mortality() call is made for list input.
+  # 把一张网格表拆成 MEAN/UP/LOW 三个分支。提供的 UP/LOW 列即为权威值；
+  # list 输入不调用 Mortality()。
   extract_branches <- function(df, scenario) {
     if (!all(c("x", "y") %in% names(df))) {
       cli::cli_abort("Scenario {.val {scenario}} must contain x and y columns.")
@@ -345,13 +345,13 @@ aggregate_sigma <- function(
 
 # ---------- aggregate_range ----------
 
-# Aggregate Mortality() output over grid cells. Accepts any CI branch (MEAN, UP,
-# LOW, or RANGE). Only mortality columns are summed; missing mortality stays NA.
-#   x      a Mortality() frame, or a named list of them (one per scenario).
-#   at     aggregation level: "grid", "geo", or one or more Grid_info columns.
-#   by     "total", "endpoint", "agegroup", or "all".
-#   write  write each result to ./Results/.
-# Returns a named list of frames, one per at value.
+# 在网格单元上聚合 Mortality() 输出。接受任意 CI 分支（MEAN、UP、LOW 或
+# RANGE）。只对死亡率列求和；缺失的死亡率保持 NA。
+#   x      Mortality() 表，或这类表的命名 list（每个情景一个）。
+#   at     聚合层级："grid"、"geo"，或一个及以上 Grid_info 列。
+#   by     "total"、"endpoint"、"agegroup" 或 "all"。
+#   write  把每个结果写到 ./Results/。
+# 返回命名 list，每个 at 值一个表。
 aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
   x <- normalise_mortality_list(x)
   scenarios <- names(x)
@@ -385,11 +385,11 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
     "aggregate_range: at = \"{at}\", by = \"{by}\", {length(x)} scenario(s)"
   )
 
-  # One grid table for all `at` values: scenario rows are stacked, the
-  # aggregation columns are attached once at grid level, and the mortality
-  # columns are elongated once. Every aggregation level below reuses this long
-  # table instead of rebuilding it. Grid_info must be unique on (x, y)
-  # (read_files() enforces that), so the grid join cannot multiply rows.
+  # 一张网格表服务所有 `at` 值：情景行先堆叠，
+  # 聚合列在网格层拼接一次，死亡率列拉长一次。
+  # 下面每个聚合层级都复用这张长表，不再重建。
+  # Grid_info 必须在 (x, y) 上唯一（read_files() 已强制），
+  # 因此网格 join 不会倍增行。
   grid_rows <- map_int(x, nrow)
   n_value <- length(spec$column)
   n_grid <- sum(grid_rows)
@@ -400,9 +400,9 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
     mutate(scenario = rep(scenarios, times = grid_rows)) |>
     left_join(geo_lookup, by = c("x", "y"))
 
-  # The long table: one row per (grid row, mortality column), grid rows and
-  # value columns in input order. Its row order is what the grouped sums below
-  # reproduce, so the floating-point accumulation is unchanged.
+  # 长表：每个（网格行，死亡率列）组合一行，
+  # 网格行与取值列按输入顺序排列。
+  # 下面的分组求和复现的正是这个行顺序，因此浮点累加结果不变。
   long <- grid |>
     select(all_of(spec$column)) |>
     pivot_longer(
@@ -410,15 +410,15 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
       names_to = NULL,
       values_to = "mort"
     )
-  # The mortality columns are now in `long`; drop them from the grid table so
-  # the two structures do not both hold the values.
+  # 死亡率列现在在 `long` 中；从网格表里删掉它们，避免两份结构同时保存
+  # 取值。
   grid <- grid |> select(x, y, scenario, all_of(geo_cols))
 
-  # Per-value-column key codes. The long table repeats `spec` once per value
-  # column, so a long row's endpoint/agegroup/CI follow from its value-column
-  # position; deriving them from the `spec` table avoids matching 4.8M strings
-  # back to their labels. Only the codes' bijection matters, never their order,
-  # because the output order comes from group_by() below.
+  # 每个取值列的键编码。长表按取值列重复 `spec` 一次，
+  # 因此长表行的 endpoint/agegroup/CI 由其取值列位置决定；
+  # 从 `spec` 表推导可以避免把 480 万个字符串再匹配回标签。
+  # 只需编码是双射，顺序无关紧要，
+  # 因为输出顺序由下面的 group_by() 决定。
   ci_code <- match(spec$CI, c("MEAN", "UP", "LOW"))
   endpoint_levels <- unique(spec$endpoint)
   agegroup_levels <- unique(spec$agegroup)
@@ -435,11 +435,11 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
       n_endpoint * (agegroup_code - 1L + n_agegroup * (ci_code - 1L))
   )
   n_key_value <- max(key_value)
-  # One key code per scenario block, so each `at` group is split into n_key
-  # parts; group ids below are at code + n_at * key index.
+  # 每个情景块一个键编码，因此每个 `at` 组被拆成 n_key 份；
+  # 下面的 group id 为 at code + n_at * key index。
   n_key <- n_key_value * length(x)
-  # 0-based group index of every long row within its `at` group: the long table
-  # is ordered scenario, grid row, value column.
+  # 每个长表行在其 `at` 组内的 0 基组索引：
+  # 长表按情景、网格行、取值列排序。
   key_index <- rep(key_value - 1L, times = n_grid) +
     rep(n_key_value * (seq_along(x) - 1L), times = grid_rows * n_value)
   key_labels <- tibble(
@@ -467,7 +467,7 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
       ))
     }
 
-    # One integer code per grid row for the requested aggregation columns.
+    # 为请求的聚合列给每个网格行一个整数编码。
     at_code <- integer(n_grid)
     n_at <- 1L
     for (col in at_cols) {
@@ -477,9 +477,9 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
     }
     at_code <- at_code + 1L
 
-    # Grouped sums with R-level sum(), in long-table row order. Stable radix
-    # order keeps each group's rows in long-table order, so the floating-point
-    # accumulation matches the previous grouped summarise() exactly.
+    # 按长表行顺序，用 R 层的 sum() 做分组求和。
+    # radix 排序稳定，使每组的行保持长表顺序，
+    # 因此浮点累加与旧的分组 summarise() 完全一致。
     row_group <- rep(at_code, each = n_value) + n_at * key_index
     group_size <- tabulate(row_group, nbins = n_at * n_key)
     group_ord <- order(row_group, method = "radix")
@@ -487,7 +487,7 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
     group_ends <- cumsum(group_size)
     group_starts <- group_ends - group_size + 1L
     group_ids <- which(group_size > 0L)
-    # sum() of an empty slice keeps the value type summarise() would produce.
+    # 空切片的 sum() 保持 summarise() 会产生的取值类型。
     empty_sum <- sum(long$mort[0L])
     group_sums <- vapply(
       seq_along(group_ids),
@@ -500,7 +500,7 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
       empty_sum
     )
 
-    # Group keys, ordered the way group_by()/summarise() ordered them.
+    # 分组键，按 group_by()/summarise() 的排序方式排列。
     at_first <- match(seq_len(n_at), at_code)
     at_labels <- grid[at_first, at_cols]
     key_parts <- tibble(
@@ -564,6 +564,6 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
   invisible(result_list)
 }
 
-# Backward-compatible aliases
+# 向后兼容的别名
 aggregate_ci <- aggregate_range
 summarise_ci <- aggregate_range

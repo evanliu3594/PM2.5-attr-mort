@@ -1,12 +1,12 @@
-# C-R Model configuration module
-#   - tell_Model() — format the active C-R model name for output filenames
-#   - set_Model()  — set the global .CR_Model and cache the standardised RR table
-#   - RR_std()     — build the standardised RR table from the lookup xlsx
-#   Modified 261026b: dgt_conc, unit, and range metadata propagate through
-#     set_Model()/RR_std(); new tables are checked for key, range, and CI order.
-#   Modified 261101: RR_std() fills only configured age columns that are absent
-#     from the lookup sheet (empty cells stay NA for the non-finite guard) and
-#     lower-cases the retained endpoint before setting the rr_normalized flag.
+# C-R 模型配置模块
+#   - tell_Model() — 为输出文件名格式化当前 C-R 模型名
+#   - set_Model()  — 设置全局 .CR_Model，并缓存标准化 RR 表
+#   - RR_std()     — 从查找 xlsx 构建标准化 RR 表
+#   修改 261026b：dgt_conc、单位和范围元数据会沿
+#     set_Model()/RR_std() 传递；新表会校验键、范围和 CI 顺序。
+#   修改 261101：RR_std() 只补配置中声明、查找表里缺失的年龄列
+#     （空格子保持 NA，供非有限值守卫使用），
+#     并在设置 rr_normalized 标志之前把保留的 endpoint 转为小写。
 
 library(tidyverse)
 library(writexl)
@@ -27,8 +27,8 @@ log_msg <- function(level, ...) {
   )
 }
 
-# C-R model name for output filenames. Reads the label from RR_std_config.json;
-# falls back to .CR_Model when the config or the label is unavailable.
+# 输出文件名使用的 C-R 模型名。从 RR_std_config.json 读取 label；
+# 配置或 label 不可用时回退到 .CR_Model。
 tell_Model <- function() {
   cfg_path <- './Data/RR_std_config.json'
   if (file.exists(cfg_path)) {
@@ -39,15 +39,15 @@ tell_Model <- function() {
   .CR_Model
 }
 
-# Activate a C-R model for the session: set the globals .CR_Model and
-# .DGT_CONC, then cache the standardised RR table in .RR_std_tbl.
-#   Model     a label from RR_std_config.json, or a custom name.
-#   path      optional custom RR lookup xlsx; when given, the MEAN sheet's
-#             {endpoint}_{agegroup} columns seed a standardisation config that
-#             must be reviewed and added to Data/RR_std_config.json.
-#   dgt_conc  one non-negative integer concentration precision; defaults to the
-#             current .DGT_CONC, which starts at 1.
-# Aborts on a bad dgt_conc or a missing lookup file.
+# 为本次会话启用一个 C-R 模型：设置全局变量 .CR_Model 和
+# .DGT_CONC，然后把标准化 RR 表缓存到 .RR_std_tbl。
+#   Model     RR_std_config.json 中的 label，或自定义名称。
+#   path      可选的自定义 RR 查找 xlsx；给出时，用 MEAN 工作表中
+#             {endpoint}_{agegroup} 列生成一份标准化配置，该配置
+#             必须人工复核后加入 Data/RR_std_config.json。
+#   dgt_conc  一个非负整数表示的浓度精度；默认取当前的
+#             .DGT_CONC，其初值为 1。
+# dgt_conc 非法或查找文件缺失时中止。
 set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
   if (is.null(dgt_conc)) {
     dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
@@ -60,7 +60,7 @@ set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
   assign(".DGT_CONC", dgt_conc, envir = globalenv())
   log_msg(INFO, "C-R Model \"{tell_Model()}\" is set.")
 
-  # Auto-generate standardisation config from custom lookup table
+# 从自定义查找表自动生成标准化配置
   if (!is.null(path)) {
     if (!file.exists(path)) {
       stop("Custom RR lookup table not found: ", path)
@@ -69,9 +69,9 @@ set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
     raw <- read_xlsx(path, sheet = "MEAN")
     all_names <- names(raw)
 
-    # Detect concentration column: the one column that does NOT match
-    # the {endpoint}_{age} or {endpoint}_ALL pattern. Default to "concentration"
-    # if the file follows the standard naming convention.
+# 识别浓度列：唯一不匹配
+# {endpoint}_{age} 或 {endpoint}_ALL 模式的那一列。文件遵循标准命名
+# 约定时默认取 "concentration"。
     mort_cols <- str_subset(all_names, '_[0-9]+$')
     all_cols <- str_subset(all_names, '_[Aa][Ll]{2}$')
     rr_cols <- union(mort_cols, all_cols)
@@ -158,7 +158,7 @@ set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
       "Total age-group columns parsed: {sum(lengths(ep_ages$ages))}"
     )
 
-    # Preview & auto-append to RR_std_config.json
+# 预览并自动追加到 RR_std_config.json
     cat("\n---- Auto-generated RR_std config entry ----\n")
     cat(config_entry, "\n\n")
 
@@ -171,7 +171,7 @@ set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
           'Model "{Model}" already exists in RR_std_config.json — skipping append.'
         )
       } else {
-        # Insert before the closing } of the JSON root object
+# 插到 JSON 根对象结尾的 } 之前
         close_idx <- tail(which(str_detect(str_trim(cfg_lines), '^\\}$')), 1)
         if (length(close_idx) == 0) {
           close_idx <- length(cfg_lines)
@@ -181,26 +181,26 @@ set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
         log_msg(INFO, 'Appended "{Model}" to {cfg_path}.')
       }
     } else {
-      # Create new config file
+# 创建新的配置文件
       writeLines(str_c('{\n', config_entry, '\n}\n'), cfg_path)
       log_msg(INFO, 'Created {cfg_path} with "{Model}" entry.')
     }
   }
 
-  # ---- Build standardised RR table via RR_std() ----
+  # ---- 通过 RR_std() 构建标准化 RR 表 ---------------
   assign(".RR_std_tbl", RR_std(path, dgt_conc = dgt_conc), envir = globalenv())
 }
 
-# Build the standardised C-R lookup table: read the RR xlsx sheets MEAN/LOW/UP,
-# pivot to long format, expand to the endpoint x agegroup grid declared in
-# RR_std_config.json, and return long-format concentration, endpoint, agegroup,
-# CI (MEAN/UP/LOW), RR, carrying dgt_conc and metadata attributes.
-#   custom_path  optional custom RR lookup xlsx; NULL resolves it from
-#                RR_std_config.json.
-#   dgt_conc     one non-negative integer precision; defaults to .DGT_CONC.
-# Also sets the globals .PWRR_branch and .RR_meta; set_Model() stores the
-# result in .RR_std_tbl. Aborts on a missing config or lookup, missing sheets,
-# bad concentrations, or a grid or range mismatch.
+# 构建标准化 C-R 查找表：读取 RR xlsx 的 MEAN/LOW/UP 工作表，
+# 转为长格式，展开到 endpoint x agegroup 网格，该网格在
+# RR_std_config.json 中声明，并返回长格式的 concentration、endpoint、agegroup、
+# CI（MEAN/UP/LOW）、RR，同时携带 dgt_conc 与元数据属性。
+#   custom_path  可选的自定义 RR 查找 xlsx；NULL 时从
+#                RR_std_config.json 解析。
+#   dgt_conc     一个非负整数精度；默认 .DGT_CONC。
+# 同时设置全局变量 .PWRR_branch 和 .RR_meta；set_Model() 把
+# 结果存入 .RR_std_tbl。配置或查找表缺失、工作表缺失、
+# 浓度非法，或网格、范围不一致时中止。
 RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
   if (is.null(dgt_conc)) {
     dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
@@ -209,7 +209,7 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
     stop("dgt_conc must be one non-negative integer.")
   }
 
-  # Read config once at the top
+# 在顶部读一次配置
   cfg_path <- './Data/RR_std_config.json'
   if (!file.exists(cfg_path)) stop("RR_std config not found: ", cfg_path)
   cfg_all <- jsonlite::fromJSON(cfg_path, simplifyVector = FALSE)
@@ -218,8 +218,8 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
   if (is.null(cfg) && str_detect(CR, '^IER')) cfg <- cfg_all[["IER"]]
   if (is.null(cfg)) stop("No RR_std config for model \"", CR, "\" in ", cfg_path)
 
-  # PWRR branch mode: "branch" = one PWRR per CI branch; "mean" = common
-  # MEAN PWRR for all branches (keeps CI ordered for very wide curves).
+# PWRR 分支模式："branch" 表示每个 CI 分支各用一个 PWRR；"mean" 表示所有分支共用
+# MEAN PWRR（曲线很宽时仍保持 CI 有序）。
   pwr_branch <- cfg$pwr_branch %||% "branch"
   if (!pwr_branch %in% c("branch", "mean")) {
     stop("pwr_branch must be 'branch' or 'mean' for model ", CR, ".")
@@ -240,12 +240,12 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
     envir = globalenv()
   )
 
-  # Resolve lookup path
+# 解析查找路径
   lookup <- if (!is.null(custom_path)) custom_path else cfg$lookup
   if (is.null(lookup)) stop("No lookup path for model \"", CR, "\" in ", cfg_path)
   if (!file.exists(lookup)) stop("RR lookup table not found: ", lookup)
 
-  # Load all sheets, convert concentration column to string (matchable) for join
+# 读取全部工作表，把浓度列转成可匹配的字符串以便连接
   sheets <- readxl::excel_sheets(lookup)
   required_sheets <- c("MEAN", "LOW", "UP")
   missing_sheets <- setdiff(required_sheets, sheets)
@@ -299,11 +299,11 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
     }
   }
 
-  # Process each sheet independently (pivot → expand → join → fill → filter),
-  # then stack. This avoids complete() and handles missing age columns (e.g.
-  # GEMM 85/90/95 use age 80's RR) without filling empty cells: a configured age
-  # with no column takes the RR of the preceding available age, while a present
-  # column with an empty cell stays NA for the non-finite guard below.
+# 每个工作表独立处理（pivot → expand → join → fill → filter），
+# 然后堆叠。这样避开 complete()，并处理缺失的年龄列（例如
+# GEMM 的 85/90/95 用 80 岁的 RR），不填充空格子：配置中的年龄
+# 若没有对应列，取前面最近可用年龄的 RR；若列存在
+# 但格子为空，则保持 NA，交给下面的非有限值守卫。
   result <- imap_dfr(.raw, function(df, ci) {
     RR_one <- df |>
       pivot_longer(
@@ -402,9 +402,9 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
   attr(result, "conc_unit") <- conc_unit
   attr(result, "conc_range") <- conc_range
   attr(result, "pwr_branch") <- pwr_branch
-  # Keys are canonical here (concentration and agegroup matchable, endpoint
-  # lower-case, CI checked, duplicate-free). Mortality() uses this flag to
-  # skip re-normalising tables that RR_std() already built.
+# 此处的键已规范化（concentration 和 agegroup 可匹配，endpoint
+# 为小写，CI 已校验，无重复）。Mortality() 用这个标志
+# 跳过 RR_std() 已构建的表的重复归一化。
   attr(result, "rr_normalized") <- TRUE
 
   log_msg(INFO, "RR table built: {lookup} ({nrow(result)} rows)")
