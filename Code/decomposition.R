@@ -13,6 +13,10 @@
 # Requires: tidyverse, writexl. Loaded by: DrivingFactors.R.
 # NOTE 261026: PWRR is computed per domain × endpoint × agegroup.
 # NOTE 261027: parallel state construction via Code/kernel.R (optional).
+# Modified 261101: grid-set guard before differencing (C1); one concise NA and
+#   dropped-grid report per run (I7); decomp_sequences validated at load (I8);
+#   aggregate_drivers() caches state summaries only (I9) and creates Results/
+#   before writing (C2).
 
 # 24 decomposition sequences, written explicitly in the documented order ----
 # Columns step1..step4 are the order in which the factors are applied.
@@ -44,6 +48,57 @@ decomp_sequences <- tribble(
   23, "ORF", "EXP", "PG",  "PA",
   24, "ORF", "EXP", "PA",  "PG"
 )
+
+# Fail at load, not after a 30-second run: a mistyped sequence row would apply
+# one factor twice and drop another, and the decomposition output would carry
+# no trace of the mistake (I8).
+validate_decomp_sequences <- function(x = decomp_sequences) {
+  required <- c("serie", "step1", "step2", "step3", "step4")
+  missing_cols <- setdiff(required, names(x))
+  if (length(missing_cols) > 0) {
+    stop(
+      "decomp_sequences is missing column(s): ",
+      paste(missing_cols, collapse = ", "),
+      "."
+    )
+  }
+  if (nrow(x) != 24) {
+    stop("decomp_sequences must have 24 rows, got ", nrow(x), ".")
+  }
+  duplicated_serie <- unique(x$serie[duplicated(x$serie)])
+  if (length(duplicated_serie) > 0) {
+    stop(
+      "decomp_sequences$serie must be unique; duplicated value(s): ",
+      paste(duplicated_serie, collapse = ", "),
+      "."
+    )
+  }
+
+  expected <- c("PG", "PA", "EXP", "ORF")
+  step_cols <- c("step1", "step2", "step3", "step4")
+  steps <- as.matrix(x[step_cols])
+  is_permutation <- apply(steps, 1, function(row) {
+    setequal(row, expected) && !anyDuplicated(row)
+  })
+  if (!all(is_permutation)) {
+    bad_rows <- which(!is_permutation)
+    bad_text <- x |>
+      slice(bad_rows) |>
+      mutate(across(all_of(step_cols), as.character)) |>
+      unite("row", all_of(step_cols), sep = ", ") |>
+      pull(row)
+    stop(
+      "decomp_sequences row(s) ",
+      paste(bad_rows, collapse = ", "),
+      " must each be a permutation of PG, PA, EXP, ORF; got: ",
+      paste(bad_text, collapse = "; "),
+      "."
+    )
+  }
+  invisible(TRUE)
+}
+
+validate_decomp_sequences(decomp_sequences)
 
 # State after a prefix of factors ----
 # PG  -> Pop (start -> end)
@@ -160,8 +215,11 @@ decomp_unique_prefixes <- function(start.y, end.y, domain, RUN24 = TRUE) {
 }
 
 # Country-level summary of one state: attributable deaths summed by domain × Cause_Age.
+# The summary carries the state's grid count and (x, y) key set, so
+# Decomposition_summary() can abort when states cover different grids (C1).
+# NA stays NA: the conservation identity needs NA propagation, not na.rm.
 state_summary_from_grid <- function(mort, domain) {
-  mort |>
+  summary <- mort |>
     pivot_longer(
       cols = -all_of(c("x", "y", domain)),
       names_to = "Cause_Age",
@@ -169,6 +227,9 @@ state_summary_from_grid <- function(mort, domain) {
     ) |>
     group_by(across(all_of(c(domain, "Cause_Age")))) |>
     summarise(Mort = sum(Mort), .groups = "drop")
+  attr(summary, "decomp_n_grid") <- nrow(mort)
+  attr(summary, "decomp_grid_keys") <- str_c(mort$x, mort$y, sep = "|")
+  summary
 }
 
 # One kernel task: build a state grid, then return only its small summary.
@@ -264,32 +325,121 @@ get_decomp_state <- function(prefix, start.y, end.y, domain, cache) {
 decomp_state_summary <- function(prefix, start.y, end.y, domain, cache) {
   entry <- get_decomp_state(prefix, start.y, end.y, domain, cache)
   if (is.null(entry$summary)) {
-    entry$summary <- entry$grid |>
-      pivot_longer(
-        cols = -all_of(c("x", "y", domain)),
-        names_to = "Cause_Age",
-        values_to = "Mort"
-      ) |>
-      group_by(across(all_of(c(domain, "Cause_Age")))) |>
-      summarise(Mort = sum(Mort), .groups = "drop")
+    entry$summary <- state_summary_from_grid(entry$grid, domain)
     key <- decomp_state_key(prefix, start.y, end.y, domain)
     assign(key, entry, envir = cache$states)
   }
   entry$summary
 }
 
-print_decomp_drivers <- function(Decomp, steps, start.y, end.y) {
-  cat(str_c("Drivers Between ", start.y, " and ", end.y, ":\n"))
-  for (step_name in steps) {
-    cat(
+# Print the driver totals and, when state issues are supplied, one concise
+# report on NA cells, affected domains, and dropped-grid counts (I7).
+# issues: named list with n_grid, n_na, and na_domains per factor state.
+print_decomp_drivers <- function(
+  Decomp,
+  steps,
+  start.y,
+  end.y,
+  issues = NULL,
+  domain = NULL,
+  grid_total = NULL,
+  report_only = FALSE
+) {
+  if (!report_only) {
+    cat(str_c("Drivers Between ", start.y, " and ", end.y, ":\n"))
+    for (step_name in steps) {
+      cat(
+        str_c(
+          step_name,
+          ":\t",
+          sum(Decomp[[step_name]] |> sum() |> round())
+        ),
+        "\n"
+      )
+    }
+  }
+  if (is.null(issues)) {
+    return(invisible(NULL))
+  }
+
+  labels <- names(issues)
+  n_grid <- map_int(issues, ~ as.integer(.x$n_grid %||% NA_integer_))
+  n_na <- map_int(issues, "n_na")
+  na_domains <- sort(unique(unlist(map(issues, "na_domains"), use.names = FALSE)))
+  na_states <- labels[n_na > 0]
+
+  cat(str_c(
+    "Decomposition state report (", start.y, " -> ", end.y,
+    if (is.null(domain)) "" else str_c(", ", domain),
+    "):\n"
+  ))
+
+  if (all(is.na(n_grid))) {
+    coverage <- "grid counts unavailable"
+    dropped <- "unavailable"
+  } else {
+    widest <- max(n_grid, na.rm = TRUE)
+    short <- !is.na(n_grid) & n_grid < widest
+    dropped <- if (any(short)) {
       str_c(
-        step_name,
-        ":\t",
-        sum(Decomp[[step_name]] |> sum() |> round())
+        labels[short],
+        " (",
+        format(n_grid[short], big.mark = ","),
+        ")",
+        collapse = ", "
+      )
+    } else {
+      "none"
+    }
+    coverage <- str_c(
+      str_c(
+        format(sort(unique(n_grid[!is.na(n_grid)])), big.mark = ","),
+        collapse = "/"
       ),
-      "\n"
+      " grid(s) per state",
+      if (is.null(grid_total)) {
+        ""
+      } else {
+        str_c(" of ", format(grid_total, big.mark = ","), " in Grid_info")
+      }
     )
   }
+  cat(str_c(
+    "  coverage: ", coverage,
+    "; dropped vs widest state: ", dropped,
+    ".\n"
+  ))
+
+  na_detail <- if (length(na_states) == 0) {
+    "none"
+  } else {
+    str_c(
+      na_states,
+      " (",
+      format(n_na[match(na_states, labels)], big.mark = ","),
+      " cell(s))",
+      collapse = ", "
+    )
+  }
+  domains_detail <- if (length(na_domains) == 0) {
+    "none"
+  } else {
+    shown <- head(na_domains, 6)
+    str_c(
+      str_c(shown, collapse = ", "),
+      if (length(na_domains) > length(shown)) {
+        str_c(" (+", length(na_domains) - length(shown), " more)")
+      } else {
+        ""
+      }
+    )
+  }
+  cat(str_c(
+    "  states with NA: ", na_detail,
+    "; affected domains: ", domains_detail,
+    ".\n"
+  ))
+  invisible(NULL)
 }
 
 Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
@@ -308,7 +458,7 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
   # Build missing states in parallel when a plan is active; no-op otherwise.
   decomp_fill_cache(prefixes, start.y, end.y, domain, cache)
 
-  Decomp <- prefixes |>
+  grids <- prefixes |>
     map(
       get_decomp_state,
       start.y = start.y,
@@ -316,8 +466,49 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
       domain = domain,
       cache = cache
     ) |>
-    map("grid") |>
-    set_names(str_c("Mort_", 0:4))
+    map("grid")
+
+  # C1: a state that lost grids (NA concentration, population, rate, or PWRR)
+  # would make every difference a sum over a different grid set. Abort before
+  # differencing instead of returning a silently biased domain total.
+  # Kept inline: the module harnesses parse a fixed list of top-level names, so
+  # a new helper here would be invisible to them.
+  state_labels <- c("<start>", steps)
+  key_sets <- map(grids, function(grid) str_c(grid$x, grid$y, sep = "|"))
+  n_keys <- map_int(key_sets, length)
+  same_keys <- all(map_lgl(
+    key_sets,
+    function(keys) setequal(keys, key_sets[[1]])
+  ))
+  if (length(unique(n_keys)) > 1 || !same_keys) {
+    stop(
+      "Decomposition aborted: the factor states cover different (x, y) grid sets (",
+      str_c(state_labels, " = ", n_keys, " grids", collapse = ", "),
+      "). Differencing them would sum over different grids and bias every ",
+      "domain total. Mortality() drops grids whose concentration, population, ",
+      "mortality rate, or PWRR input is NA; inspect the scenario columns each ",
+      "state reads."
+    )
+  }
+  state_issues <- map(grids, function(grid) {
+    mort_cols <- setdiff(names(grid), c("x", "y", domain))
+    if (length(mort_cols) == 0) {
+      return(list(
+        n_grid = nrow(grid),
+        n_na = 0L,
+        na_domains = character(0)
+      ))
+    }
+    na_cells <- is.na(as.matrix(grid[mort_cols]))
+    list(
+      n_grid = nrow(grid),
+      n_na = sum(na_cells),
+      na_domains = unique(grid[[domain]][rowSums(na_cells) > 0])
+    )
+  }) |>
+    set_names(state_labels)
+
+  Decomp <- grids |> set_names(str_c("Mort_", 0:4))
 
   Decomp <- Decomp |>
     imap_dfr(
@@ -340,7 +531,12 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
       .keep = "unused"
     )
 
-  print_decomp_drivers(Decomp, steps, start.y, end.y)
+  print_decomp_drivers(
+    Decomp, steps, start.y, end.y,
+    issues = state_issues,
+    domain = domain,
+    grid_total = nrow(Grid_info)
+  )
 
   return(Decomp)
 }
@@ -355,7 +551,8 @@ Decomposition_summary <- function(
   end.y,
   domain = NULL,
   cache = NULL,
-  state_summaries = NULL
+  state_summaries = NULL,
+  report = TRUE
 ) {
   validate_scenario_columns(start.y, end.y)
   if (is.null(domain)) {
@@ -403,6 +600,52 @@ Decomposition_summary <- function(
     summaries <- state_summaries[keys]
   }
 
+  # C1: summaries from state_summary_from_grid() carry the state's (x, y) key
+  # set. Differencing states built on different grids biases every domain sum,
+  # so abort before subtracting. Summaries built elsewhere cannot be checked;
+  # warn instead of pretending the guard ran.
+  state_labels <- c("<start>", steps)
+  key_sets <- map(summaries, function(summary) {
+    attr(summary, "decomp_grid_keys", exact = TRUE)
+  })
+  if (all(map_lgl(key_sets, is.character))) {
+    n_keys <- map_int(key_sets, length)
+    same_keys <- all(map_lgl(
+      key_sets,
+      function(keys) setequal(keys, key_sets[[1]])
+    ))
+    if (length(unique(n_keys)) > 1 || !same_keys) {
+      stop(
+        "Decomposition_summary aborted: the factor states cover different ",
+        "(x, y) grid sets (",
+        str_c(state_labels, " = ", n_keys, " grids", collapse = ", "),
+        "). Differencing them would sum over different grids and bias every ",
+        "domain total. Rebuild the state summaries with ",
+        "state_summary_from_grid() from one grid set."
+      )
+    }
+  } else {
+    log_msg(
+      WARN,
+      "Decomposition_summary: state summaries carry no grid key set; the ",
+      "grid-set guard is skipped. Build summaries with ",
+      "state_summary_from_grid() to enable it."
+    )
+  }
+
+  state_issues <- NULL
+  if (report) {
+    state_issues <- map(summaries, function(summary) {
+      is_na <- is.na(summary$Mort)
+      list(
+        n_grid = attr(summary, "decomp_n_grid", exact = TRUE),
+        n_na = sum(is_na),
+        na_domains = unique(summary[[domain]][is_na])
+      )
+    }) |>
+      set_names(state_labels)
+  }
+
   Decomp <- summaries |> set_names(str_c("Mort_", 0:4))
 
   Decomp <- Decomp |>
@@ -421,7 +664,12 @@ Decomposition_summary <- function(
       .keep = "unused"
     )
 
-  print_decomp_drivers(Decomp, steps, start.y, end.y)
+  print_decomp_drivers(
+    Decomp, steps, start.y, end.y,
+    issues = state_issues,
+    domain = domain,
+    grid_total = nrow(Grid_info)
+  )
 
   Decomp
 }
@@ -438,32 +686,53 @@ aggregate_drivers <- function(
   }
 
   n <- if (RUN24) 1:24 else 1
-  cache <- new_decomp_cache()
 
-  # Parallel path: summarise the unique factor states once, then assemble the
-  # sequences from those summaries. The serial cache path below stays unchanged.
+  # Summarise the unique factor states once and keep only their summaries
+  # (I9, 261101). The old serial path cached 16 full grid tables (~117 MB)
+  # although only summaries are consumed; this mirrors the parallel path.
+  states <- decomp_unique_prefixes(
+    start.year, end.year, domain,
+    RUN24 = RUN24
+  )
   kernel_on <- exists("kernel_active", mode = "function") &&
     isTRUE(kernel_active())
-  state_summaries <- NULL
-  if (kernel_on) {
-    states <- decomp_unique_prefixes(
-      start.year, end.year, domain,
-      RUN24 = RUN24
+  log_msg(
+    INFO,
+    if (kernel_on) "kernel: " else "",
+    "summarising ",
+    length(states),
+    " unique factor state(s) for ",
+    length(n),
+    " sequence(s)",
+    if (kernel_on) str_c(" on ", kernel_workers(), " worker(s)") else "",
+    "."
+  )
+  state_summaries <- precompute_state_summaries(
+    states, start.year, end.year, domain
+  )
+
+  # One NA and dropped-grid report for the whole run (I7); the per-series
+  # Decomposition_summary() calls below run with report = FALSE.
+  state_labels <- str_remove(names(state_summaries), ".*::")
+  state_issues <- map(state_summaries, function(summary) {
+    is_na <- is.na(summary$Mort)
+    list(
+      n_grid = attr(summary, "decomp_n_grid", exact = TRUE),
+      n_na = sum(is_na),
+      na_domains = unique(summary[[domain]][is_na])
     )
-    log_msg(
-      INFO,
-      "kernel: summarising ",
-      length(states),
-      " unique factor state(s) for ",
-      length(n),
-      " sequence(s) on ",
-      kernel_workers(),
-      " worker(s)."
-    )
-    state_summaries <- precompute_state_summaries(
-      states, start.year, end.year, domain
-    )
-  }
+  }) |>
+    set_names(state_labels)
+  print_decomp_drivers(
+    Decomp = NULL,
+    steps = character(0),
+    start.y = start.year,
+    end.y = end.year,
+    issues = state_issues,
+    domain = domain,
+    grid_total = nrow(Grid_info),
+    report_only = TRUE
+  )
 
   ls1 <- n |>
     set_names() |>
@@ -473,8 +742,8 @@ aggregate_drivers <- function(
         start.y = start.year,
         end.y = end.year,
         domain = domain,
-        cache = cache,
-        state_summaries = state_summaries
+        state_summaries = state_summaries,
+        report = FALSE
       ) |>
         group_by(across(all_of(domain))) |>
         summarise(across(Start:End, sum))
@@ -487,6 +756,8 @@ aggregate_drivers <- function(
 
   ls1[["Sequences"]] <- decomp_sequences
 
+  # C2: Results/ is gitignored, so a clean checkout has no directory here.
+  dir.create("./Results", showWarnings = FALSE, recursive = TRUE)
   ls1 |>
     write_xlsx(str_glue(
       "./Results/{tell_Model()}_DrivingFactors_",

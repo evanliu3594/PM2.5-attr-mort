@@ -6,6 +6,9 @@
 #   Modified 261026b: aggregation now sums only mortality columns. Missing
 #     components remain NA. Numeric metadata no longer enters totals.
 #     aggregate_sigma() uses the PWRR estimator and supports total only.
+#   Modified 261101: aggregate_sigma() uses caller-supplied _UP/_LOW columns,
+#     computes character scenarios with one RANGE call, takes an explicit PWRR
+#     domain (never the spatial column at), and validates the ... arguments.
 
 # ---------- shared validation ----------
 
@@ -87,12 +90,21 @@ domain_columns <- function(at_cols) {
 #' agegroup breakdowns.
 #'
 #' @param full_result A named list of grid-level mortality data frames, or a
-#'   character vector of scenario names. If a list contains RANGE columns, only
-#'   the `_MEAN` columns are used for the central estimate.
+#'   character vector of scenario names. List elements must carry the full
+#'   RANGE set (`_MEAN`, `_UP`, `_LOW`); the supplied `_UP`/`_LOW` columns are
+#'   used as-is for the bounds. A `_MEAN`-only element aborts, because bounds
+#'   cannot be derived from it: pass scenario names instead so the bounds are
+#'   computed from the loaded session.
 #' @param at A single Grid_info column used for spatial aggregation.
 #' @param by Must be `"total"`.
 #' @param write Write the result to `./Results/`.
-#' @param ... `includeConc`, `Conc_ERR`, and `verbose`.
+#' @param pwr_domain PWRR domain column passed to `Mortality()` and
+#'   `Mortality_at()`. `NULL` (default) auto-detects it. It is never `at`:
+#'   `at` only controls spatial aggregation.
+#' @param ... Named extras only: `includeConc` (logical; adds a concentration
+#'   perturbation computed from the loaded scenario data), `Conc_ERR` (percent
+#'   concentration perturbation in `[0, 100]`), and `verbose` (logical).
+#'   Unknown names abort.
 #'
 #' @return A data frame with `year`, the domain column, `total_MEAN`, `total_UP`,
 #'   and `total_LOW`.
@@ -102,6 +114,7 @@ aggregate_sigma <- function(
   at = "Country",
   by = "total",
   write = TRUE,
+  pwr_domain = NULL,
   ...
 ) {
   if (!identical(by, "total")) {
@@ -117,21 +130,64 @@ aggregate_sigma <- function(
   }
   domain_columns(at)
 
+  # Named extras only: a misspelled or unnamed `...` would silently fall back
+  # to the defaults and change the result.
   extra_args <- list(...)
+  allowed_args <- c("includeConc", "Conc_ERR", "verbose")
+  if (length(extra_args) > 0) {
+    extra_names <- names(extra_args)
+    if (is.null(extra_names) || any(!nzchar(extra_names))) {
+      cli::cli_abort("All arguments in ... must be named: {.val {allowed_args}}.")
+    }
+    unknown_args <- setdiff(extra_names, allowed_args)
+    if (length(unknown_args) > 0) {
+      cli::cli_abort(c(
+        "Unknown argument(s) in ...: {.val {unknown_args}}.",
+        "i" = "Supported: {.val {allowed_args}}."
+      ))
+    }
+  }
   include_conc <- extra_args[["includeConc"]] %||% FALSE
   conc_err <- extra_args[["Conc_ERR"]] %||% 12
   verbose <- extra_args[["verbose"]] %||% FALSE
 
+  if (!is.logical(include_conc) || length(include_conc) != 1 || is.na(include_conc)) {
+    cli::cli_abort(
+      "includeConc must be one TRUE/FALSE value, got {.val {include_conc}}."
+    )
+  }
+  conc_err_ok <- is.numeric(conc_err) && length(conc_err) == 1 &&
+    !is.na(conc_err) && is.finite(conc_err) &&
+    conc_err >= 0 && conc_err <= 100
+  if (!conc_err_ok) {
+    cli::cli_abort(
+      "Conc_ERR must be one number between 0 and 100 (percent), ",
+      "got {.val {conc_err}}."
+    )
+  }
+  if (!is.logical(verbose) || length(verbose) != 1 || is.na(verbose)) {
+    cli::cli_abort("verbose must be one TRUE/FALSE value, got {.val {verbose}}.")
+  }
+
   if (is.character(full_result)) {
     scenarios <- full_result
-    if (any(!nzchar(scenarios)) || anyDuplicated(scenarios)) {
+    if (length(scenarios) == 0 || any(!nzchar(scenarios)) ||
+      anyDuplicated(scenarios) > 0) {
       cli::cli_abort("Scenario names must be non-empty and unique.")
     }
+    compute_bounds <- TRUE
   } else if (is.list(full_result) && !is.data.frame(full_result)) {
     scenarios <- names(full_result)
     if (is.null(scenarios) || any(!nzchar(scenarios))) {
       cli::cli_abort("full_result must be a named list.")
     }
+    if (anyDuplicated(scenarios) > 0) {
+      cli::cli_abort("Scenario names in full_result must be unique.")
+    }
+    if (!all(map_lgl(full_result, is.data.frame))) {
+      cli::cli_abort("Every element of full_result must be a data frame.")
+    }
+    compute_bounds <- FALSE
   } else {
     cli::cli_abort(
       "full_result must be a character vector or a named list of data frames."
@@ -146,21 +202,39 @@ aggregate_sigma <- function(
     log_msg(INFO, "Including concentration uncertainty at +/-{conc_err}%.")
   }
 
-  extract_mean <- function(df, scenario) {
-    if (all(c("_MEAN", "_UP", "_LOW") |> map_lgl(~ any(str_detect(names(df), .x))))) {
-      mean_cols <- str_subset(names(df), "_MEAN$")
-      if (length(mean_cols) == 0) {
-        cli::cli_abort("Scenario {.val {scenario}} has no MEAN mortality columns.")
-      }
-      return(df |> select(x, y, all_of(mean_cols)))
+  # Split one grid table into its MEAN/UP/LOW branches. Supplied UP/LOW columns
+  # are authoritative; no Mortality() call is made for list input.
+  extract_branches <- function(df, scenario) {
+    if (!all(c("x", "y") %in% names(df))) {
+      cli::cli_abort("Scenario {.val {scenario}} must contain x and y columns.")
     }
-
-    if (length(str_subset(names(df), "_(UP|LOW)$")) > 0) {
+    mean_cols <- str_subset(names(df), "_MEAN$")
+    up_cols <- str_subset(names(df), "_UP$")
+    low_cols <- str_subset(names(df), "_LOW$")
+    if (length(mean_cols) == 0) {
+      cli::cli_abort("Scenario {.val {scenario}} has no MEAN mortality columns.")
+    }
+    if (length(up_cols) == 0 && length(low_cols) == 0) {
+      cli::cli_abort(c(
+        "Scenario {.val {scenario}} has MEAN columns only.",
+        "i" = paste0(
+          "The uncertainty bounds are not in the data frame. ",
+          "Pass Mortality(CI = \"RANGE\") output, or pass scenario names ",
+          "as a character vector so the bounds are computed from the session."
+        )
+      ))
+    }
+    if (length(up_cols) == 0 || length(low_cols) == 0) {
       cli::cli_abort(
-        "Scenario {.val {scenario}} must contain MEAN mortality or a full RANGE set."
+        "Scenario {.val {scenario}} must contain both _UP and _LOW columns, ",
+        "or neither."
       )
     }
-    df
+    list(
+      mean = df |> select(x, y, all_of(mean_cols)),
+      up = df |> select(x, y, all_of(up_cols)),
+      low = df |> select(x, y, all_of(low_cols))
+    )
   }
 
   aggregate_total <- function(df, label) {
@@ -178,27 +252,22 @@ aggregate_sigma <- function(
       select(all_of(at), total := all_of(value_cols))
   }
 
-  mean_grids <- list()
-  for (scenario in scenarios) {
-    if (is.character(full_result)) {
-      mean_grids[[scenario]] <- Mortality_at(at = scenario, CI = "MEAN")
-    } else {
-      mean_grids[[scenario]] <- extract_mean(full_result[[scenario]], scenario)
-    }
-  }
-
   rows <- map(scenarios, function(scenario) {
+    grids <- if (compute_bounds) {
+      Mortality_at(at = scenario, CI = "RANGE", domain = pwr_domain)
+    } else {
+      full_result[[scenario]]
+    }
+    branches <- extract_branches(grids, scenario)
+
     mean_total <- aggregate_total(
-      mean_grids[[scenario]],
+      branches$mean,
       str_c(scenario, " MEAN")
     ) |>
       rename(total_MEAN = total)
-
-    up_grid <- Mortality_at(at = scenario, CI = "UP")
-    low_grid <- Mortality_at(at = scenario, CI = "LOW")
-    up_total <- aggregate_total(up_grid, str_c(scenario, " UP")) |>
+    up_total <- aggregate_total(branches$up, str_c(scenario, " UP")) |>
       rename(total_UP_raw = total)
-    low_total <- aggregate_total(low_grid, str_c(scenario, " LOW")) |>
+    low_total <- aggregate_total(branches$low, str_c(scenario, " LOW")) |>
       rename(total_LOW_raw = total)
 
     out <- mean_total |>
@@ -226,7 +295,7 @@ aggregate_sigma <- function(
           ag = getAgeGroup(scenario),
           mRate = getMortRate(scenario),
           CI = "MEAN",
-          domain = at,
+          domain = pwr_domain,
           verbose = verbose
         )
       }
