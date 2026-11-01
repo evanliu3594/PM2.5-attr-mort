@@ -15,6 +15,7 @@
 | `Figures/` | 图件，不入 git | `README.md` |
 | `tests/` | 本地回归测试，不入 git | `tests/run_tests.R` |
 | `handoff/` | 本地会话交接，不入 git；最新一份 = 当前状态入口 | — |
+| `docs/` | 程序设计文档（superpowers 计划与设计记录），随 git 入库 | `docs/README.md` |
 | 根脚本 | `build_instance.R`、`HealthBurdenCalc.R`、`DrivingFactors.R` | `README.md` |
 
 `Data/` 内部分层：原始只读（`PM25_raw/`、`IHME_Pop_raw/`、`IHME_MortRate_raw/`）；实例表（`*_instance_260617.xlsx`）；`CRF_coefficients/`；`RR_index/`。

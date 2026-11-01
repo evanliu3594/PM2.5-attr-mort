@@ -34,6 +34,7 @@ sequential run needs none of them.
 | `Results/`, `Figures/` | Outputs (gitignored) |
 | `tests/` | Local regression tests (gitignored) |
 | `handoff/` | Local session handoffs (gitignored) |
+| `docs/` | Programme design docs: [data flow](docs/data-flow.md), [superpowers plans](docs/superpowers/plans/) |
 | `docs/` | Background notes: [data flow](docs/data-flow.md) |
 
 ## Quick start
