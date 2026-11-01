@@ -9,6 +9,11 @@
 #   Modified 261101: aggregate_sigma() uses caller-supplied _UP/_LOW columns,
 #     computes character scenarios with one RANGE call, takes an explicit PWRR
 #     domain (never the spatial column at), and validates the ... arguments.
+#   Modified 261101b (v6.3): aggregate_range() builds one long table per call
+#     and sums it with grouped R-level sum() instead of dplyr group_by() per
+#     aggregation level. Sums stay in long-table row order, so results are
+#     bit-identical to the previous implementation; the grid table must be
+#     unique on (x, y), as read_files() enforces.
 
 # ---------- shared validation ----------
 
@@ -395,42 +400,148 @@ aggregate_range <- function(x, at = "Country", by = "total", write = FALSE) {
     "aggregate_range: at = \"{at}\", by = \"{by}\", {length(x)} scenario(s)"
   )
 
+  # One grid table for all `at` values: scenario rows are stacked, the
+  # aggregation columns are attached once at grid level, and the mortality
+  # columns are elongated once. Every aggregation level below reuses this long
+  # table instead of rebuilding it. Grid_info must be unique on (x, y)
+  # (read_files() enforces that), so the grid join cannot multiply rows.
+  grid_rows <- map_int(x, nrow)
+  n_value <- length(spec$column)
+  n_grid <- sum(grid_rows)
+  geo_lookup <- Grid_info |>
+    select(all_of(c("x", "y", geo_cols))) |>
+    distinct()
+  grid <- bind_rows(map(x, ~ select(.x, x, y, all_of(spec$column)))) |>
+    mutate(scenario = rep(scenarios, times = grid_rows)) |>
+    left_join(geo_lookup, by = c("x", "y"))
+
+  # The long table: one row per (grid row, mortality column), grid rows and
+  # value columns in input order. Its row order is what the grouped sums below
+  # reproduce, so the floating-point accumulation is unchanged.
+  long <- grid |>
+    select(all_of(spec$column)) |>
+    pivot_longer(
+      cols = everything(),
+      names_to = NULL,
+      values_to = "mort"
+    )
+  # The mortality columns are now in `long`; drop them from the grid table so
+  # the two structures do not both hold the values.
+  grid <- grid |> select(x, y, scenario, all_of(geo_cols))
+
+  # Per-value-column key codes. The long table repeats `spec` once per value
+  # column, so a long row's endpoint/agegroup/CI follow from its value-column
+  # position; deriving them from the `spec` table avoids matching 4.8M strings
+  # back to their labels. Only the codes' bijection matters, never their order,
+  # because the output order comes from group_by() below.
+  ci_code <- match(spec$CI, c("MEAN", "UP", "LOW"))
+  endpoint_levels <- unique(spec$endpoint)
+  agegroup_levels <- unique(spec$agegroup)
+  endpoint_code <- match(spec$endpoint, endpoint_levels)
+  agegroup_code <- match(spec$agegroup, agegroup_levels)
+  n_endpoint <- length(endpoint_levels)
+  n_agegroup <- length(agegroup_levels)
+  key_value <- switch(
+    by,
+    total = ci_code,
+    endpoint = endpoint_code + n_endpoint * (ci_code - 1L),
+    agegroup = agegroup_code + n_agegroup * (ci_code - 1L),
+    all = endpoint_code +
+      n_endpoint * (agegroup_code - 1L + n_agegroup * (ci_code - 1L))
+  )
+  n_key_value <- max(key_value)
+  # One key code per scenario block, so each `at` group is split into n_key
+  # parts; group ids below are at code + n_at * key index.
+  n_key <- n_key_value * length(x)
+  # 0-based group index of every long row within its `at` group: the long table
+  # is ordered scenario, grid row, value column.
+  key_index <- rep(key_value - 1L, times = n_grid) +
+    rep(n_key_value * (seq_along(x) - 1L), times = grid_rows * n_value)
+  key_labels <- tibble(
+    kv = key_value,
+    endpoint = spec$endpoint,
+    agegroup = spec$agegroup,
+    CI = spec$CI
+  ) |>
+    select(kv, all_of(c(by_cols, "CI"))) |>
+    distinct()
+
   aggregate_one <- function(at_cols, by_cols) {
     domain_columns(at_cols)
 
-    geo_lookup <- Grid_info |>
-      select(all_of(c("x", "y", at_cols))) |>
-      distinct()
+    missing_geo <- reduce(
+      map(at_cols, ~ is.na(grid[[.x]])),
+      `|`
+    )
+    if (any(missing_geo)) {
+      first_bad <- grid$scenario[[which(missing_geo)[[1]]]]
+      n_missing <- sum(missing_geo & grid$scenario == first_bad)
+      cli::cli_abort(c(
+        "{n_missing} grid(s) in scenario {.val {first_bad}} have no ",
+        "matching Grid_info aggregation columns."
+      ))
+    }
 
-    long <- imap_dfr(x, function(df, scenario) {
-      joined <- df |>
-        select(x, y, all_of(spec$column)) |>
-        left_join(geo_lookup, by = c("x", "y"))
+    # One integer code per grid row for the requested aggregation columns.
+    at_code <- integer(n_grid)
+    n_at <- 1L
+    for (col in at_cols) {
+      at_levels <- unique(grid[[col]])
+      at_code <- at_code * length(at_levels) + (match(grid[[col]], at_levels) - 1L)
+      n_at <- n_at * length(at_levels)
+    }
+    at_code <- at_code + 1L
 
-      missing_geo <- joined |>
-        filter(if_any(all_of(at_cols), is.na)) |>
-        nrow()
-      if (missing_geo > 0) {
-        cli::cli_abort(
-          "{missing_geo} grid(s) in scenario {.val {scenario}} have no ",
-          "matching Grid_info aggregation columns."
+    # Grouped sums with R-level sum(), in long-table row order. Stable radix
+    # order keeps each group's rows in long-table order, so the floating-point
+    # accumulation matches the previous grouped summarise() exactly.
+    row_group <- rep(at_code, each = n_value) + n_at * key_index
+    group_size <- tabulate(row_group, nbins = n_at * n_key)
+    group_ord <- order(row_group, method = "radix")
+    rm(row_group)
+    group_ends <- cumsum(group_size)
+    group_starts <- group_ends - group_size + 1L
+    group_ids <- which(group_size > 0L)
+    # sum() of an empty slice keeps the value type summarise() would produce.
+    empty_sum <- sum(long$mort[0L])
+    group_sums <- vapply(
+      seq_along(group_ids),
+      function(i) {
+        group <- group_ids[[i]]
+        sum(
+          long$mort[group_ord[group_starts[[group]]:group_ends[[group]]]]
         )
-      }
+      },
+      empty_sum
+    )
 
-      joined |>
-        pivot_longer(
-          cols = all_of(spec$column),
-          names_to = c("endpoint", "agegroup", "CI"),
-          names_pattern = "^(.*)_([0-9]+)_(MEAN|UP|LOW)$",
-          values_to = "mort"
-        ) |>
-        mutate(scenario = scenario)
-    })
-
+    # Group keys, ordered the way group_by()/summarise() ordered them.
+    at_first <- match(seq_len(n_at), at_code)
+    at_labels <- grid[at_first, at_cols]
+    key_parts <- tibble(
+      at_id = ((group_ids - 1L) %% n_at) + 1L,
+      key_id = ((group_ids - 1L) %/% n_at) + 1L
+    ) |>
+      mutate(
+        kv = ((key_id - 1L) %% n_key_value) + 1L,
+        scen = ((key_id - 1L) %/% n_key_value) + 1L
+      ) |>
+      left_join(key_labels, by = "kv") |>
+      mutate(scenario = scenarios[scen])
+    group_keys <- bind_cols(
+      at_labels[key_parts$at_id, , drop = FALSE],
+      key_parts[c(by_cols, "scenario", "CI")]
+    )
     group_cols <- c(at_cols, by_cols, "scenario", "CI")
-    summarised <- long |>
+    group_order <- group_keys |>
       group_by(across(all_of(group_cols))) |>
-      summarise(mort = sum(mort), .groups = "drop")
+      group_data() |>
+      pull(.rows) |>
+      unlist(use.names = FALSE)
+    summarised <- bind_cols(
+      group_keys[group_order, , drop = FALSE],
+      tibble(mort = group_sums[group_order])
+    )
 
     out <- summarised |>
       unite("key", all_of(c("scenario", "CI")), sep = "_") |>

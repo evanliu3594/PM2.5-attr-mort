@@ -10,6 +10,12 @@
 # builds missing states in one parallel batch when a Code/kernel.R plan is
 # active; without a plan the cache path stays serial.
 #
+# Input cache (v6.3): every factor state differs only in which scenario column
+# each factor reads, so decomp_input_cache() builds the two RR matrices and the
+# four PWRR tables once per run and state_grid_cached() reuses them. When the
+# vectorised engine (Code/mortality.R) is absent, or a harness replaces
+# Mortality() in its own environment, the module keeps the join path.
+#
 # Requires: tidyverse, writexl. Loaded by: DrivingFactors.R.
 # NOTE 261026: PWRR is computed per domain × endpoint × agegroup.
 # NOTE 261027: parallel state construction via Code/kernel.R (optional).
@@ -17,6 +23,15 @@
 #   dropped-grid report per run (I7); decomp_sequences validated at load (I8);
 #   aggregate_drivers() caches state summaries only (I9) and creates Results/
 #   before writing (C2).
+# Modified 261101 (v6.3): state-independent inputs are cached once per run
+#   (decomp_input_cache(), state_grid_cached()); 16 states build two RR
+#   matrices and four PWRR tables instead of sixteen of each. Values stay
+#   bit-identical because the cached path calls the same engine functions.
+# Modified 261101 (v6.3 diagnostics): the cached path prints the same clamp,
+#   orphan, and coverage reports that Mortality() printed per state, once per
+#   run and with the v6.2 labels (Conc_r / Conc_c). aggregate_drivers() runs the
+#   grid-set guard once over the 16 summaries and every Decomposition_summary()
+#   call skips it.
 
 # 24 decomposition sequences, written explicitly in the documented order ----
 # Columns step1..step4 are the order in which the factors are applied.
@@ -161,11 +176,81 @@ mort_at_prefix <- function(prefix, start.y, end.y, domain) {
   )
 }
 
+# TRUE when the cached input path may run. It needs the v6.3 engine functions,
+# the diagnostic helpers they print through, and an RR table in the same scope
+# as Mortality(), because the cached path reproduces Mortality()'s engine
+# internals. A harness that replaces Mortality() with a stub in its own
+# environment keeps the join path; a checkout without the engine falls back
+# cleanly. `env` is the scope that would run the cached path (the caller's frame
+# by default).
+decomp_engine_available <- function(env = parent.frame()) {
+  engine_functions <- c(
+    "mort_rr_matrix", "mort_pwr_table", "mort_grid_table",
+    "mortality_clamp_report", "mortality_clamp_text",
+    "mortality_orphan_report", "mortality_coverage_cached",
+    "mortality_assert_rr_key"
+  )
+  present <- vapply(
+    engine_functions,
+    function(name) {
+      exists(name, envir = env, mode = "function", inherits = TRUE)
+    },
+    logical(1)
+  )
+  if (!all(present) ||
+    !exists("Mortality", envir = env, mode = "function", inherits = TRUE)) {
+    return(FALSE)
+  }
+  rr_raw <- get0(
+    ".RR_std_tbl",
+    envir = env,
+    inherits = TRUE,
+    ifnotfound = NULL
+  )
+  if (is.null(rr_raw) || nrow(rr_raw) == 0) {
+    return(FALSE)
+  }
+  # Same scope: in production all four functions come from globalenv. A stub
+  # Mortality() assigned to a test environment does not share the engine scope.
+  identical(
+    environment(get("Mortality", envir = env, inherits = TRUE)),
+    environment(get("mort_grid_table", envir = env, inherits = TRUE))
+  )
+}
+
+# Identity of one cached input set: scenario names, domain, and the RR table
+# identity (model name, row count, concentration precision).
+decomp_input_key <- function(start.y, end.y, domain) {
+  rr_raw <- get0(".RR_std_tbl", ifnotfound = NULL, inherits = TRUE)
+  model <- get0(".CR_Model", ifnotfound = NA_character_, inherits = TRUE)
+  dgt <- if (is.null(rr_raw)) {
+    NA_integer_
+  } else {
+    as.integer(
+      attr(rr_raw, "dgt_conc", exact = TRUE) %||%
+        get0(".DGT_CONC", ifnotfound = 1L, inherits = TRUE)
+    )
+  }
+  str_c(
+    start.y,
+    end.y,
+    str_c(as.character(domain), collapse = "+"),
+    model %||% NA_character_,
+    nrow(rr_raw) %||% 0L,
+    dgt,
+    sep = "::"
+  )
+}
+
 # Cache states within one decomposition run; sorted prefixes identify equivalent inputs.
 new_decomp_cache <- function() {
   cache <- new.env(parent = emptyenv())
   cache$states <- new.env(parent = emptyenv())
   cache$n_mortality <- 0L
+  # Input cache, built lazily by decomp_inputs_for() on the first state.
+  cache$inputs <- NULL
+  cache$engine <- exists("decomp_engine_available", mode = "function") &&
+    decomp_engine_available()
   cache
 }
 
@@ -176,6 +261,429 @@ decomp_state_key <- function(prefix, start.y, end.y, domain) {
     str_c(sort(prefix), collapse = "+")
   }
   str_c(start.y, end.y, str_c(domain, collapse = "+"), factors, sep = "::")
+}
+
+# State-independent inputs plus the RR matrices and PWRR tables every state
+# shares. Called once per (start.y, end.y, domain, RR table) run.
+#
+# Memory: one RR matrix is n_grid x G doubles; the cache holds two of them, four
+# G x D PWRR tables, the two population vectors, and the G x D per-domain
+# age-structure and mortality-rate matrices. At 68,302 grids and 15 groups that
+# is about 18 MB, plus about 33 MB for the four pre-expanded G x n_grid copies
+# (cached only while n_grid x G stays at or below 2e6 cells). At 0.1 degree
+# (about 800,000 grids) one RR matrix is about 96 MB, the cache stays near the
+# 192 MB of its two RR matrices, and the group matrices expand per state.
+decomp_input_cache <- function(start.y, end.y, domain) {
+  rr_raw <- .RR_std_tbl
+  if (is.null(rr_raw) || nrow(rr_raw) == 0) {
+    stop("RR lookup table is empty. Run set_Model() first.")
+  }
+  require_columns(
+    rr_raw,
+    c("concentration", "endpoint", "agegroup", "CI", "RR"),
+    "RR lookup table"
+  )
+
+  # ---- Same precision, unit, and normalisation guards as Mortality() ----
+  conc_dgt <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
+  rr_dgt <- attr(rr_raw, "dgt_conc", exact = TRUE) %||% conc_dgt
+  if (!identical(as.integer(conc_dgt), as.integer(rr_dgt))) {
+    stop(
+      "RR table precision (", rr_dgt, ") differs from .DGT_CONC (",
+      conc_dgt, "). Rebuild the RR table with the requested precision."
+    )
+  }
+  rr_meta <- get0(".RR_meta", envir = globalenv(), ifnotfound = list())
+  conc_unit <- get0(".CONC_UNIT", envir = globalenv(), ifnotfound = NULL)
+  rr_unit <- attr(rr_raw, "conc_unit", exact = TRUE) %||%
+    rr_meta$conc_unit %||%
+    NULL
+  if (!is.null(conc_unit) && !is.null(rr_unit) && !identical(conc_unit, rr_unit)) {
+    stop(
+      "Concentration unit mismatch: RR model expects \"", rr_unit,
+      "\", data were loaded as \"", conc_unit, "\"."
+    )
+  }
+  if (!isTRUE(attr(rr_raw, "rr_normalized", exact = TRUE))) {
+    rr_raw <- rr_raw |>
+      mutate(
+        concentration = matchable(as.numeric(concentration), conc_dgt),
+        endpoint = tolower(endpoint),
+        agegroup = matchable(as.numeric(agegroup), 0)
+      )
+    # RR_std() key-checks the tables it builds before setting rr_normalized, so
+    # the expensive duplicate scan runs for hand-built tables only. The check is
+    # shared with Mortality() and runs once per table identity.
+    mortality_assert_rr_key(rr_raw)
+  }
+  if (!setequal(unique(rr_raw$CI), c("MEAN", "UP", "LOW"))) {
+    stop("RR lookup table must contain exactly MEAN, UP, and LOW branches.")
+  }
+  rr_conc_range <- range(as.numeric(rr_raw$concentration), na.rm = TRUE)
+
+  # ---- Scenario columns, one entry per distinct scenario name ----
+  scenarios <- unique(c(start.y, end.y))
+  require_columns(Grid_info, c("x", "y", domain), "Grids")
+  require_columns(Pop, c("x", "y", scenarios), "pop")
+  require_columns(Conc_real, c("x", "y", scenarios), "Conc_real")
+  require_columns(AgeGroup, c("domain", "agegroup", scenarios), "AgeGroup")
+  grid_domain <- Grid_info |>
+    select(x, y, domain = all_of(domain))
+  # Every state grid is a row subset of Grid_info, so one key check here covers
+  # the per-state "Mortality output" check that Mortality() runs.
+  assert_unique_key(grid_domain, c("x", "y"), "Grid_info")
+
+  # Concentrations: the real and counterfactual column both come from Conc_real,
+  # so one cached vector serves either role. One join carries every scenario
+  # column; clamping and matchable() stay per column, exactly as Mortality().
+  #
+  # A scenario column is Conc_r in some factor states and Conc_c in others. v6.2
+  # printed one report per role per state; the unique texts are one per role, so
+  # clamp each column once and describe both roles with the same counts.
+  conc_frame <- Conc_real |> select(x, y, all_of(scenarios))
+  clamp_reports <- character()
+  for (at in scenarios) {
+    report <- mortality_clamp_report(
+      as.numeric(conc_frame[[at]]),
+      rr_conc_range,
+      "Conc_r"
+    )
+    conc_frame[[at]] <- matchable(report$value, conc_dgt)
+    clamp_reports <- c(
+      clamp_reports,
+      report$text,
+      mortality_clamp_text(report$n_lo, report$n_hi, rr_conc_range, "Conc_c")
+    )
+  }
+  for (text in unique(clamp_reports)) {
+    log_msg(WARN, "{text}")
+  }
+  conc_joined <- grid_domain |> left_join(conc_frame, by = c("x", "y"))
+  conc <- map(scenarios, function(at) conc_joined[[at]]) |>
+    set_names(scenarios)
+
+  pop_frame <- Pop |> select(x, y, all_of(scenarios))
+  for (at in scenarios) {
+    values <- as.numeric(pop_frame[[at]])
+    if (any(values < 0, na.rm = TRUE)) {
+      stop("Population contains negative values.")
+    }
+    pop_frame[[at]] <- values
+  }
+  pop_joined <- grid_domain |> left_join(pop_frame, by = c("x", "y"))
+  pop <- map(scenarios, function(at) pop_joined[[at]]) |>
+    set_names(scenarios)
+
+  # The grid sets of Conc_real and Pop do not change with the scenario column, so
+  # one orphan report each covers every state; v6.2 repeated the same text per
+  # state. show_n is 6 because Decomposition() has no verbose switch.
+  orphan_reports <- c(
+    mortality_orphan_report(
+      grid_domain[c("x", "y")],
+      conc_frame |> select(x, y) |> distinct(),
+      Grid_info,
+      domain,
+      "concentration",
+      6
+    ),
+    mortality_orphan_report(
+      grid_domain[c("x", "y")],
+      pop_frame |> select(x, y) |> distinct(),
+      Grid_info,
+      domain,
+      "population",
+      6
+    )
+  )
+  for (text in orphan_reports) {
+    log_msg(WARN, "{text}")
+  }
+
+  ag <- map(scenarios, function(at) {
+    AgeGroup |>
+      select(domain, agegroup, AgeStruc = !!sym(at)) |>
+      mutate(
+        agegroup = matchable(as.numeric(agegroup), 0),
+        AgeStruc = as.numeric(AgeStruc)
+      )
+  }) |>
+    set_names(scenarios)
+
+  mrate <- map(scenarios, function(at) {
+    getMortRate(at) |>
+      mutate(
+        endpoint = tolower(endpoint),
+        agegroup = matchable(as.numeric(agegroup), 0),
+        MortRate = as.numeric(MortRate)
+      )
+  }) |>
+    set_names(scenarios)
+
+  # ---- Groups, RR matrices, PWRR tables: the shared expensive part ----
+  mean_branch <- rr_raw[
+    rr_raw$CI == "MEAN",
+    c("concentration", "endpoint", "agegroup", "RR")
+  ]
+  groups <- mean_branch |> distinct(endpoint, agegroup)
+  if (nrow(groups) == 0) {
+    stop("RR lookup table has no endpoint-agegroup groups.")
+  }
+  # ---- Coverage report for every scenario combination a state can read ----
+  # Population and counterfactual concentration select the grid rows; the rate
+  # and age tables select the covered endpoint/agegroup groups. The report reads
+  # no values, only NA masks and coverage sets, so mortality_coverage_cached()
+  # collapses the 16 combinations to one computation here. v6.2 repeated the same
+  # text once per state; print one copy per distinct text.
+  domain_vec <- grid_domain[["domain"]]
+  coverage_reports <- character()
+  for (conc_at in scenarios) {
+    for (pop_at in scenarios) {
+      base_c <- tibble(
+        x = grid_domain$x,
+        y = grid_domain$y,
+        domain = domain_vec,
+        concentration = conc[[conc_at]],
+        Pop = pop[[pop_at]]
+      )
+      for (mrate_at in scenarios) {
+        for (ag_at in scenarios) {
+          usable_groups <- groups |>
+            semi_join(
+              mrate[[mrate_at]] |> distinct(endpoint, agegroup),
+              by = c("endpoint", "agegroup")
+            ) |>
+            semi_join(
+              ag[[ag_at]] |> distinct(agegroup),
+              by = "agegroup"
+            )
+          # Mortality() aborts before its coverage report when no group is
+          # usable, so print nothing for that combination.
+          if (nrow(usable_groups) == 0) {
+            next
+          }
+          coverage_reports <- c(
+            coverage_reports,
+            mortality_coverage_cached(
+              base_c = base_c,
+              usable_groups = usable_groups,
+              mrate = mrate[[mrate_at]],
+              ag = ag[[ag_at]],
+              domain = domain,
+              show_n = 6
+            )
+          )
+        }
+      }
+    }
+  }
+  for (text in unique(coverage_reports)) {
+    log_msg(WARN, "{text}")
+  }
+
+  value_names <- str_c(groups$endpoint, groups$agegroup, "MEAN", sep = "_")
+
+  dom_names <- unique(as.character(domain_vec[!is.na(domain_vec)]))
+  dom_code <- match(as.character(domain_vec), dom_names)
+
+  rr <- map(scenarios, function(at) {
+    mort_rr_matrix(conc[[at]], mean_branch, groups)
+  }) |>
+    set_names(scenarios)
+
+  pwr <- list()
+  for (pop_at in scenarios) {
+    # One call per population scenario: the branch variant splits the domain
+    # rows and the population denominator once for both concentration columns.
+    tables <- mort_pwr_table_branches(
+      rr[scenarios],
+      pop[[pop_at]],
+      domain_vec
+    )
+    for (index in seq_along(scenarios)) {
+      pwr[[str_c(pop_at, "|", scenarios[[index]])]] <- tables[[index]]
+    }
+  }
+
+  # Per-domain group values (G x D) expand to G x n_grid per state, which keeps
+  # the cache small when a 0.1 degree grid makes one G x n_grid matrix 96 MB.
+  group_domain_matrix <- function(table, by_columns, value_column) {
+    out <- matrix(NA_real_, nrow = nrow(groups), ncol = length(dom_names))
+    for (g in seq_len(nrow(groups))) {
+      keep <- rep(TRUE, nrow(table))
+      for (column in by_columns) {
+        keep <- keep & table[[column]] == groups[[column]][[g]]
+      }
+      one <- table[keep, , drop = FALSE]
+      out[g, ] <- one[[value_column]][match(dom_names, as.character(one$domain))]
+    }
+    out
+  }
+  ag_dom <- map(ag, function(table) {
+    group_domain_matrix(table, "agegroup", "AgeStruc")
+  }) |>
+    set_names(scenarios)
+  mrate_dom <- map(mrate, function(table) {
+    group_domain_matrix(table, c("endpoint", "agegroup"), "MortRate")
+  }) |>
+    set_names(scenarios)
+
+  # Expand the four G x n_grid matrices once when they stay small. At 68,302
+  # grids and 15 groups they cost about 33 MB; at 0.1 degree (about 800,000
+  # grids) the same four would cost about 384 MB, so the cache keeps only the
+  # per-domain tables and expands per state there. Values are identical either
+  # way; the limit bounds the cache near the two RR matrices.
+  expanded_cells <- nrow(grid_domain) * nrow(groups)
+  if (expanded_cells <= 2e6) {
+    ag_grid <- map(ag_dom, function(one) one[, dom_code, drop = FALSE]) |>
+      set_names(scenarios)
+    mrate_grid <- map(mrate_dom, function(one) one[, dom_code, drop = FALSE]) |>
+      set_names(scenarios)
+  } else {
+    ag_grid <- NULL
+    mrate_grid <- NULL
+  }
+
+  list(
+    key = decomp_input_key(start.y, end.y, domain),
+    start.y = start.y,
+    end.y = end.y,
+    domain = domain,
+    grid_xy = grid_domain[c("x", "y")],
+    domain_vec = domain_vec,
+    groups = groups,
+    value_names = value_names,
+    dom_names = dom_names,
+    dom_code = dom_code,
+    conc = conc,
+    rr = rr,
+    pwr = pwr,
+    pop = pop,
+    ag_dom = ag_dom,
+    mrate_dom = mrate_dom,
+    ag_grid = ag_grid,
+    mrate_grid = mrate_grid,
+    n_rr = length(rr),
+    n_pwr = length(pwr)
+  )
+}
+
+# Build the input cache lazily for one decomp cache and reuse it until the
+# scenario names, domain, or RR table identity change.
+decomp_inputs_for <- function(cache, start.y, end.y, domain) {
+  key <- decomp_input_key(start.y, end.y, domain)
+  inputs <- cache$inputs
+  if (is.null(inputs) || !identical(inputs$key, key)) {
+    inputs <- decomp_input_cache(start.y, end.y, domain)
+    cache$inputs <- inputs
+  }
+  inputs
+}
+
+# PWRR guard per state in Mortality()'s report order: Inf or PWRR < 1 aborts,
+# NaN warns and drops the affected rows. Running it per state keeps the warning
+# count of the join path (one warning per Mortality() call).
+decomp_check_pwrr <- function(pwr_tbl, groups, dom_names, show_n = 6) {
+  skipped_keys <- character()
+  for (g in seq_len(nrow(groups))) {
+    one <- pwr_tbl[g, ]
+    is_inf <- is.infinite(one)
+    is_lt1 <- one < 1 & !is.na(one)
+    is_nan <- is.nan(one)
+    if (any(is_inf) || any(is_lt1)) {
+      bad_pos <- which(is_inf | is_lt1)
+      bad_keys <- str_c(
+        dom_names[bad_pos],
+        groups$endpoint[[g]],
+        groups$agegroup[[g]],
+        sep = "/"
+      )
+      stop(
+        "Invalid PWRR detected for endpoint/agegroup ",
+        groups$endpoint[[g]],
+        "/",
+        groups$agegroup[[g]],
+        ". ",
+        if (any(is_inf)) "Some domains have Inf PWRR. ",
+        if (any(is_lt1)) "Some have PWRR < 1. ",
+        "Check concentration and population for: ",
+        trunc_fmt(unique(bad_keys), n = show_n)
+      )
+    }
+    if (any(is_nan)) {
+      nan_pos <- which(is_nan)
+      skipped_keys <- c(
+        skipped_keys,
+        str_c(
+          dom_names[nan_pos],
+          groups$endpoint[[g]],
+          groups$agegroup[[g]],
+          sep = "/"
+        )
+      )
+    }
+  }
+  skipped_keys <- unique(skipped_keys)
+  if (length(skipped_keys) > 0) {
+    log_msg(
+      WARN,
+      "{length(skipped_keys)} domain/endpoint/age combination(s) have no valid ",
+      "PWRR; affected rows will be dropped: ",
+      trunc_fmt(skipped_keys, n = show_n)
+    )
+  }
+  invisible(NULL)
+}
+
+# One state grid from cached inputs. Semantics equal decomp_state_grid(): the
+# same groups, RR lookup, PWRR denominator, keep mask, and add_domain() tail.
+state_grid_from_inputs <- function(prefix, inputs, domain) {
+  state <- mort_state(prefix, inputs$start.y, inputs$end.y)
+  pwr <- inputs$pwr[[str_c(state$pop, "|", state$conc_r)]]
+  decomp_check_pwrr(pwr, inputs$groups, inputs$dom_names)
+  ag <- if (is.null(inputs$ag_grid)) {
+    inputs$ag_dom[[state$ag]][, inputs$dom_code, drop = FALSE]
+  } else {
+    inputs$ag_grid[[state$ag]]
+  }
+  mrate <- if (is.null(inputs$mrate_grid)) {
+    inputs$mrate_dom[[state$mrate]][, inputs$dom_code, drop = FALSE]
+  } else {
+    inputs$mrate_grid[[state$mrate]]
+  }
+  mort <- mort_grid_table(
+    rr_c = inputs$rr[[state$conc_c]],
+    rr_r = inputs$rr[[state$conc_r]],
+    pwr = pwr,
+    pop = inputs$pop[[state$pop]],
+    ag = ag,
+    mrate = mrate,
+    groups = inputs$groups,
+    domain = inputs$domain_vec,
+    value_names = inputs$value_names,
+    grid_xy = inputs$grid_xy
+  )
+  if (nrow(mort) == 0) {
+    stop("Mortality result has 0 rows. Check input coverage.")
+  }
+  # Output keys need no check here: decomp_input_cache() validates Grid_info and
+  # every output row is one of its rows.
+  add_domain(mort, domain = domain)
+}
+
+# Grid-level state that reuses the shared input cache. Equivalent to
+# decomp_state_grid() when the v6.3 engine is present.
+state_grid_cached <- function(prefix, start.y, end.y, domain, cache = NULL) {
+  if (is.null(cache)) {
+    cache <- new_decomp_cache()
+  }
+  inputs <- decomp_inputs_for(cache, start.y, end.y, domain)
+  state_grid_from_inputs(prefix, inputs, domain)
+}
+
+# Country-level summary of one cached state.
+state_summary_cached <- function(prefix, start.y, end.y, domain, cache) {
+  state_grid_cached(prefix, start.y, end.y, domain, cache = cache) |>
+    state_summary_from_grid(domain = domain)
 }
 
 # One series as its five cumulative factor prefixes: start, then each step.
@@ -218,18 +726,61 @@ decomp_unique_prefixes <- function(start.y, end.y, domain, RUN24 = TRUE) {
 # The summary carries the state's grid count and (x, y) key set, so
 # Decomposition_summary() can abort when states cover different grids (C1).
 # NA stays NA: the conservation identity needs NA propagation, not na.rm.
+#
+# A grouped sum on the wide grid, then one stack of the small domain-level
+# table, gives the same values as stacking the grid to long form and summing
+# per (domain, Cause_Age): each group sums the same grid rows in the same
+# order. arrange() over the two group keys reproduces group_by()'s output
+# order, so the summary stays bit-identical while avoiding the 800k-row long
+# table that dominated the state loop.
 state_summary_from_grid <- function(mort, domain) {
+  value_cols <- setdiff(names(mort), c("x", "y", domain))
   summary <- mort |>
+    group_by(across(all_of(domain))) |>
+    summarise(across(all_of(value_cols), sum), .groups = "drop") |>
     pivot_longer(
-      cols = -all_of(c("x", "y", domain)),
+      cols = -all_of(domain),
       names_to = "Cause_Age",
       values_to = "Mort"
     ) |>
-    group_by(across(all_of(c(domain, "Cause_Age")))) |>
-    summarise(Mort = sum(Mort), .groups = "drop")
+    arrange(.data[[domain]], Cause_Age)
   attr(summary, "decomp_n_grid") <- nrow(mort)
   attr(summary, "decomp_grid_keys") <- str_c(mort$x, mort$y, sep = "|")
   summary
+}
+
+# C1 grid-set guard over state summaries: every state must carry the same (x, y)
+# key set before the differences are taken. Returns invisible(TRUE); aborts on a
+# mismatch and warns when the summaries carry no key set. Decomposition_summary()
+# calls it for its own five summaries; aggregate_drivers() calls it once over the
+# 16 unique states and then passes check_keys = FALSE to every series.
+decomp_guard_summary_grids <- function(summaries, state_labels, caller) {
+  key_sets <- map(summaries, function(summary) {
+    attr(summary, "decomp_grid_keys", exact = TRUE)
+  })
+  if (!all(map_lgl(key_sets, is.character))) {
+    log_msg(
+      WARN,
+      caller, ": state summaries carry no grid key set; the grid-set guard is ",
+      "skipped. Build summaries with state_summary_from_grid() to enable it."
+    )
+    return(invisible(FALSE))
+  }
+  n_keys <- map_int(key_sets, length)
+  same_keys <- all(map_lgl(
+    key_sets,
+    function(keys) setequal(keys, key_sets[[1]])
+  ))
+  if (length(unique(n_keys)) > 1 || !same_keys) {
+    stop(
+      caller, " aborted: the factor states cover different (x, y) grid sets (",
+      str_c(state_labels, " = ", n_keys, " grids", collapse = ", "),
+      "). Differencing them would sum over different grids and bias every ",
+      "domain total. Rebuild the state summaries with ",
+      "state_summary_from_grid() from one grid set."
+    )
+  }
+  invisible(TRUE)
 }
 
 # One kernel task: build a state grid, then return only its small summary.
@@ -239,8 +790,40 @@ state_summary_for_prefix <- function(prefix, start.y, end.y, domain) {
     state_summary_from_grid(domain = domain)
 }
 
-# Summarise the unique states once, in parallel when a kernel plan is active.
-precompute_state_summaries <- function(states, start.y, end.y, domain) {
+# Summarise the unique states once. The serial path builds the shared input
+# cache once and reuses it for every state; parallel dispatch keeps the
+# Mortality() path below because each worker would otherwise rebuild the two RR
+# matrices per task.
+precompute_state_summaries <- function(
+  states,
+  start.y,
+  end.y,
+  domain,
+  cache = NULL
+) {
+  if (is.null(cache)) {
+    cache <- new_decomp_cache()
+  }
+  kernel_on <- exists("kernel_active", mode = "function") &&
+    isTRUE(kernel_active())
+  # v6.3: with the engine available the serial input cache is faster than
+  # dispatch (measured 6.4 s vs 12.3 s for 16 states), so the cache wins even
+  # when a plan is active. The kernel path stays for checkouts without the
+  # engine, and its tests still cover it through fixture environments.
+  if (isTRUE(cache$engine)) {
+    if (kernel_on) {
+      log_msg(
+        INFO,
+        "kernel: state assembly uses the serial input cache; ",
+        "dispatch would be slower after v6.3."
+      )
+    }
+    summaries <- map(states, function(prefix) {
+      state_summary_cached(prefix, start.y, end.y, domain, cache = cache)
+    })
+    return(set_names(summaries, names(states)))
+  }
+
   summaries <- kernel_map(
     states,
     state_summary_for_prefix,
@@ -265,6 +848,11 @@ decomp_state_grid <- function(prefix, start.y, end.y, domain) {
 decomp_fill_cache <- function(prefixes, start.y, end.y, domain, cache) {
   kernel_on <- exists("kernel_active", mode = "function") &&
     isTRUE(kernel_active())
+  # The cached engine path builds states on demand in the main process; parallel
+  # fill would rebuild the input matrices in every worker.
+  if (isTRUE(cache$engine)) {
+    return(invisible(cache))
+  }
   if (!kernel_on) {
     return(invisible(cache))
   }
@@ -315,7 +903,11 @@ get_decomp_state <- function(prefix, start.y, end.y, domain, cache) {
     return(get(key, envir = cache$states, inherits = FALSE))
   }
 
-  mort <- decomp_state_grid(prefix, start.y, end.y, domain)
+  mort <- if (isTRUE(cache$engine)) {
+    state_grid_cached(prefix, start.y, end.y, domain, cache = cache)
+  } else {
+    decomp_state_grid(prefix, start.y, end.y, domain)
+  }
   entry <- list(grid = mort, summary = NULL)
   assign(key, entry, envir = cache$states)
   cache$n_mortality <- cache$n_mortality + 1L
@@ -545,6 +1137,8 @@ Decomposition <- function(serie, start.y, end.y, domain = NULL, cache = NULL) {
 # Decomposition() keeps the grid-level output; aggregate_drivers() uses this path.
 # state_summaries, when supplied, replaces the cache: it must be keyed by
 # decomp_state_key() and hold one state_summary_from_grid() table per state.
+# check_keys = FALSE skips the C1 grid-set guard; aggregate_drivers() runs it once
+# over its 16 unique summaries and passes FALSE for all 24 series.
 Decomposition_summary <- function(
   serie,
   start.y,
@@ -552,7 +1146,8 @@ Decomposition_summary <- function(
   domain = NULL,
   cache = NULL,
   state_summaries = NULL,
-  report = TRUE
+  report = TRUE,
+  check_keys = TRUE
 ) {
   validate_scenario_columns(start.y, end.y)
   if (is.null(domain)) {
@@ -605,32 +1200,8 @@ Decomposition_summary <- function(
   # so abort before subtracting. Summaries built elsewhere cannot be checked;
   # warn instead of pretending the guard ran.
   state_labels <- c("<start>", steps)
-  key_sets <- map(summaries, function(summary) {
-    attr(summary, "decomp_grid_keys", exact = TRUE)
-  })
-  if (all(map_lgl(key_sets, is.character))) {
-    n_keys <- map_int(key_sets, length)
-    same_keys <- all(map_lgl(
-      key_sets,
-      function(keys) setequal(keys, key_sets[[1]])
-    ))
-    if (length(unique(n_keys)) > 1 || !same_keys) {
-      stop(
-        "Decomposition_summary aborted: the factor states cover different ",
-        "(x, y) grid sets (",
-        str_c(state_labels, " = ", n_keys, " grids", collapse = ", "),
-        "). Differencing them would sum over different grids and bias every ",
-        "domain total. Rebuild the state summaries with ",
-        "state_summary_from_grid() from one grid set."
-      )
-    }
-  } else {
-    log_msg(
-      WARN,
-      "Decomposition_summary: state summaries carry no grid key set; the ",
-      "grid-set guard is skipped. Build summaries with ",
-      "state_summary_from_grid() to enable it."
-    )
+  if (check_keys) {
+    decomp_guard_summary_grids(summaries, state_labels, "Decomposition_summary")
   }
 
   state_issues <- NULL
@@ -696,24 +1267,41 @@ aggregate_drivers <- function(
   )
   kernel_on <- exists("kernel_active", mode = "function") &&
     isTRUE(kernel_active())
+  cache <- new_decomp_cache()
+  engine_on <- isTRUE(cache$engine)
   log_msg(
     INFO,
-    if (kernel_on) "kernel: " else "",
+    if (engine_on) "" else if (kernel_on) "kernel: " else "",
     "summarising ",
     length(states),
     " unique factor state(s) for ",
     length(n),
     " sequence(s)",
-    if (kernel_on) str_c(" on ", kernel_workers(), " worker(s)") else "",
+    if (engine_on) {
+      " on the serial input cache"
+    } else if (kernel_on) {
+      str_c(" on ", kernel_workers(), " worker(s)")
+    } else {
+      ""
+    },
     "."
   )
   state_summaries <- precompute_state_summaries(
-    states, start.year, end.year, domain
+    states, start.year, end.year, domain, cache = cache
+  )
+
+  # C1 once per run: check the 16 unique summaries here, then let every
+  # Decomposition_summary() call below skip the guard (check_keys = FALSE).
+  # Inside a series the guard would repeat the same key-set comparison 24 times.
+  state_labels <- str_remove(names(state_summaries), ".*::")
+  decomp_guard_summary_grids(
+    state_summaries,
+    state_labels,
+    "aggregate_drivers"
   )
 
   # One NA and dropped-grid report for the whole run (I7); the per-series
   # Decomposition_summary() calls below run with report = FALSE.
-  state_labels <- str_remove(names(state_summaries), ".*::")
   state_issues <- map(state_summaries, function(summary) {
     is_na <- is.na(summary$Mort)
     list(
@@ -743,7 +1331,8 @@ aggregate_drivers <- function(
         end.y = end.year,
         domain = domain,
         state_summaries = state_summaries,
-        report = FALSE
+        report = FALSE,
+        check_keys = FALSE
       ) |>
         group_by(across(all_of(domain))) |>
         summarise(across(Start:End, sum))

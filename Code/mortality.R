@@ -21,6 +21,15 @@
 #     MortRate/AgeGroup coverage or NA concentrations are reported; RR table
 #     attributes win over global unit/branch settings; detect_domain() takes
 #     (Grids, mRate) arguments and Mortality() passes its own inputs.
+#   Modified 261101 (v6.3): MEAN/RANGE compute through the vectorised engine
+#     (mort_rr_matrix(), mort_pwr_table(), mort_grid_table()). PWRR sums stay
+#     R-level sum() in row order, so values remain bit-identical to the join
+#     path. mortality_join_path() stays as the debug = TRUE reference path.
+#   Modified 261101 (v6.3 diagnostics): the clamp, orphan, and coverage reports
+#     are pure helpers that return the v6.2 text. Mortality() prints them on
+#     every call; decomp_input_cache() prints one copy per run instead of one per
+#     state. The RR key check and the coverage report are cached per input
+#     identity.
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 trunc_fmt <- function(x, n = 6) {
@@ -36,6 +45,210 @@ require_columns <- function(df, columns, label) {
     )
   }
   invisible(TRUE)
+}
+
+# ── vectorised engine (v6.3) ───────────────────────────────────────────────────
+# The four functions below replace the per-group dplyr join + weighted.mean()
+# loop. They are pure: they read no global, so a worker can rebuild them. Values
+# stay bit-identical to the join path, so PWRR sums use R-level sum() through
+# tapply() in row order; rowsum() accumulates in C and changes the last bits.
+
+# RR value matrix: n grids x G endpoint/agegroup groups, one CI branch.
+# Duplicate concentrations within a group are the caller's contract: RR_std()
+# asserts unique (concentration, endpoint, agegroup, CI) keys, and match() keeps
+# the first row if that contract is broken (the join path would abort instead).
+# rr_tbl is a single-branch tibble(concentration, endpoint, agegroup, RR) with
+# canonical keys; conc holds the matchable concentration strings. Concentrations
+# absent from the branch stay NA_real_, exactly as left_join() leaves them.
+mort_rr_matrix <- function(conc, rr_tbl, groups) {
+  n_group <- nrow(groups)
+  out <- matrix(NA_real_, nrow = length(conc), ncol = n_group)
+  for (g in seq_len(n_group)) {
+    rows <- rr_tbl$endpoint == groups$endpoint[[g]] &
+      rr_tbl$agegroup == groups$agegroup[[g]]
+    out[, g] <- unname(rr_tbl$RR[rows][match(conc, rr_tbl$concentration[rows])])
+  }
+  out
+}
+
+# PWRR tables for one or more value branches: a list of G groups x D domains
+# matrices sharing the domain axis. Each cell is sum(RR * Pop) / sum(Pop) over
+# the grids of that domain in row order, i.e. exactly weighted.mean(RR, Pop).
+# A domain with no usable grid keeps NA (left_join() would leave it NA); a domain
+# whose weights sum to zero gives NaN, which Mortality() reports as invalid.
+# Grids outside the domain table contribute exact zeros instead of being dropped,
+# so the sums keep their row order and stay bit-identical to weighted.mean().
+mort_pwr_table_branches <- function(rr_list, pop, domain) {
+  n_group <- ncol(rr_list[[1]])
+  dom_names <- unique(as.character(domain[!is.na(domain)]))
+  n_dom <- length(dom_names)
+  out <- map(rr_list, function(one) {
+    matrix(
+      NA_real_,
+      nrow = n_group,
+      ncol = n_dom,
+      dimnames = list(NULL, dom_names)
+    )
+  })
+  if (n_dom == 0L) {
+    return(out)
+  }
+  dom_code <- match(as.character(domain), dom_names)
+  # Split once: every branch reuses the same domain groups.
+  dom_sets <- split(seq_along(pop), factor(dom_code, levels = seq_len(n_dom)))
+  base_ok <- !is.na(dom_code) & !is.na(pop)
+  base_weights <- pop
+  base_weights[!base_ok] <- 0
+  # Branches without NA RR use every joinable grid, so the denominator is one
+  # vector for all of them; compute it once.
+  base_den <- vapply(dom_sets, function(ix) sum(base_weights[ix]), numeric(1))
+  for (g in seq_len(n_group)) {
+    for (i in seq_along(rr_list)) {
+      rr <- rr_list[[i]][, g]
+      if (anyNA(rr)) {
+        usable <- base_ok & !is.na(rr)
+        if (!any(usable)) {
+          next
+        }
+        weights <- pop
+        weights[!usable] <- 0
+        den <- vapply(dom_sets, function(ix) sum(weights[ix]), numeric(1))
+      } else {
+        usable <- base_ok
+        weights <- base_weights
+        den <- base_den
+      }
+      weighted_rr <- rr
+      weighted_rr[!usable] <- 0
+      weighted_rr <- weighted_rr * weights
+      num <- vapply(dom_sets, function(ix) sum(weighted_rr[ix]), numeric(1))
+      value <- num / den
+      value[tabulate(dom_code[usable], nbins = n_dom) == 0L] <- NA_real_
+      out[[i]][g, ] <- as.numeric(value)
+    }
+  }
+  out
+}
+
+# Single-branch wrapper kept for callers that compute one value column set.
+mort_pwr_table <- function(rr_mat, pop, domain) {
+  mort_pwr_table_branches(list(rr_mat), pop, domain)[[1]]
+}
+
+# Required-column mask of the join path: a grid enters the result only when
+# domain, concentration, Pop, RR, MortRate, AgeStruc, and PWRR are all non-NA and
+# the numeric inputs are finite. For a numeric column, non-NA and finite collapse
+# to is.finite(); concentration needs no term of its own, because a missing
+# concentration never matches the RR table, so RR is NA there.
+# rr_list and pwr_list carry one element per value branch. RANGE passes all three
+# so the mask is one shared pass: compute_group() filtered the joined frame once
+# for every value column of a group.
+mort_keep_mask <- function(rr_list, pwr_list, pop, domain, ag, mrate) {
+  n <- nrow(rr_list[[1]])
+  n_group <- ncol(rr_list[[1]])
+  dom_code <- match(as.character(domain), colnames(pwr_list[[1]]))
+  # TRUE where the grid belongs to a domain and has finite population.
+  out <- matrix(!is.na(domain) & is.finite(pop), nrow = n, ncol = n_group)
+  # Expand each PWRR row to grid rows once, then AND whole matrices: the branch
+  # passes become full-matrix operations instead of per-group vector passes.
+  for (i in seq_along(rr_list)) {
+    out <- out & is.finite(rr_list[[i]]) &
+      t(is.finite(pwr_list[[i]])[, dom_code, drop = FALSE])
+  }
+  out & t(is.finite(ag)) & t(is.finite(mrate))
+}
+
+# Wide grid result for one or more value branches: tibble(x, y, value columns).
+# Rows are the union of the group masks in group order, which is the row set
+# dplyr::full_join() produced when groups dropped different grids; groups that
+# dropped a grid keep NA there.
+# Every argument except groups/domain/grid_xy carries one element per branch, so
+# RANGE runs one pass over the groups: the row-set union, the pop/ag/mrate
+# subsetting, and the branch loop are shared. rr_r is the real-concentration RR
+# matrix behind pwr; it is validated here and lets a caller rebuild the table.
+mort_grid_table_branches <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups,
+                                     domain, value_names, grid_xy, keep = NULL) {
+  n <- length(pop)
+  n_group <- ncol(rr_c[[1]])
+  n_branch <- length(rr_c)
+  if (length(rr_r) != n_branch || length(pwr) != n_branch ||
+    length(value_names) != n_branch) {
+    stop(
+      "mort_grid_table_branches(): rr_c, rr_r, pwr, and value_names ",
+      "need one element per branch."
+    )
+  }
+  for (i in seq_len(n_branch)) {
+    if (!identical(dim(rr_c[[i]]), dim(rr_r[[i]]))) {
+      stop(
+        "mort_grid_table_branches(): rr_c and rr_r must have the same shape."
+      )
+    }
+    if (nrow(pwr[[i]]) != n_group || nrow(groups) != n_group) {
+      stop(
+        "mort_grid_table_branches(): groups, rr_c, and pwr must agree ",
+        "on the group count."
+      )
+    }
+    if (length(value_names[[i]]) != n_group) {
+      stop(
+        "mort_grid_table_branches(): one value name per group is required."
+      )
+    }
+  }
+  if (is.null(keep)) {
+    keep <- mort_keep_mask(rr_c, pwr, pop, domain, ag, mrate)
+  }
+  if (!identical(dim(keep), dim(rr_c[[1]]))) {
+    stop("mort_grid_table_branches(): keep must have the shape of rr_c.")
+  }
+  dom_idx <- match(as.character(domain), colnames(pwr[[1]]))
+  # Row set: the union of the group masks in group order.
+  selected <- vector("list", n_group)
+  taken <- logical(n)
+  for (g in seq_len(n_group)) {
+    selected[[g]] <- which(keep[, g] & !taken)
+    taken <- taken | keep[, g]
+  }
+  rows <- unlist(selected, use.names = FALSE)
+  out <- tibble(x = grid_xy$x[rows], y = grid_xy$y[rows])
+  for (g in seq_len(n_group)) {
+    ok <- keep[, g]
+    has_ok <- any(ok)
+    if (has_ok) {
+      base <- pop[ok] * ag[g, ok] * mrate[g, ok]
+      dom_ok <- dom_idx[ok]
+    }
+    # One value buffer per group: every branch writes only the kept positions,
+    # the rest stay NA for the branch that dropped the grid.
+    value <- rep(NA_real_, n)
+    for (i in seq_len(n_branch)) {
+      if (has_ok) {
+        pw <- pwr[[i]][g, ][dom_ok]
+        value[ok] <- base * (rr_c[[i]][ok, g] - 1) / pw / 1e5
+      }
+      out[[value_names[[i]][[g]]]] <- value[rows]
+    }
+  }
+  out
+}
+
+# Single-branch wrapper kept for callers that compute one value column set.
+mort_grid_table <- function(rr_c, rr_r, pwr, pop, ag, mrate, groups, domain,
+                            value_names, grid_xy, keep = NULL) {
+  mort_grid_table_branches(
+    rr_c = list(rr_c),
+    rr_r = list(rr_r),
+    pwr = list(pwr),
+    pop = pop,
+    ag = ag,
+    mrate = mrate,
+    groups = groups,
+    domain = domain,
+    value_names = list(value_names),
+    grid_xy = grid_xy,
+    keep = keep
+  )
 }
 
 # ── join_report ────────────────────────────────────────────────────────────────
@@ -134,6 +347,272 @@ join_report <- function(
     )
   }
   result |> select(-.key_ok)
+}
+
+# ── diagnostic reports and input-identity cache (v6.3) ─────────────────────────
+# Mortality() computed and printed five input diagnostics on every call. The
+# decomposition cache bypasses Mortality() and, before v6.3 diagnostics, printed
+# only its own clamp report, so the v6.2 diagnostics disappeared from the
+# decomposition snapshots. The helpers below return the v6.2 text byte for byte
+# and print nothing:
+#   Mortality()               prints one copy on every call;
+#   decomp_input_cache()      prints one copy per distinct text per run.
+# The cache environment also memoises the two expensive input-identified steps:
+# the RR key check (about 0.21 s per Mortality() call) and the coverage report
+# (about 0.05 s). Keys use rlang::hash(), a tidyverse dependency, as the cheap
+# content fingerprint; editing an input changes its hash and reruns the step.
+# The cache lives in one R process and is never written to disk.
+
+.mortality_cache <- new.env(parent = emptyenv())
+
+# Clear the caches and their test counters.
+mortality_cache_reset <- function() {
+  .mortality_cache$rr_keys <- new.env(parent = emptyenv())
+  .mortality_cache$coverage <- new.env(parent = emptyenv())
+  .mortality_cache$rr_asserted <- 0L
+  .mortality_cache$coverage_computed <- 0L
+  .mortality_cache$coverage_reused <- 0L
+  invisible(TRUE)
+}
+
+mortality_cache_reset()
+
+# Identity of the standardised RR table: model name, row count, concentration
+# precision, and a content hash of the five columns the key check reads. The
+# model name falls back to a fixed label, never to NA: every unset name would
+# otherwise share one cache entry.
+mortality_rr_identity <- function(rr_tbl) {
+  model <- get0(".CR_Model", envir = globalenv(), ifnotfound = NULL)
+  model <- if (is.null(model) || length(model) != 1L || is.na(model)) {
+    "<unset>"
+  } else {
+    as.character(model)
+  }
+  dgt <- attr(rr_tbl, "dgt_conc", exact = TRUE) %||%
+    get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1L) %||%
+    1L
+  str_c(
+    model,
+    nrow(rr_tbl),
+    as.integer(dgt),
+    rlang::hash(rr_tbl[c("concentration", "endpoint", "agegroup", "CI", "RR")]),
+    sep = "::"
+  )
+}
+
+# assert_unique_key() on the RR table, once per table identity. Mortality() and
+# decomp_input_cache() both call this, so one table is scanned once per session
+# even when both paths run.
+mortality_assert_rr_key <- function(rr_tbl) {
+  key <- mortality_rr_identity(rr_tbl)
+  if (exists(key, envir = .mortality_cache$rr_keys, inherits = FALSE)) {
+    return(invisible(TRUE))
+  }
+  assert_unique_key(
+    rr_tbl,
+    c("concentration", "endpoint", "agegroup", "CI"),
+    "RR lookup table"
+  )
+  assign(key, TRUE, envir = .mortality_cache$rr_keys)
+  .mortality_cache$rr_asserted <- .mortality_cache$rr_asserted + 1L
+  invisible(TRUE)
+}
+
+# v6.2 clamp text; character(0) when every concentration is inside the range.
+mortality_clamp_text <- function(n_lo, n_hi, rr_range, label) {
+  if (n_lo + n_hi == 0) {
+    return(character())
+  }
+  str_c(
+    n_lo + n_hi,
+    " grids in ",
+    label,
+    " have concentration outside RR lookup range [",
+    rr_range[[1]],
+    ", ",
+    rr_range[[2]],
+    "]. ",
+    "Clamped to nearest boundary (",
+    n_lo,
+    " low, ",
+    n_hi,
+    " high)."
+  )
+}
+
+# Clamp one concentration vector to the RR range and describe the edit. The
+# counts come back so a caller that feeds the same vector to both roles (the
+# decomposition cache gives every scenario column to Conc_r and Conc_c) can print
+# both labels without recounting.
+mortality_clamp_report <- function(conc_vec, rr_range, label) {
+  n_lo <- sum(conc_vec < rr_range[[1]], na.rm = TRUE)
+  n_hi <- sum(conc_vec > rr_range[[2]], na.rm = TRUE)
+  text <- mortality_clamp_text(n_lo, n_hi, rr_range, label)
+  if (length(text) > 0) {
+    conc_vec <- pmax(conc_vec, rr_range[[1]])
+    conc_vec <- pmin(conc_vec, rr_range[[2]])
+  }
+  list(text = text, value = conc_vec, n_lo = n_lo, n_hi = n_hi)
+}
+
+# v6.2 text for grids in Grids that have no partner row. kind = "concentration"
+# checks the grids of Conc_r, kind = "population" checks the grids of pop.
+mortality_orphan_report <- function(grid_xy, source_xy, Grids, domain, kind,
+                                    show_n) {
+  orphan <- anti_join(grid_xy, source_xy, by = c("x", "y"))
+  if (nrow(orphan) == 0) {
+    return(character())
+  }
+  orphan_domains <- orphan |>
+    left_join(Grids, by = c("x", "y")) |>
+    distinct(across(all_of(domain))) |>
+    pull(1)
+  matched <- switch(
+    kind,
+    concentration = "have no matching concentration in Conc_r",
+    population = "have no matching population in pop",
+    stop("Unknown orphan report kind: ", kind)
+  )
+  str_c(
+    nrow(orphan),
+    " grid(s) in Grid_info ",
+    matched,
+    " (",
+    length(orphan_domains),
+    " domain(s): ",
+    trunc_fmt(orphan_domains, n = show_n),
+    "). They will be dropped by the required-column filter."
+  )
+}
+
+# v6.2 coverage text for one set of grid, rate, age, concentration, and
+# population inputs. base_c follows Mortality()'s convention: the domain column is
+# named "domain". Returns 0-2 strings: domains dropped from every group, then
+# domains dropped from some groups.
+mortality_coverage_report <- function(base_c, usable_groups, mrate, ag, show_n) {
+  grid_domain <- base_c |>
+    filter(!is.na(domain)) |>
+    count(domain, name = "n_grid")
+  if (nrow(grid_domain) == 0) {
+    return(character())
+  }
+  group_coverage <- usable_groups |>
+    inner_join(
+      mrate |> distinct(domain, endpoint, agegroup),
+      by = c("endpoint", "agegroup"),
+      relationship = "many-to-many"
+    ) |>
+    semi_join(ag |> distinct(domain, agegroup), by = c("domain", "agegroup")) |>
+    count(domain, name = "n_covered")
+  domain_coverage <- grid_domain |>
+    left_join(group_coverage, by = "domain") |>
+    mutate(n_covered = coalesce(n_covered, 0L))
+  n_group_total <- nrow(usable_groups)
+  uncovered_all <- domain_coverage |> filter(n_covered == 0L)
+  uncovered_some <- domain_coverage |>
+    filter(n_covered > 0L, n_covered < n_group_total)
+  grids_with_data <- base_c |>
+    filter(!is.na(domain), !is.na(concentration), !is.na(Pop))
+  grids_with_data_per_domain <- grids_with_data |>
+    count(domain, name = "n_with_data")
+  reports <- character()
+  if (nrow(uncovered_all) > 0) {
+    examples <- uncovered_all |>
+      left_join(grids_with_data_per_domain, by = "domain") |>
+      mutate(n_with_data = coalesce(n_with_data, 0L)) |>
+      arrange(desc(n_with_data), desc(n_grid)) |>
+      filter(n_with_data > 0) |>
+      mutate(label = str_c(domain, " (", n_with_data, ")")) |>
+      pull(label)
+    if (length(examples) == 0) {
+      examples <- uncovered_all |> arrange(desc(n_grid)) |> pull(domain)
+    }
+    reports <- c(reports, str_c(
+      nrow(uncovered_all),
+      " domain(s) in Grids have no MortRate/AgeGroup ",
+      "coverage for any endpoint/agegroup group: ",
+      sum(uncovered_all$n_grid),
+      " ",
+      "grid(s) in total, of which ",
+      sum(grids_with_data$domain %in% uncovered_all$domain),
+      " have ",
+      "concentration data and are dropped from the result. Domains ",
+      "(dropped grid count): ",
+      trunc_fmt(examples, n = show_n),
+      "."
+    ))
+  }
+  if (nrow(uncovered_some) > 0) {
+    examples <- uncovered_some |>
+      left_join(grids_with_data_per_domain, by = "domain") |>
+      mutate(n_with_data = coalesce(n_with_data, 0L)) |>
+      arrange(desc(n_with_data), desc(n_grid)) |>
+      filter(n_with_data > 0) |>
+      mutate(label = str_c(domain, " (", n_with_data, ")")) |>
+      pull(label)
+    if (length(examples) == 0) {
+      examples <- uncovered_some |> arrange(desc(n_grid)) |> pull(domain)
+    }
+    reports <- c(reports, str_c(
+      nrow(uncovered_some),
+      " domain(s) lack MortRate/AgeGroup coverage for ",
+      "some endpoint/agegroup groups: ",
+      sum(grids_with_data$domain %in% uncovered_some$domain),
+      " grid(s) are ",
+      "dropped from those groups and keep NA there. Domains ",
+      "(dropped grid count): ",
+      trunc_fmt(examples, n = show_n),
+      "."
+    ))
+  }
+  reports
+}
+
+# Identity of the report above. Only the parts the report reads enter the key:
+# domain labels, the NA masks of concentration and population, and the distinct
+# coverage sets of the rate and age tables. Concentration and population
+# magnitudes never reach the text, so editing them does not invalidate the entry.
+mortality_coverage_key <- function(base_c, usable_groups, mrate, ag, domain,
+                                   show_n) {
+  rate_coverage <- mrate |> distinct(domain, endpoint, agegroup)
+  age_coverage <- ag |> distinct(domain, agegroup)
+  str_c(
+    as.character(domain),
+    show_n,
+    rlang::hash(list(
+      as.character(base_c$domain),
+      is.na(base_c$concentration),
+      is.na(base_c$Pop),
+      as.character(usable_groups$endpoint),
+      as.character(usable_groups$agegroup),
+      as.character(rate_coverage$domain),
+      as.character(rate_coverage$endpoint),
+      as.character(rate_coverage$agegroup),
+      as.character(age_coverage$domain),
+      as.character(age_coverage$agegroup)
+    )),
+    sep = "::"
+  )
+}
+
+# Cached coverage report: computed once per input identity. The caller prints the
+# returned strings on every call, so the text still appears once per Mortality()
+# call.
+mortality_coverage_cached <- function(base_c, usable_groups, mrate, ag, domain,
+                                      show_n) {
+  key <- mortality_coverage_key(
+    base_c, usable_groups, mrate, ag, domain, show_n
+  )
+  if (exists(key, envir = .mortality_cache$coverage, inherits = FALSE)) {
+    .mortality_cache$coverage_reused <- .mortality_cache$coverage_reused + 1L
+    return(get(key, envir = .mortality_cache$coverage, inherits = FALSE))
+  }
+  reports <- mortality_coverage_report(
+    base_c, usable_groups, mrate, ag, show_n
+  )
+  assign(key, reports, envir = .mortality_cache$coverage)
+  .mortality_cache$coverage_computed <- .mortality_cache$coverage_computed + 1L
+  reports
 }
 
 #' Calculate gridded PM2.5 attributed mortality
@@ -300,11 +779,9 @@ Mortality <- function(
         agegroup = matchable(as.numeric(agegroup), 0)
       )
   }
-  assert_unique_key(
-    RR_raw,
-    c("concentration", "endpoint", "agegroup", "CI"),
-    "RR lookup table"
-  )
+  # The key check is the largest fixed cost of a call (about 0.21 s), and
+  # RR_std() output rarely changes, so run it once per table identity.
+  mortality_assert_rr_key(RR_raw)
   if (!setequal(unique(RR_raw$CI), c("MEAN", "UP", "LOW"))) {
     stop("RR lookup table must contain exactly MEAN, UP, and LOW branches.")
   }
@@ -315,120 +792,47 @@ Mortality <- function(
   if (!pwr_branch %in% c("branch", "mean")) {
     stop("PWRR branch mode must be 'branch' or 'mean'.")
   }
-  use_branch_pwr <- CI == "RANGE" && identical(pwr_branch, "branch")
-
-  if (CI == "RANGE") {
-    RR_all <- RR_raw |>
-      pivot_wider(names_from = CI, values_from = RR) |>
-      rename(RR = MEAN, RR_UP = UP, RR_LOW = LOW)
-    pwr_source <- if (use_branch_pwr) {
-      RR_all |>
-        select(
-          concentration, endpoint, agegroup,
-          PWRR_MEAN = RR, PWRR_UP = RR_UP, PWRR_LOW = RR_LOW
-        )
-    } else {
-      RR_all |>
-        select(concentration, endpoint, agegroup, PWRR = RR)
-    }
-    rr_cols <- c("RR", "RR_UP", "RR_LOW")
-  } else {
-    RR_all <- RR_raw |>
-      filter(CI == !!CI) |>
-      select(concentration, endpoint, agegroup, RR)
-    denominator_ci <- if (identical(pwr_branch, "mean")) "MEAN" else CI
-    pwr_source <- RR_raw |>
-      filter(CI == denominator_ci) |>
-      select(concentration, endpoint, agegroup, PWRR = RR)
-    rr_cols <- "RR"
-  }
-  pwr_cols <- if (use_branch_pwr) {
-    c("PWRR_MEAN", "PWRR_UP", "PWRR_LOW")
-  } else {
-    "PWRR"
-  }
 
   # ---- Clamp concentrations to RR lookup table range ----
-  clamp_conc <- function(conc_vec, rr_range, label) {
-    n_lo <- sum(conc_vec < rr_range[1], na.rm = TRUE)
-    n_hi <- sum(conc_vec > rr_range[2], na.rm = TRUE)
-    if (n_lo + n_hi > 0) {
-      conc_vec <- pmax(conc_vec, rr_range[1])
-      conc_vec <- pmin(conc_vec, rr_range[2])
-      log_msg(
-        WARN,
-        n_lo + n_hi,
-        " grids in ",
-        label,
-        " have concentration outside RR lookup range [",
-        rr_range[1],
-        ", ",
-        rr_range[2],
-        "]. ",
-        "Clamped to nearest boundary (",
-        n_lo,
-        " low, ",
-        n_hi,
-        " high)."
-      )
-    }
-    conc_vec
+  clamp_r <- mortality_clamp_report(
+    as.numeric(Conc_r$concentration),
+    rr_conc_range,
+    "Conc_r"
+  )
+  if (length(clamp_r$text) > 0) {
+    log_msg(WARN, "{clamp_r$text}")
   }
-
   Conc_r <- Conc_r |>
-    mutate(
-      concentration = clamp_conc(
-        as.numeric(concentration),
-        rr_conc_range,
-        "Conc_r"
-      ) |>
-        matchable(conc_dgt)
-    )
+    mutate(concentration = matchable(clamp_r$value, conc_dgt))
+
+  clamp_c <- mortality_clamp_report(
+    as.numeric(Conc_c$concentration),
+    rr_conc_range,
+    "Conc_c"
+  )
+  if (length(clamp_c$text) > 0) {
+    log_msg(WARN, "{clamp_c$text}")
+  }
   Conc_c <- Conc_c |>
-    mutate(
-      concentration = clamp_conc(
-        as.numeric(concentration),
-        rr_conc_range,
-        "Conc_c"
-      ) |>
-        matchable(conc_dgt)
-    )
+    mutate(concentration = matchable(clamp_c$value, conc_dgt))
 
   # ---- Guard: coordinate overlap ----
   grid_xy <- Grids |> select(x, y) |> distinct()
   conc_xy <- Conc_r |> select(x, y) |> distinct()
   pop_xy <- pop |> select(x, y) |> distinct()
 
-  orphan_grids <- grid_xy |> anti_join(conc_xy, by = c("x", "y"))
-  if (nrow(orphan_grids) > 0) {
-    orphan_conc_dom <- orphan_grids |>
-      left_join(Grids, by = c("x", "y")) |>
-      distinct(across(all_of(domain))) |>
-      pull(1)
-    log_msg(
-      WARN,
-      nrow(orphan_grids),
-      " grid(s) in Grid_info have no matching concentration in Conc_r ",
-      "({length(orphan_conc_dom)} domain(s): ",
-      trunc_fmt(orphan_conc_dom, n = show_n),
-      "). They will be dropped by the required-column filter."
-    )
+  conc_orphan <- mortality_orphan_report(
+    grid_xy, conc_xy, Grids, domain, "concentration", show_n
+  )
+  if (length(conc_orphan) > 0) {
+    log_msg(WARN, "{conc_orphan}")
   }
 
-  orphan_pop <- grid_xy |> anti_join(pop_xy, by = c("x", "y"))
-  if (nrow(orphan_pop) > 0) {
-    orphan_pop_dom <- orphan_pop |>
-      left_join(Grids, by = c("x", "y")) |>
-      distinct(across(all_of(domain))) |>
-      pull(1)
-    log_msg(
-      WARN,
-      nrow(orphan_pop),
-      " grid(s) in Grid_info have no matching population in pop ",
-      "({length(orphan_pop_dom)} domain(s): ",
-      trunc_fmt(orphan_pop_dom, n = show_n),
-      "). They will be dropped by the required-column filter."
-    )
+  pop_orphan <- mortality_orphan_report(
+    grid_xy, pop_xy, Grids, domain, "population", show_n
+  )
+  if (length(pop_orphan) > 0) {
+    log_msg(WARN, "{pop_orphan}")
   }
 
   # ---- Base tables: one row per grid ----
@@ -444,10 +848,14 @@ Mortality <- function(
     left_join(pop, by = c("x", "y"))
 
   # ---- Per endpoint × agegroup groups ----
-  # One group at a time keeps the long table at grid level (not grid × endpoint
-  # × agegroup). compute_group() is side-effect free; replace map2() with
-  # future_map2() to parallelize one endpoint-agegroup per worker.
-  groups <- RR_all |> distinct(endpoint, agegroup)
+  # RANGE covers every branch; a single CI covers only its own branch. Both key
+  # sets and their order match the old RR_all |> distinct() (pivot_wider() keeps
+  # the first-appearance order of the same keys).
+  groups <- if (CI == "RANGE") {
+    RR_raw |> distinct(endpoint, agegroup)
+  } else {
+    RR_raw |> filter(CI == !!CI) |> distinct(endpoint, agegroup)
+  }
   if (nrow(groups) == 0) {
     stop("RR lookup table has no endpoint-agegroup groups.")
   }
@@ -481,71 +889,18 @@ Mortality <- function(
 
   # ---- Report silent grid drops from the required-column filter ----
   # The filter below drops grid rows without a word. Two input causes are
-  # reported here; values, row order, and the NA pattern stay unchanged.
-  grid_domain <- base_c |>
-    filter(!is.na(domain)) |>
-    count(domain, name = "n_grid")
-  if (nrow(grid_domain) > 0) {
-    group_coverage <- usable_groups |>
-      inner_join(
-        mRate |> distinct(domain, endpoint, agegroup),
-        by = c("endpoint", "agegroup"),
-        relationship = "many-to-many"
-      ) |>
-      semi_join(ag |> distinct(domain, agegroup), by = c("domain", "agegroup")) |>
-      count(domain, name = "n_covered")
-    domain_coverage <- grid_domain |>
-      left_join(group_coverage, by = "domain") |>
-      mutate(n_covered = coalesce(n_covered, 0L))
-    n_group_total <- nrow(usable_groups)
-    uncovered_all <- domain_coverage |> filter(n_covered == 0L)
-    uncovered_some <- domain_coverage |>
-      filter(n_covered > 0L, n_covered < n_group_total)
-    grids_with_data <- base_c |>
-      filter(!is.na(domain), !is.na(concentration), !is.na(Pop))
-    grids_with_data_per_domain <- grids_with_data |>
-      count(domain, name = "n_with_data")
-    if (nrow(uncovered_all) > 0) {
-      examples <- uncovered_all |>
-        left_join(grids_with_data_per_domain, by = "domain") |>
-        mutate(n_with_data = coalesce(n_with_data, 0L)) |>
-        arrange(desc(n_with_data), desc(n_grid)) |>
-        filter(n_with_data > 0) |>
-        mutate(label = str_c(domain, " (", n_with_data, ")")) |>
-        pull(label)
-      if (length(examples) == 0) {
-        examples <- uncovered_all |> arrange(desc(n_grid)) |> pull(domain)
-      }
-      log_msg(
-        WARN,
-        "{nrow(uncovered_all)} domain(s) in Grids have no MortRate/AgeGroup ",
-        "coverage for any endpoint/agegroup group: {sum(uncovered_all$n_grid)} ",
-        "grid(s) in total, of which ",
-        "{sum(grids_with_data$domain %in% uncovered_all$domain)} have ",
-        "concentration data and are dropped from the result. Domains ",
-        "(dropped grid count): {trunc_fmt(examples, n = show_n)}."
-      )
-    }
-    if (nrow(uncovered_some) > 0) {
-      examples <- uncovered_some |>
-        left_join(grids_with_data_per_domain, by = "domain") |>
-        mutate(n_with_data = coalesce(n_with_data, 0L)) |>
-        arrange(desc(n_with_data), desc(n_grid)) |>
-        filter(n_with_data > 0) |>
-        mutate(label = str_c(domain, " (", n_with_data, ")")) |>
-        pull(label)
-      if (length(examples) == 0) {
-        examples <- uncovered_some |> arrange(desc(n_grid)) |> pull(domain)
-      }
-      log_msg(
-        WARN,
-        "{nrow(uncovered_some)} domain(s) lack MortRate/AgeGroup coverage for ",
-        "some endpoint/agegroup groups: ",
-        "{sum(grids_with_data$domain %in% uncovered_some$domain)} grid(s) are ",
-        "dropped from those groups and keep NA there. Domains ",
-        "(dropped grid count): {trunc_fmt(examples, n = show_n)}."
-      )
-    }
+  # reported here; values, row order, and the NA pattern stay unchanged. The
+  # report is computed once per input identity and printed once per call.
+  coverage_reports <- mortality_coverage_cached(
+    base_c = base_c,
+    usable_groups = usable_groups,
+    mrate = mRate,
+    ag = ag,
+    domain = domain,
+    show_n = show_n
+  )
+  for (report in coverage_reports) {
+    log_msg(WARN, "{report}")
   }
 
   conc_na <- base_c |>
@@ -563,6 +918,262 @@ Mortality <- function(
       "concentration in Conc_c and are dropped: ",
       trunc_fmt(examples, n = show_n), "."
     )
+  }
+
+  # ---- Compute: vectorised engine, or the join path for debug/diagnostics ----
+  # debug = TRUE keeps the join chain so join_report() prints the same
+  # diagnostics. That is the only caller of mortality_join_path(); it stays as
+  # the permanent reference path.
+  use_engine <- !isTRUE(debug)
+  result <- if (use_engine) {
+    mortality_engine(
+      base_c = base_c,
+      base_r = base_r,
+      rr_raw = RR_raw,
+      groups = groups,
+      mrate = mRate,
+      ag = ag,
+      ci = CI,
+      pwr_branch = pwr_branch,
+      show_n = show_n
+    )
+  } else {
+    mortality_join_path(
+      base_c = base_c,
+      base_r = base_r,
+      rr_raw = RR_raw,
+      groups = groups,
+      mrate = mRate,
+      ag = ag,
+      ci = CI,
+      pwr_branch = pwr_branch,
+      verbose = verbose,
+      debug = debug,
+      show_n = show_n
+    )
+  }
+
+  if (nrow(result) == 0) {
+    stop("Mortality result has 0 rows. Check input coverage.")
+  }
+  assert_unique_key(result, c("x", "y"), "Mortality output")
+
+  result
+}
+
+# ── engine path (v6.3) ─────────────────────────────────────────────────────────
+# One RR matrix per branch and one PWRR table per denominator branch, then one
+# grid-table assembly per value branch. No dplyr join, no per-group filter.
+mortality_engine <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
+                             pwr_branch, show_n) {
+  if (nrow(base_c) != nrow(base_r)) {
+    stop("Mortality(): Conc_c and Conc_r must keep one row per grid.")
+  }
+  n_group <- nrow(groups)
+  grid_xy <- base_c[c("x", "y")]
+  grid_domain <- base_c$domain
+  grid_pop <- base_c$Pop
+  conc_c <- base_c$concentration
+  conc_r <- base_r$concentration
+
+  branch_tbl <- function(branch) {
+    rr_raw[rr_raw$CI == branch, c("concentration", "endpoint", "agegroup", "RR")]
+  }
+
+  # Value columns per branch; PWRR denominator per value column: RANGE uses the
+  # matching branch when pwr_branch = "branch", the MEAN branch otherwise, and a
+  # single CI uses the MEAN branch when pwr_branch = "mean".
+  value_branches <- if (ci == "RANGE") c("MEAN", "UP", "LOW") else ci
+  pwr_for_value <- if (ci == "RANGE") {
+    if (identical(pwr_branch, "branch")) {
+      value_branches
+    } else {
+      rep("MEAN", length(value_branches))
+    }
+  } else if (identical(pwr_branch, "mean")) {
+    "MEAN"
+  } else {
+    ci
+  }
+  pwr_branches <- unique(pwr_for_value)
+
+  # Conc_c defaults to Conc_r, so the two RR matrices are the same records.
+  same_conc <- identical(conc_c, conc_r)
+  rr_num <- map(value_branches, function(branch) {
+    mort_rr_matrix(conc_c, branch_tbl(branch), groups)
+  }) |>
+    set_names(value_branches)
+  rr_den <- map(pwr_branches, function(branch) {
+    if (same_conc && branch %in% value_branches) {
+      rr_num[[branch]]
+    } else {
+      mort_rr_matrix(conc_r, branch_tbl(branch), groups)
+    }
+  }) |>
+    set_names(pwr_branches)
+
+  # compute_group() dropped a grid from every PWRR branch when any branch value
+  # was NA at its concentration; mirror that shared row filter.
+  if (length(pwr_branches) > 1) {
+    den_ok <- !is.na(rr_den[[1]])
+    for (branch in pwr_branches[-1]) {
+      den_ok <- den_ok & !is.na(rr_den[[branch]])
+    }
+    for (branch in pwr_branches) {
+      rr_den[[branch]][!den_ok] <- NA_real_
+    }
+  }
+
+  pwr_tbl <- mort_pwr_table_branches(rr_den, grid_pop, grid_domain) |>
+    set_names(pwr_branches)
+  dom_names <- colnames(pwr_tbl[[1]])
+  dom_code <- match(as.character(grid_domain), dom_names)
+
+  # Age structure and mortality rate are domain-level. Expand them through one
+  # small domain lookup instead of a per-group match() over every grid.
+  expand_by_domain <- function(values, domain_values) {
+    values[match(dom_names, as.character(domain_values))][dom_code]
+  }
+  ag_mat <- do.call(rbind, map(groups$agegroup, function(age) {
+    one <- ag[ag$agegroup == age, , drop = FALSE]
+    expand_by_domain(one$AgeStruc, one$domain)
+  }))
+  mr_mat <- do.call(rbind, map2(groups$endpoint, groups$agegroup, function(ep, age) {
+    one <- mrate[mrate$endpoint == ep & mrate$agegroup == age, , drop = FALSE]
+    expand_by_domain(one$MortRate, one$domain)
+  }))
+
+  # ---- Guard: PWRR must be finite and >= 1, in the join path's report order --
+  n_dom <- length(dom_names)
+  n_pwr <- length(pwr_branches)
+  skipped_keys <- character()
+  for (g in seq_len(n_group)) {
+    is_inf <- matrix(FALSE, nrow = n_dom, ncol = n_pwr)
+    is_lt1 <- matrix(FALSE, nrow = n_dom, ncol = n_pwr)
+    is_nan <- matrix(FALSE, nrow = n_dom, ncol = n_pwr)
+    for (j in seq_along(pwr_branches)) {
+      one <- pwr_tbl[[pwr_branches[[j]]]][g, ]
+      is_inf[, j] <- is.infinite(one)
+      is_lt1[, j] <- one < 1 & !is.na(one)
+      # is.nan(), not is.na(): an NA cell means the domain has no usable grid,
+      # which the join path never puts into pwr and so never reports. NaN is the
+      # zero-weight domain it does report ("no valid PWRR").
+      is_nan[, j] <- is.nan(one)
+    }
+    if (any(is_inf) || any(is_lt1)) {
+      # t() + which() walks domain-major, branch-minor, as pivot_longer() did.
+      bad_pos <- which(t(is_inf | is_lt1))
+      bad_keys <- str_c(
+        dom_names[((bad_pos - 1L) %/% n_pwr) + 1L],
+        groups$endpoint[[g]],
+        groups$agegroup[[g]],
+        sep = "/"
+      )
+      stop(
+        "Invalid PWRR detected for endpoint/agegroup ",
+        groups$endpoint[[g]],
+        "/",
+        groups$agegroup[[g]],
+        ". ",
+        if (any(is_inf)) "Some domains have Inf PWRR. ",
+        if (any(is_lt1)) "Some have PWRR < 1. ",
+        "Check concentration and population for: ",
+        trunc_fmt(unique(bad_keys), n = show_n)
+      )
+    }
+    if (any(is_nan)) {
+      nan_pos <- which(t(is_nan))
+      skipped_keys <- c(
+        skipped_keys,
+        str_c(
+          dom_names[((nan_pos - 1L) %/% n_pwr) + 1L],
+          groups$endpoint[[g]],
+          groups$agegroup[[g]],
+          sep = "/"
+        )
+      )
+    }
+  }
+
+  # ---- Values: one shared keep mask and one pass over the branch set ----------
+  keep <- mort_keep_mask(
+    rr_num[value_branches],
+    pwr_tbl[pwr_for_value],
+    grid_pop,
+    grid_domain,
+    ag_mat,
+    mr_mat
+  )
+
+  # One call, one pass over the endpoint/agegroup groups. Column order is
+  # group-major, then the branch order, matching the join path.
+  result <- mort_grid_table_branches(
+    rr_c = rr_num[value_branches],
+    rr_r = map(pwr_for_value, function(branch) rr_den[[branch]]),
+    pwr = pwr_tbl[pwr_for_value],
+    pop = grid_pop,
+    ag = ag_mat,
+    mrate = mr_mat,
+    groups = groups,
+    domain = grid_domain,
+    value_names = map(value_branches, function(branch) {
+      str_c(groups$endpoint, groups$agegroup, branch, sep = "_")
+    }),
+    grid_xy = grid_xy,
+    keep = keep
+  )
+
+  skipped_keys <- unique(skipped_keys)
+  if (length(skipped_keys) > 0) {
+    log_msg(
+      WARN,
+      "{length(skipped_keys)} domain/endpoint/age combination(s) have no valid ",
+      "PWRR; affected rows will be dropped: ",
+      trunc_fmt(skipped_keys, n = show_n)
+    )
+  }
+
+  result
+}
+
+# ── join path (pre-v6.3 reference) ─────────────────────────────────────────────
+# Permanent debug = TRUE path: join_report() prints the per-join NA diagnostics
+# that the engine does not reproduce. It is the original implementation: one
+# dplyr join chain per endpoint/agegroup group plus a full_join() reduce when
+# groups keep different grids.
+mortality_join_path <- function(base_c, base_r, rr_raw, groups, mrate, ag, ci,
+                                pwr_branch, verbose, debug, show_n) {
+  use_branch_pwr <- ci == "RANGE" && identical(pwr_branch, "branch")
+
+  if (ci == "RANGE") {
+    RR_all <- rr_raw |>
+      pivot_wider(names_from = CI, values_from = RR) |>
+      rename(RR = MEAN, RR_UP = UP, RR_LOW = LOW)
+    pwr_source <- if (use_branch_pwr) {
+      RR_all |>
+        select(
+          concentration, endpoint, agegroup,
+          PWRR_MEAN = RR, PWRR_UP = RR_UP, PWRR_LOW = RR_LOW
+        )
+    } else {
+      RR_all |>
+        select(concentration, endpoint, agegroup, PWRR = RR)
+    }
+    rr_cols <- c("RR", "RR_UP", "RR_LOW")
+  } else {
+    RR_all <- rr_raw |>
+      filter(CI == !!ci) |>
+      select(concentration, endpoint, agegroup, RR)
+    denominator_ci <- if (identical(pwr_branch, "mean")) "MEAN" else ci
+    pwr_source <- rr_raw |>
+      filter(CI == denominator_ci) |>
+      select(concentration, endpoint, agegroup, PWRR = RR)
+    rr_cols <- "RR"
+  }
+  pwr_cols <- if (use_branch_pwr) {
+    c("PWRR_MEAN", "PWRR_UP", "PWRR_LOW")
+  } else {
+    "PWRR"
   }
 
   compute_group <- function(ep, age) {
@@ -635,21 +1246,21 @@ Mortality <- function(
         filter(if_all(all_of(pwr_cols), ~ !is.na(.x)))
     }
 
-    mrate_g <- mRate |>
+    mrate_g <- mrate |>
       filter(endpoint == ep, agegroup == age) |>
       select(domain, MortRate)
     ag_g <- ag |>
       filter(agegroup == age) |>
       select(domain, AgeStruc)
 
-    value_cols <- if (CI == "RANGE") {
+    value_cols <- if (ci == "RANGE") {
       c(
         str_c(ep, age, "MEAN", sep = "_"),
         str_c(ep, age, "UP", sep = "_"),
         str_c(ep, age, "LOW", sep = "_")
       )
     } else {
-      str_c(ep, age, CI, sep = "_")
+      str_c(ep, age, ci, sep = "_")
     }
 
     mort <- base_c |>
@@ -696,7 +1307,7 @@ Mortality <- function(
       )
 
     if (nrow(mort) == 0) {
-      empty <- Grids |>
+      empty <- base_c |>
         slice(0) |>
         select(x, y)
       for (col in value_cols) {
@@ -705,7 +1316,7 @@ Mortality <- function(
       return(list(data = empty, skipped = skipped))
     }
 
-    if (CI == "RANGE") {
+    if (ci == "RANGE") {
       if (use_branch_pwr) {
         mort <- mort |>
           mutate(
@@ -769,7 +1380,7 @@ Mortality <- function(
     data_list[-1],
     function(one) identical(one[key_cols], keys_ref)
   ))
-  result <- if (same_keys) {
+  if (same_keys) {
     bind_cols(
       keys_ref,
       bind_cols(map(data_list, function(one) one[setdiff(names(one), key_cols)]))
@@ -782,13 +1393,6 @@ Mortality <- function(
       relationship = "one-to-one"
     )
   }
-
-  if (nrow(result) == 0) {
-    stop("Mortality result has 0 rows. Check input coverage.")
-  }
-  assert_unique_key(result, c("x", "y"), "Mortality output")
-
-  result
 }
 
 # Auto-detect the PWRR domain column from Grids × mRate overlap.
@@ -864,13 +1468,22 @@ detect_domain <- function(Grids = Grid_info, mRate = MortRate) {
 #'   overlap when \code{NULL} (default).
 #' @param verbose when \code{FALSE} (default), truncate domain names in warnings to 6; \code{TRUE} shows all
 #' @param debug when \code{FALSE} (default), use plain \code{left_join}; \code{TRUE} enables \code{join_report()} diagnostics
+#' @param validate_keys passed to \code{Mortality()}. \code{TRUE} (default) re-checks
+#'   the input keys; set \code{FALSE} only after \code{read_files()} validated them.
 #'
 #' @return data frame of grid-level mortality estimates
 #' @export
 #'
 #' @examples
 #' grid_mean <- Mortality_at(at = "base2015", CI = "MEAN")
-Mortality_at <- function(at, CI = "MEAN", domain = NULL, verbose = FALSE, debug = FALSE) {
+Mortality_at <- function(
+  at,
+  CI = "MEAN",
+  domain = NULL,
+  verbose = FALSE,
+  debug = FALSE,
+  validate_keys = TRUE
+) {
   if (is.null(domain)) {
     domain <- detect_domain()
   }
@@ -884,6 +1497,7 @@ Mortality_at <- function(at, CI = "MEAN", domain = NULL, verbose = FALSE, debug 
     CI = CI,
     domain = domain,
     verbose = verbose,
-    debug = debug
+    debug = debug,
+    validate_keys = validate_keys
   )
 }

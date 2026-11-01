@@ -79,7 +79,9 @@ read_files(
 scenarios <- get_scenarios()
 
 # Grid-level calculation with 95% CI (MEAN + UP + LOW in one pass) ----
-grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE"))
+# read_files() already validated the input keys, so skip the per-call re-check
+# (same trusted-input path the decomposition uses; v5.9 contract).
+grid_ci <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "RANGE", validate_keys = FALSE))
 # grid_mean <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "MEAN"))
 # grid_low <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "LOW"))
 # grid_up <- map(set_names(scenarios), ~ Mortality_at(at = .x, CI = "UP"))
