@@ -36,7 +36,6 @@ library(readxl)
 source('./Code/model.R', encoding = 'UTF8')
 source('./Code/data.R', encoding = 'UTF8')
 source('./Code/mortality.R', encoding = 'UTF8')
-source('./Code/uncertainty.R', encoding = 'UTF8')
 source('./Code/aggregation.R', encoding = 'UTF8')
 
 # C-R 模型设置 ----

@@ -60,7 +60,7 @@ A column named `copd_25` contains RR values for COPD mortality in the 25–29 ag
 
 2. The result is stored in the global variable `.RR_std_tbl`. Columns: `concentration`, `endpoint`, `agegroup`, `CI` (`"MEAN"`, `"UP"`, or `"LOW"`), `RR`.
 
-3. `Mortality()` and `aggregate_sigma()` read `.RR_std_tbl` directly. They filter or pivot the `CI` column as needed. `Uncertainty()` is retired.
+3. `Mortality()` and `aggregate_sigma()` read `.RR_std_tbl` directly. They filter or pivot the `CI` column as needed. `Uncertainty()` was removed in v6.4; `aggregate_sigma()` is the only uncertainty path.
 
 ## How to generate or replace a lookup table
 

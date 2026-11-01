@@ -157,19 +157,17 @@ Mortality_at("base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 
 ## Uncertainty
 
-`aggregate_range()` and `aggregate_sigma()` report `_UP` / `_LOW` as the CR
-branch bounds from `Mortality(CI = "RANGE")`: the same estimand re-evaluated
-under the UP and LOW RR curves. They are not a parametric ±σ. The aggregation
-sums the branch columns across endpoint × agegroup, which treats those branch
-deviations as perfectly correlated.
+The only uncertainty path is `aggregate_sigma()` (and the `_UP` / `_LOW`
+columns of `aggregate_range()`). Both take the CR branch bounds from
+`Mortality(CI = "RANGE")`: each bound re-evaluates the same estimand under the
+UP or LOW RR curve. They are not a parametric ±σ, and the aggregation sums the
+branch columns across endpoint × agegroup, which treats those deviations as
+perfectly correlated.
 
-`Uncertainty()` is a secondary sensitivity path. It evaluates `PAF = 1 - 1/RR`
-at the domain-level population-weighted exposure (PWE) and combines the CR
-branch width with an optional ±`Conc_ERR`% concentration perturbation by
-quadrature. PAF at PWE equals the PWRR main estimator only when the RR curve is
-affine in concentration or the domain exposure is uniform; on the 260617
-instance the PWE central estimate runs +1.8% to +2.1% above the PWRR total. Use
-it for sensitivity comparison; the main intervals remain the branch bounds.
+The PWE-based `Uncertainty()` was removed in v6.4. PAF at population-weighted
+exposure equals the PWRR estimator only when the RR curve is affine in
+concentration or the domain exposure is uniform; on the 260617 instance the PWE
+central estimate runs +1.8% to +2.1% above the PWRR total.
 
 ## Concurrency
 

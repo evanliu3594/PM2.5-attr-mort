@@ -85,9 +85,8 @@
 `_UP` / `_LOW` from `Mortality(CI = "RANGE")`; each is the same estimand
 re-evaluated under the UP or LOW RR curve, not a parametric ±σ. The columns are
 summed across endpoint × agegroup, so the pipeline treats branch deviations as
-perfectly correlated. `Uncertainty()` is a separate secondary path: PAF at the
-domain-level population-weighted exposure, equal to the PWRR total only for
-affine RR or uniform exposure.
+perfectly correlated. `Uncertainty()` was removed in v6.4; `aggregate_sigma()`
+is the only uncertainty path.
 
 **Concentration roles:**
 
