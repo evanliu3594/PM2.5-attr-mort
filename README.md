@@ -148,7 +148,7 @@ endpoints and age groups and append an entry to `RR_std_config.json`.
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `debug` | `FALSE` | `FALSE` = plain joins; `TRUE` = hierarchical NA diagnostics from `join_report()` |
+| `debug` | `FALSE` | `FALSE` = vectorised engine; `TRUE` = the pre-v6.3 join path with `join_report()` diagnostics |
 | `verbose` | `FALSE` | `FALSE` = truncate domain names to 6; `TRUE` = show all |
 
 ```r

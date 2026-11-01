@@ -7,7 +7,7 @@
 
 | 路径 | 内容 | 产生方式 |
 |---|---|---|
-| `data-flow.md` | 计算数据流与连接规则说明 | 方法文档 |
+| `data-flow.md` | 计算管线数据流：输入、`Mortality()`、聚合、分解与连接规则 | 方法文档 |
 | `superpowers/plans/` | 实现计划，文件名 `YYYY-MM-DD-<主题>.md` | superpowers 的 writing-plans 技能 |
 
 ## 约定
