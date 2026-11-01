@@ -81,6 +81,14 @@
  └──────────────────────────────────────────────────────────────────┘
 ```
 
+**Uncertainty columns:** `aggregate_range()` / `aggregate_sigma()` take
+`_UP` / `_LOW` from `Mortality(CI = "RANGE")`; each is the same estimand
+re-evaluated under the UP or LOW RR curve, not a parametric ±σ. The columns are
+summed across endpoint × agegroup, so the pipeline treats branch deviations as
+perfectly correlated. `Uncertainty()` is a separate secondary path: PAF at the
+domain-level population-weighted exposure, equal to the PWRR total only for
+affine RR or uniform exposure.
+
 **Concentration roles:**
 
 - `Conc_r` — real exposure. `Mortality()` builds `base_r` from it and computes the PWRR denominator per domain × endpoint × agegroup: `weighted.mean(RR, Pop)`.

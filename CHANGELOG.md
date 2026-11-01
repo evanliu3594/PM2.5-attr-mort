@@ -2,7 +2,13 @@
 
 Version history for PM2.5-attr-mort. Newest first.
 
-## v6.3 (current)
+## v6.4 (current)
+- **Secondary PWE uncertainty restored**: `Uncertainty()` is back as a corrected sensitivity path. It evaluates `PAF = 1 - 1/RR` at the domain-level population-weighted exposure (PWE), clamps PWE to the RR table's range (no silent zero), honours the table's `dgt_conc`, warns about endpoint/agegroup groups the RR table does not cover, keeps NA-PWE domains as explicit NA rows, and returns one row per domain x endpoint x agegroup with the central `PAF`, `d_UP`, `d_LOW` and `n_grid`. The old defects (no clamp, hardcoded precision 1, string-keyed domain parsing, `na.omit()`/NA-to-zero, domain-only output with no central estimate) are gone; all were reproduced in review.
+- **Main intervals unchanged**: `aggregate_range()` / `aggregate_sigma()` keep the C-R branch bounds from `Mortality(CI = "RANGE")`; the 17-object snapshot and the 26-sheet workbook do not change.
+- **Estimator review record**: PWRR equals the GBD burden-weighted PAF `1 - 1/E[RR]`. PAF at PWE equals it only when RR is affine in concentration or the domain exposure is uniform (Jensen). On the 260617 instance the PWE central estimate runs +1.77% (NCD+LRI) to +2.10% (MRBRT2023) above the PWRR total, and the retired domain-level quadrature understated branch intervals by about 3x. The restored function is therefore labelled a sensitivity path; the main output stays PWRR-based.
+- **Docs**: README and `docs/data-flow.md` state that `_UP` / `_LOW` are CR branch bounds, not a parametric sigma.
+
+## v6.3
 - **Vectorised mortality engine**: `Mortality()` now computes the endpoint × agegroup groups with matrix lookups (`match()` against the RR table) and R-level grouped sums instead of one dplyr join chain per group. New internal functions: `mort_rr_matrix()`, `mort_pwr_table()`/`mort_pwr_table_branches()`, `mort_keep_mask()`, `mort_grid_table()`/`mort_grid_table_branches()`. MEAN and RANGE are bit-identical to the v6.2 implementation on the 260617 instance (`max_abs_diff = 0`, messages identical). `debug = TRUE` keeps the original join path as the diagnostics route.
 - **Decomposition input reuse**: a factor state changes only five inputs. `decomp_input_cache()` builds the two RR concentration matrices and four PWRR tables once, and `state_grid_cached()` assembles each state from them. State summaries are computed without the 800k-row long table. 16 unique states: 40.41 s → 5.90 s; the 24-sequence serial run: 42.17 s → 6.35 s (bench, 260617). Cached vs state-by-state A/B: 26/26 workbook sheets identical, max abs difference 0.
 - **Single-pass aggregation**: `aggregate_range()` builds the long table once, derives mixed-radix integer group codes, and sums each group with R-level `sum()` in row order. The four `by` variants: 6.89 s → 2.35 s; `expect_identical()` against a copy of the v6.2 implementation on the full instance.

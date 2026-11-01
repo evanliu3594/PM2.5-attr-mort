@@ -155,6 +155,22 @@ endpoints and age groups and append an entry to `RR_std_config.json`.
 Mortality_at("base2015", CI = "RANGE", debug = TRUE, verbose = TRUE)
 ```
 
+## Uncertainty
+
+`aggregate_range()` and `aggregate_sigma()` report `_UP` / `_LOW` as the CR
+branch bounds from `Mortality(CI = "RANGE")`: the same estimand re-evaluated
+under the UP and LOW RR curves. They are not a parametric ±σ. The aggregation
+sums the branch columns across endpoint × agegroup, which treats those branch
+deviations as perfectly correlated.
+
+`Uncertainty()` is a secondary sensitivity path. It evaluates `PAF = 1 - 1/RR`
+at the domain-level population-weighted exposure (PWE) and combines the CR
+branch width with an optional ±`Conc_ERR`% concentration perturbation by
+quadrature. PAF at PWE equals the PWRR main estimator only when the RR curve is
+affine in concentration or the domain exposure is uniform; on the 260617
+instance the PWE central estimate runs +1.8% to +2.1% above the PWRR total. Use
+it for sensitivity comparison; the main intervals remain the branch bounds.
+
 ## Concurrency
 
 `Code/kernel.R` is an optional concurrency layer on the R Future API. The default
@@ -226,5 +242,5 @@ builders, PWRR branches, decomposition caches, and the concurrency kernel.
 
 ## Changelog
 
-Release notes v1.0 to v6.3: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
+Release notes v1.0 to v6.4: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
 rules: [`docs/data-flow.md`](docs/data-flow.md).

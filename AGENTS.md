@@ -107,7 +107,7 @@
 
 ## 6. 当前进展
 
-MR-BRT 已接入；v5.2–v6.3 沿革见 `CHANGELOG.md`。v6.3 串行 24 序列 6.4 秒；最新交接：`handoff/261101_perf-round2.md`。
+MR-BRT 已接入；v5.2–v6.4 沿革见 `CHANGELOG.md`。v6.3 串行 24 序列 6.4 秒；最新交接：`handoff/261102_uncertainty-review.md`。
 
 ## 7. 联系与来源
 
