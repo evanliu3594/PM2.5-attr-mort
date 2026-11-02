@@ -219,25 +219,16 @@ decomp_engine_available <- function(env = parent.frame()) {
 }
 
 # 一组缓存输入的标识：情景名、domain，以及 RR 表的标识
-# （模型名、行数、浓度精度）。
+# （模型名、行数）。浓度网格固定为 0.1，不再进 key。
 decomp_input_key <- function(start.y, end.y, domain) {
   rr_raw <- get0(".RR_std_tbl", ifnotfound = NULL, inherits = TRUE)
   model <- get0(".CR_Model", ifnotfound = NA_character_, inherits = TRUE)
-  dgt <- if (is.null(rr_raw)) {
-    NA_integer_
-  } else {
-    as.integer(
-      attr(rr_raw, "dgt_conc", exact = TRUE) %||%
-        get0(".DGT_CONC", ifnotfound = 1L, inherits = TRUE)
-    )
-  }
   str_c(
     start.y,
     end.y,
     str_c(as.character(domain), collapse = "+"),
     model %||% NA_character_,
     nrow(rr_raw) %||% 0L,
-    dgt,
     sep = "::"
   )
 }
@@ -284,15 +275,7 @@ decomp_input_cache <- function(start.y, end.y, domain) {
     "RR lookup table"
   )
 
-  # ---- 与 Mortality() 相同的精度、单位与归一化守卫 ----
-  conc_dgt <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
-  rr_dgt <- attr(rr_raw, "dgt_conc", exact = TRUE) %||% conc_dgt
-  if (!identical(as.integer(conc_dgt), as.integer(rr_dgt))) {
-    stop(
-      "RR table precision (", rr_dgt, ") differs from .DGT_CONC (",
-      conc_dgt, "). Rebuild the RR table with the requested precision."
-    )
-  }
+  # ---- 与 Mortality() 相同的单位与归一化守卫 ----
   rr_meta <- get0(".RR_meta", envir = globalenv(), ifnotfound = list())
   conc_unit <- get0(".CONC_UNIT", envir = globalenv(), ifnotfound = NULL)
   rr_unit <- attr(rr_raw, "conc_unit", exact = TRUE) %||%
@@ -307,7 +290,7 @@ decomp_input_cache <- function(start.y, end.y, domain) {
   if (!isTRUE(attr(rr_raw, "rr_normalized", exact = TRUE))) {
     rr_raw <- rr_raw |>
       mutate(
-        concentration = matchable(as.numeric(concentration), conc_dgt),
+        concentration = matchable(as.numeric(concentration), 1),
         endpoint = tolower(endpoint),
         agegroup = matchable(as.numeric(agegroup), 0)
       )
@@ -348,7 +331,7 @@ decomp_input_cache <- function(start.y, end.y, domain) {
       rr_conc_range,
       "Conc_r"
     )
-    conc_frame[[at]] <- matchable(report$value, conc_dgt)
+    conc_frame[[at]] <- matchable(report$value, 1)
     clamp_reports <- c(
       clamp_reports,
       report$text,

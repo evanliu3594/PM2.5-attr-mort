@@ -2,8 +2,10 @@
 #   - tell_Model() — 为输出文件名格式化当前 C-R 模型名
 #   - set_Model()  — 设置全局 .CR_Model，并缓存标准化 RR 表
 #   - RR_std()     — 从查找 xlsx 构建标准化 RR 表
-#   修改 261026b：dgt_conc、单位和范围元数据会沿
+#   修改 261026b：单位与范围元数据会沿
 #     set_Model()/RR_std() 传递；新表会校验键、范围和 CI 顺序。
+#   修改 261102：浓度网格固定为 0.1，删除 dgt_conc 参数；
+#     RR_std() 拒绝分辨率细于 0.1 的查找表。
 #   修改 261101：RR_std() 只补配置中声明、查找表里缺失的年龄列
 #     （空格子保持 NA，供非有限值守卫使用），
 #     并在设置 rr_normalized 标志之前把保留的 endpoint 转为小写。
@@ -39,25 +41,15 @@ tell_Model <- function() {
   .CR_Model
 }
 
-# 为本次会话启用一个 C-R 模型：设置全局变量 .CR_Model 和
-# .DGT_CONC，然后把标准化 RR 表缓存到 .RR_std_tbl。
+# 为本次会话启用一个 C-R 模型：设置全局变量 .CR_Model，
+# 然后把标准化 RR 表缓存到 .RR_std_tbl。
 #   Model     RR_std_config.json 中的 label，或自定义名称。
 #   path      可选的自定义 RR 查找 xlsx；给出时，用 MEAN 工作表中
 #             {endpoint}_{agegroup} 列生成一份标准化配置，该配置
 #             必须人工复核后加入 Data/RR_std_config.json。
-#   dgt_conc  一个非负整数表示的浓度精度；默认取当前的
-#             .DGT_CONC，其初值为 1。
-# dgt_conc 非法或查找文件缺失时中止。
-set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
-  if (is.null(dgt_conc)) {
-    dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
-  }
-  if (length(dgt_conc) != 1 || dgt_conc < 0 || dgt_conc != as.integer(dgt_conc)) {
-    stop("dgt_conc must be one non-negative integer.")
-  }
-
+# 浓度网格固定为 0.1：RR 表的分辨率不得细于 0.1，否则中止。
+set_Model <- function(Model, path = NULL) {
   assign(".CR_Model", Model, envir = globalenv())
-  assign(".DGT_CONC", dgt_conc, envir = globalenv())
   log_msg(INFO, "C-R Model \"{tell_Model()}\" is set.")
 
 # 从自定义查找表自动生成标准化配置
@@ -188,27 +180,20 @@ set_Model <- function(Model, path = NULL, dgt_conc = NULL) {
   }
 
   # ---- 通过 RR_std() 构建标准化 RR 表 ---------------
-  assign(".RR_std_tbl", RR_std(path, dgt_conc = dgt_conc), envir = globalenv())
+  assign(".RR_std_tbl", RR_std(path), envir = globalenv())
 }
 
 # 构建标准化 C-R 查找表：读取 RR xlsx 的 MEAN/LOW/UP 工作表，
 # 转为长格式，展开到 endpoint x agegroup 网格，该网格在
 # RR_std_config.json 中声明，并返回长格式的 concentration、endpoint、agegroup、
-# CI（MEAN/UP/LOW）、RR，同时携带 dgt_conc 与元数据属性。
+# CI（MEAN/UP/LOW）、RR，同时携带元数据属性。
 #   custom_path  可选的自定义 RR 查找 xlsx；NULL 时从
 #                RR_std_config.json 解析。
-#   dgt_conc     一个非负整数精度；默认 .DGT_CONC。
+# 浓度网格固定为 0.1：查找表的最小浓度步长必须不小于 0.1。
 # 同时设置全局变量 .PWRR_branch 和 .RR_meta；set_Model() 把
 # 结果存入 .RR_std_tbl。配置或查找表缺失、工作表缺失、
 # 浓度非法，或网格、范围不一致时中止。
-RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
-  if (is.null(dgt_conc)) {
-    dgt_conc <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
-  }
-  if (length(dgt_conc) != 1 || dgt_conc < 0 || dgt_conc != as.integer(dgt_conc)) {
-    stop("dgt_conc must be one non-negative integer.")
-  }
-
+RR_std <- function(custom_path = NULL) {
 # 在顶部读一次配置
   cfg_path <- './Data/RR_std_config.json'
   if (!file.exists(cfg_path)) stop("RR_std config not found: ", cfg_path)
@@ -270,8 +255,18 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
       if (anyDuplicated(conc_num)) {
         stop("RR sheet \"", sheet, "\" has duplicated concentration values.")
       }
+      # 项目连接网格固定为 0.1：更细的源表会在取整后出现重复键，
+      # 直接拒绝，避免静默丢精度。
+      conc_step <- if (length(conc_num) > 1) min(diff(sort(conc_num))) else Inf
+      if (is.finite(conc_step) && conc_step < 0.1 - 1e-8) {
+        stop(
+          "RR sheet \"", sheet, "\" has concentration steps finer than 0.1 ",
+          "(min step = ", format(conc_step, digits = 12), "). ",
+          "The project join grid is fixed at 0.1."
+        )
+      }
       df |>
-        mutate(!!sym(conc_col) := matchable(conc_num, dgt_conc))
+        mutate(!!sym(conc_col) := matchable(conc_num, 1))
     }),
     sheets
   )
@@ -287,7 +282,7 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
     if (
       length(expected_range) != 2 ||
         any(!is.finite(expected_range)) ||
-        any(abs(actual_range - expected_range) > 10^(-dgt_conc))
+        any(abs(actual_range - expected_range) > 0.05)
     ) {
       stop(
         "RR concentration range mismatch: config expects ",
@@ -366,7 +361,7 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
       mutate(CI = ci)
   }) |>
     mutate(
-      !!sym(conc_col) := matchable(as.numeric(!!sym(conc_col)), dgt_conc),
+      !!sym(conc_col) := matchable(as.numeric(!!sym(conc_col)), 1),
       agegroup = matchable(as.numeric(agegroup), 0),
       endpoint = tolower(endpoint)
     ) |>
@@ -398,7 +393,6 @@ RR_std <- function(custom_path = NULL, dgt_conc = NULL) {
     )
   }
 
-  attr(result, "dgt_conc") <- dgt_conc
   attr(result, "conc_unit") <- conc_unit
   attr(result, "conc_range") <- conc_range
   attr(result, "pwr_branch") <- pwr_branch

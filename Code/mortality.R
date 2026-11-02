@@ -13,7 +13,7 @@
 #   修改 261026：pwr_branch 配置（"branch" 或 "mean"）决定
 #     RANGE 使用分支各自的 PWRR 还是共用的 MEAN PWRR。
 #   修改 261026b：单分支复用 RANGE 的分母；只检查
-#     必需列；增加键守卫；检查 dgt_conc 与单位；缺失的分组保持 NA。
+#     必需列；增加键守卫；检查单位；缺失的分组保持 NA。
 #   修改 261027：复用 RR_std() 的键归一化（rr_normalized 标记）；
 #     仅当 Conc_c 与 Conc_r 不同时才检查 Conc_c。
 #   修改 261101：join_report() 按 join 后的数据帧解析
@@ -377,8 +377,8 @@ mortality_cache_reset <- function() {
 
 mortality_cache_reset()
 
-# 标准化 RR 表的身份：模型名、行数、浓度
-# 精度，以及键检查所读五列的内容哈希。模型名
+# 标准化 RR 表的身份：模型名、行数，以及键检查所读
+# 五列的内容哈希。模型名
 # 回退到固定标签，绝不回退到 NA：否则所有未设置的名称会
 # 共用同一个缓存条目。
 mortality_rr_identity <- function(rr_tbl) {
@@ -388,13 +388,9 @@ mortality_rr_identity <- function(rr_tbl) {
   } else {
     as.character(model)
   }
-  dgt <- attr(rr_tbl, "dgt_conc", exact = TRUE) %||%
-    get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1L) %||%
-    1L
   str_c(
     model,
     nrow(rr_tbl),
-    as.integer(dgt),
     rlang::hash(rr_tbl[c("concentration", "endpoint", "agegroup", "CI", "RR")]),
     sep = "::"
   )
@@ -733,15 +729,6 @@ Mortality <- function(
     "RR lookup table"
   )
 
-  conc_dgt <- get0(".DGT_CONC", envir = globalenv(), ifnotfound = 1)
-  rr_dgt <- attr(RR_raw, "dgt_conc", exact = TRUE) %||% conc_dgt
-  if (!identical(as.integer(conc_dgt), as.integer(rr_dgt))) {
-    stop(
-      "RR table precision (", rr_dgt, ") differs from .DGT_CONC (",
-      conc_dgt, "). Rebuild the RR table with the requested precision."
-    )
-  }
-
   # RR 表的元数据优先于全局设置，这样手工赋值的表不会带着
   # 其他模型的单位或 PWRR 分支运行。
   rr_meta <- get0(".RR_meta", envir = globalenv(), ifnotfound = list())
@@ -757,12 +744,11 @@ Mortality <- function(
   }
 
   # RR_std() 返回规范键与无重复的表，因此由 set_Model() 构建的表
-  # 跳过再次归一化。手工赋值的表仍走
-  # 原来的路径。
+  # 跳过再次归一化。手工赋值的表按固定 0.1 网格重新规范化。
   if (!isTRUE(attr(RR_raw, "rr_normalized", exact = TRUE))) {
     RR_raw <- RR_raw |>
       mutate(
-        concentration = matchable(as.numeric(concentration), conc_dgt),
+        concentration = matchable(as.numeric(concentration), 1),
         endpoint = tolower(endpoint),
         agegroup = matchable(as.numeric(agegroup), 0)
       )
@@ -791,7 +777,7 @@ Mortality <- function(
     log_msg(WARN, "{clamp_r$text}")
   }
   Conc_r <- Conc_r |>
-    mutate(concentration = matchable(clamp_r$value, conc_dgt))
+    mutate(concentration = matchable(clamp_r$value, 1))
 
   clamp_c <- mortality_clamp_report(
     as.numeric(Conc_c$concentration),
@@ -802,7 +788,7 @@ Mortality <- function(
     log_msg(WARN, "{clamp_c$text}")
   }
   Conc_c <- Conc_c |>
-    mutate(concentration = matchable(clamp_c$value, conc_dgt))
+    mutate(concentration = matchable(clamp_c$value, 1))
 
   # ---- 守卫：坐标重叠 ----------------------------------------------
   grid_xy <- Grids |> select(x, y) |> distinct()

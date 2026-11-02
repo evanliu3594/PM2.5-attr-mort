@@ -5,7 +5,8 @@
 #   修改 260618：与类型无关的坐标匹配（any_of + as.numeric），
 #     Conc_cf 默认 NULL，domain 列自动归一化（Country→domain）。
 #   修改 261026b：坐标不区分大小写，唯一键守卫，严格的
-#     Conc_cf 路径，dgt_conc/conc_unit 传递，实例清单辅助函数。
+#     Conc_cf 路径，conc_unit 传递，实例清单辅助函数。
+#   修改 261102：浓度网格固定为 0.1，删除 dgt_conc 参数。
 #   修改 261027：assert_unique_key() 只做一次向量化的 base R 扫描；
 #     dplyr count() 管线只在需要构造重复键消息时运行。
 #   修改 261101：resolve_instance_files(suffix=) 不再自动带上
@@ -15,8 +16,8 @@
 # 标准化 RR 查找表（由 set_Model() 通过 RR_std() 构建）
 .RR_std_tbl <- NULL
 
-# RR 查找表、Mortality 和输入共用的浓度精度与单位
-.DGT_CONC <- 1
+# RR 查找表、Mortality 和输入共用的浓度单位。浓度网格固定为 0.1：
+# RR 表的分辨率不得细于 0.1，输入浓度按 0.1 位取整后再连接。
 .CONC_UNIT <- NULL
 .RR_meta <- list()
 
@@ -138,10 +139,9 @@ assert_unique_key <- function(df, keys, label) {
 #   Grids, Pop, Conc_real, MortRate, AgeGroup  输入路径。
 #   Conc_cf    反事实路径；NULL 时回退到 Conc_real。
 #   dgt_grid   坐标精度，默认 2。
-#   dgt_conc   浓度精度，默认 1；必须等于当前 RR 表的
-#              构建精度。
 #   conc_unit  可选单位，如 "ug/m3" 或 "ppb"；必须与当前 RR
 #              表元数据一致。
+# 浓度网格固定为 0.1：输入浓度按 0.1 位取整，不再暴露精度参数。
 # 无返回值：唯一输出是全局赋值。
 read_files <- function(
   Grids,
@@ -151,23 +151,10 @@ read_files <- function(
   MortRate,
   AgeGroup,
   dgt_grid = 2,
-  dgt_conc = 1,
   conc_unit = NULL
 ) {
   if (length(dgt_grid) != 1 || dgt_grid < 0 || dgt_grid != as.integer(dgt_grid)) {
     stop("dgt_grid must be one non-negative integer.")
-  }
-  if (length(dgt_conc) != 1 || dgt_conc < 0 || dgt_conc != as.integer(dgt_conc)) {
-    stop("dgt_conc must be one non-negative integer.")
-  }
-
-  rr_dgt <- attr(.RR_std_tbl, "dgt_conc", exact = TRUE)
-  if (!is.null(.RR_std_tbl) && !is.null(rr_dgt) && rr_dgt != dgt_conc) {
-    stop(
-      "The active RR table was built at dgt_conc = ", rr_dgt,
-      ", but read_files() requested dgt_conc = ", dgt_conc,
-      ". Call set_Model(..., dgt_conc = ", dgt_conc, ") first."
-    )
   }
 
   if (!is.null(conc_unit)) {
@@ -255,7 +242,7 @@ read_files <- function(
     normalize_coords() |>
     mutate(
       across(any_of(c("x", "y")), ~ matchable(as.numeric(.x), dgt = dgt_grid)),
-      across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
+      across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = 1))
     )
 
   if (!all(c("x", "y") %in% names(conc_real_df))) {
@@ -280,7 +267,7 @@ read_files <- function(
       normalize_coords() |>
       mutate(
         across(any_of(c("x", "y")), ~ matchable(as.numeric(.x), dgt = dgt_grid)),
-        across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = dgt_conc))
+        across(where(is.numeric) & -x:-y, ~ matchable(.x, dgt = 1))
       )
     if (!all(c("x", "y") %in% names(conc_cf_df))) {
       stop(
@@ -344,7 +331,6 @@ read_files <- function(
   assert_unique_key(age_group_df, c("domain", "agegroup"), "AgeGroup")
   assign("AgeGroup", envir = globalenv(), age_group_df)
 
-  assign(".DGT_CONC", dgt_conc, envir = globalenv())
   assign(".CONC_UNIT", conc_unit, envir = globalenv())
 
 #  守卫：.CR_Model 必须已设置

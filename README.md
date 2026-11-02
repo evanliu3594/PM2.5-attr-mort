@@ -118,8 +118,8 @@ Coordinate columns accept any case variant of `x`/`lon`/`long`/`longitude` and
 | **RR_index** | sheets `MEAN`/`LOW`/`UP`; concentration column plus `{endpoint}_{agegroup}` columns | Concentration–response lookup, selected by `set_Model()` |
 
 Gridded files must share one `(x, y)` grid. `read_files()` rounds coordinates to
-`dgt_grid` digits and matches concentrations at `dgt_conc` digits. Duplicate keys
-stop the load. Join rules are in [`docs/data-flow.md`](docs/data-flow.md).
+`dgt_grid` digits and concentrations to the fixed 0.1 grid. Duplicate keys stop
+the load. Join rules are in [`docs/data-flow.md`](docs/data-flow.md).
 
 `Data/RR_std_config.json` records the lookup path, endpoints, age groups,
 concentration unit, and valid range for every model.
@@ -140,9 +140,10 @@ set_Model("NO2_allcause")  # legacy NO2 all-cause lookup
 set_Model("MyModel", path = "./Data/RR_index/My_Lookup.xlsx")  # custom table
 ```
 
-`set_Model("NCD+LRI", dgt_conc = 2)` builds the RR table at two decimals;
-`read_files()` must then use the same `dgt_conc`. Custom tables define their
-endpoints and age groups and append an entry to `RR_std_config.json`.
+The concentration grid is fixed at 0.1: `set_Model()` rejects a lookup whose
+steps are finer than 0.1, and `read_files()` rounds exposure to the same grid.
+Custom tables define their endpoints and age groups and append an entry to
+`RR_std_config.json`.
 
 ## Diagnostics
 

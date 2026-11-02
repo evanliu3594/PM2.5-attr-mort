@@ -2,7 +2,12 @@
 
 Version history for PM2.5-attr-mort. Newest first.
 
-## v6.4 (current)
+## v6.5 (current)
+- **Concentration grid fixed at 0.1**: the `dgt_conc` parameter and `.DGT_CONC` global are removed. `read_files()` rounds concentrations to one decimal, `Mortality()` and `RR_std()` use the same fixed grid, and `RR_std()` rejects a lookup whose concentration step is finer than 0.1. The parameter had one valid value with GBD 0.1 curves and the project builders; a higher setting silently dropped grids whose exposure did not land on the finer grid.
+- **No numeric change**: all 15 model entries already use 0.1 tables; the snapshot and workbook values are unchanged.
+- **Tests**: precision fixtures replaced by fixed-grid tests and a finer-table rejection test.
+
+## v6.4
 - **`Uncertainty()` removed**: the PWE-based sensitivity function and `Code/uncertainty.R` are deleted (user decision, 261102). The entry scripts and test harness no longer source the module; `aggregate_sigma()` is the only uncertainty path.
 - **Why**: PAF at population-weighted exposure equals the GBD burden-weighted PAF `1 - 1/E[RR]` (the PWRR estimator) only when RR is affine in concentration or the domain exposure is uniform (Jensen). On the 260617 instance the PWE central estimate runs +1.77% (NCD+LRI) to +2.10% (MRBRT2023) above the PWRR total. The retired implementation also had reproduced defects (no clamp, hardcoded precision 1, string-keyed domain parsing, `na.omit()`/NA-to-zero, domain-only output with no central estimate).
 - **Main intervals unchanged**: `aggregate_range()` / `aggregate_sigma()` keep the C-R branch bounds from `Mortality(CI = "RANGE")`; `_UP` / `_LOW` are branch bounds, not a parametric sigma. The 17-object snapshot and the 26-sheet workbook do not change.

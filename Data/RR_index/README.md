@@ -136,7 +136,7 @@ If your lookup table uses a different column name for concentration (e.g., `"pm2
 
 ### Key constraints
 
-- Concentration values must be rounded to the chosen `dgt_conc` used by `set_Model()` and `read_files()`; the project default is one decimal place. The `matchable()` helper ensures string-identical join keys.
+- Concentration values must be on the 0.1 grid: `RR_std()` rejects tables with finer steps, and `read_files()` rounds input concentrations to 0.1. The `matchable()` helper ensures string-identical join keys.
 - All three sheets must cover the **same concentration range** and **same endpoint × agegroup columns**.
 - The `ALL` age-group column suffix (for example `LRI_ALL`) is used as a fallback when age-specific columns are missing; `RR_std()` fills these via `tidyr::fill()`.
 

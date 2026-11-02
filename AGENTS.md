@@ -35,7 +35,7 @@
 - `Data/IHME_MortRate_raw/`：IHME GBD 死亡率与年龄结构。
 - `Data/CRF_coefficients/`：IER/GEMM 参数 CSV。
 - `Data/RR_index/`：预构建 RR 查找表。
-- `Data/IHME_GBD_2023_…_RR_CURVES.zip`：GBD 2023 RR 原始包（185 MB，不入 git；重下需登录）。
+- `Data/IHME_GBD_2023_…_RR_CURVES.zip`：GBD 2023 RR 原始包（185 MB，不入 git）。
 - 版本、年份、来源明细见 `Data/README.md` 与 `Data/RR_index/README.md`。
 
 ## 3. 研究方案与计算逻辑（概要）
@@ -55,6 +55,7 @@
 | ⑦ | O3/NO2 默认 | `O3` = GBD 2023 COPD；`NO2` = GBD 2023 asthma；`O3_legacy` / `NO2_allcause` 保留 | 261026 |
 | ⑧ | 并发内核 | 构建块 `future.callr` + `furrr` + `tryCatch` + `do.call`；并发默认关闭 | 261027 |
 | ⑨ | 不确定性路径 | 只保留 `aggregate_sigma()`（C-R 分支界）；不恢复 PWE 的 `Uncertainty()` | 261102 |
+| ⑩ | 浓度网格 | 固定 0.1；RR 表不得更细；不暴露精度参数 | 261102 |
 
 ### 3.2 代理决策（agent 决定，用户未反对）
 
@@ -72,7 +73,7 @@
 | ⑧ | RANGE 分支 PWRR | 三分支各用对应 PWRR | 261026 |
 | ⑨ | O3/NO2 曲线口径 | GBD 2023；ppb；O3 0–50、NO2 0–100；NO2 为 asthma；NO2 LOW 截到 1；保留 legacy | 261026 |
 | ⑩ | O3/NO2 CI 分母 | `pwr_branch: "mean"`；其余模型默认 `"branch"` | 261026 |
-| ⑪ | 并发范围 | 内核 `Code/kernel.R`；默认串行；`PM25_KERNEL_WORKERS` 开启；对象为 `Decomposition()` 状态与状态摘要 | 261027 |
+| ⑪ | 并发范围 | 内核 `Code/kernel.R`；默认串行；`PM25_KERNEL_WORKERS` 开启；对象为分解状态与摘要 | 261027 |
 | ⑫ | RR 表归一化位置 | `RR_std()` 归一化一次并打 `rr_normalized` 标记；`Mortality()` 据此跳过重复归一化；手工赋值的表仍走原路径 | 261027 |
 | ⑬ | v6.2 修复口径 | 覆盖缺口与分解网格集不一致时告警或中止；`aggregate_sigma()` 以传入分支为准；`resolve_instance_files()` 不自动带 `Conc_cf`；仅 `kernel_plan()` 启用并发 | 261101 |
 
@@ -82,7 +83,7 @@
 - 260617 实例的 2030 列混用 exposure 2030、population 2020、age 2019、mortality 2020；重建默认阻止混合年份，正式分解待批准或换真 2030 输入。
 - NO2 0–14 岁、IER LRI 年龄、legacy 气体单位、超范围 clamp 口径待确认。
 - `Code/README.md` 与目录级 `AGENTS.md` 未建。
-- 旧健康负担结果失效；`MRBRT2023` 仅完成 `base2015` 评审测试。研究意图未确认；对比图未入库。
+- 旧健康负担结果失效；研究意图未确认；对比图未入库。
 
 ## 4. 基本规则（全局）
 
@@ -104,11 +105,11 @@
 3. GBD 2023 与 2021：IHD/Stroke/LRI 更新；COPD/DM2/LC 在 300 µg/m³ 处差 ≤1.1%。
 4. IHME 免费非商业许可；zip 不入库，重下需账号。
 5. 查找表范围：IER 0–200、GEMM/MRBRT 0–300、MRBRT2019 0–600；超范围浓度由 `Mortality()` clamp，口径待确认。
-6. GBD 2023 O3/NO2 用 ppb；O3 0–50、NO2 0–100；NO2 LOW 截到 1。legacy 单位未核实。
+6. O3/NO2 用 ppb；O3 0–50、NO2 0–100；NO2 LOW 截到 1；legacy 单位未核。
 
 ## 6. 当前进展
 
-沿革见 `CHANGELOG.md`。24 序列 6.4 秒；交接：`handoff/261102_uncertainty-review.md`。
+沿革见 `CHANGELOG.md`。24 序列 6.4 秒；交接：`handoff/261102_dgt-conc-fixed.md`。
 
 ## 7. 联系与来源
 

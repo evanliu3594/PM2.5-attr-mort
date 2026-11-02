@@ -14,14 +14,14 @@ normalises keys to strings and aborts on duplicated or missing keys.
 | Join | Keys | Precision | Where it happens |
 |------|------|-----------|------------------|
 | Grids ↔ Conc ↔ Pop | `x`, `y` | `matchable(dgt_grid)`, default 2 | precision set in `read_files()`; joined in `Mortality()` and `aggregate_range()` |
-| Conc ↔ RR lookup | `concentration`, within endpoint × agegroup | `matchable(dgt_conc)`, default 1 | `set_Model()` (build), `Mortality()` (lookup) |
+| Conc ↔ RR lookup | `concentration`, within endpoint × agegroup | fixed 0.1 (`matchable(..., 1)`) | `set_Model()` (build), `Mortality()` (lookup) |
 | Domain stats ↔ grid rows | `domain`; `mRate` also `endpoint` × `agegroup`; `AgeStruc` also `agegroup` | values must match between the Grids domain and `MortRate`/`AgeGroup` | `Mortality()` |
 | Spatial aggregation | `at` column of Grid_info | string | `aggregate_range()`; `aggregate_sigma()` also takes `pwr_domain` for PWRR |
 
 All join keys are strings (not floats) to avoid floating-point mismatch.
-`matchable()` is `round(num, dgt) |> str_c()`. `dgt_conc` is a default, not a
-constant: `Mortality()` aborts when the RR table's precision differs from
-`.DGT_CONC`.
+`matchable()` is `round(num, dgt) |> str_c()`. The concentration grid is fixed at
+0.1: `RR_std()` rejects tables with finer steps, and `read_files()` rounds input
+concentrations to that grid.
 
 Only grids with a domain and finite `Pop`, `RR`, `PWRR`, `MortRate` and
 `AgeStruc` enter the output; a missing concentration has no RR match and drops
