@@ -109,7 +109,7 @@
 
 ## 6. 当前进展
 
-沿革见 `CHANGELOG.md`。24 序列 6.4 秒；交接：`handoff/261102_dgt-conc-fixed.md`。
+沿革见 `CHANGELOG.md`。24 序列 6.4 秒；当前版本 v6.5；交接：`handoff/261118_version-close.md`。
 
 ## 7. 联系与来源
 
