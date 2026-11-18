@@ -34,8 +34,7 @@ sequential run needs none of them.
 | `Results/`, `Figures/` | Outputs (gitignored) |
 | `tests/` | Local regression tests (gitignored) |
 | `handoff/` | Local session handoffs (gitignored) |
-| `docs/` | Programme design docs: [data flow](docs/data-flow.md), [superpowers plans](docs/superpowers/plans/) |
-| `docs/` | Background notes: [data flow](docs/data-flow.md) |
+| `docs/` | Design docs: [data flow](docs/data-flow.md), [plans](docs/superpowers/plans/), [index](docs/README.md) |
 
 ## Quick start
 
@@ -241,5 +240,5 @@ builders, PWRR branches, decomposition caches, and the concurrency kernel.
 
 ## Changelog
 
-Release notes v1.0 to v6.4: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
+Release notes v1.0 to v6.5: [`CHANGELOG.md`](CHANGELOG.md). Data flow and join
 rules: [`docs/data-flow.md`](docs/data-flow.md).

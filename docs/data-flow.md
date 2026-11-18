@@ -1,9 +1,10 @@
 # Data flow — inputs, mortality, aggregation and decomposition
 
-Scope: describes v6.4 (2026-11-02). v6.3 replaced the per-group join chain
+Scope: describes v6.5 (2026-11-02). v6.3 replaced the per-group join chain
 with the vectorised engine, added the decomposition input cache and the
-single-pass aggregation; v6.4 removed the PWE `Uncertainty()` path. Timings and
-bit-identity records live in `CHANGELOG.md` and `README.md`, not here.
+single-pass aggregation; v6.4 removed the PWE `Uncertainty()` path; v6.5 fixed
+the concentration grid at 0.1 and dropped `dgt_conc`. Timings and bit-identity
+records live in `CHANGELOG.md` and `README.md`, not here.
 
 ## 1. Inputs and keys
 
